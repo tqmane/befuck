@@ -1,0 +1,11 @@
+Required Notice: Copyright 2026 tqmane
+
+BeFuck's original source is licensed under PolyForm Noncommercial 1.0.0.
+Third-party components retain their own licenses and notices.
+
+The Gradle wrapper scripts and wrapper JAR are from Gradle and are covered
+by the Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
+app/src/main/assets/pairip/anonymous.dex contains generated lifecycle code
+from BeReal 3.97.0. That third-party code is not relicensed by this project;
+its rights remain with its respective owners.

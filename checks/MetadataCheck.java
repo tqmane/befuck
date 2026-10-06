@@ -1,0 +1,97 @@
+import dev.tqmane.befuck.download.PostMediaMetadata;
+import dev.tqmane.befuck.runtime.RepairInference;
+import dev.tqmane.befuck.download.RealMojiDownloadAction;
+import dev.tqmane.befuck.download.FeedPostMedia;
+import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
+import dev.tqmane.befuck.symbols.KnownMappings3970;
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.time.Instant;
+import java.util.Arrays;
+
+/** Run with the Gradle :app:checkModule task. */
+public final class MetadataCheck {
+    public static void main(String[] args) throws Exception {
+        assert KnownMappings3970.isKnownVersion("3.97.0", 3597523L);
+        assert !KnownMappings3970.isKnownVersion("3.97.0", 3597524L);
+        assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
+        assert !KnownMappings3970.isKnownVersion(null, 3597523L);
+        BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
+        assert !BeFakeAuthHeaders.hasAuthorization();
+        BeFakeAuthHeaders.capture("MOBILE-L7.BEREAL.COM", "AUTHORIZATION", "Bearer test-only");
+        assert BeFakeAuthHeaders.hasAuthorization();
+        BeFakeAuthHeaders.capture("mobile-l7.bereal.com", "Cookie", "ignored");
+        assert !BeFakeAuthHeaders.snapshot().containsKey("Cookie");
+        var metadata = PostMediaMetadata.INSTANCE;
+        long millis = Instant.parse("2026-10-05T08:24:51.573Z").toEpochMilli();
+        assert metadata.parseTimestamp("2026-10-05T17:24:51.573+09:00") == millis;
+        assert metadata.parseTimestamp("invalid") == null;
+        var loader = MetadataCheck.class.getClassLoader();
+        var reaction = new RealMojiFixture();
+        var action = RealMojiDownloadAction.create(loader, reaction);
+        assert action.equals(RealMojiDownloadAction.create(loader, reaction));
+        var mediaField = RealMojiDownloadAction.class.getDeclaredField("media");
+        mediaField.setAccessible(true);
+        var saved = (FeedPostMedia) mediaField.get(java.lang.reflect.Proxy.getInvocationHandler(action));
+        reaction.e = "https://cdn.bereal.network/second.jpg";
+        assert !action.equals(RealMojiDownloadAction.create(loader, reaction));
+        assert saved.getPrimary().getUrl().endsWith("first.jpg") : "Selected RealMoji was not snapshotted";
+        assert metadata.timestamp(saved) == reaction.h;
+        assert metadata.filename(saved, "realmoji").contains("_realmoji_reaction-id");
+        var inference = RepairInference.INSTANCE;
+        assert inference.isBinderDescriptor("com.google.android.gms.maps.internal.IOnCameraIdleListener");
+        assert inference.isBinderDescriptor("android.os.IServiceManager");
+        assert !inference.isBinderDescriptor("recursionDepth");
+        assert !inference.isBinderDescriptor("@");
+        assert !inference.isBinderDescriptor("com.example.Invalid Descriptor");
+        assert "recursionDepth".equals(inference.uniqueMissingKey(java.util.List.of("postId"), java.util.List.of("Event(postId=", ", recursionDepth="), 1));
+        assert inference.uniqueMissingKey(java.util.List.of("postId"), java.util.List.of("Event(postId=", ", first=", ", second="), 1) == null;
+        assert inference.uniqueMissingKey(java.util.List.of("postId"), java.util.List.of("Event(postId=", ", recursionDepth="), 2) == null;
+        assert inference.uniqueMissingKey(java.util.List.of("postId"), java.util.List.of("Event(postId="), 1) == null;
+        var write = Arrays.stream(PostMediaMetadata.class.getDeclaredMethods())
+                .filter(m -> m.getName().startsWith("writeMp4Date") && m.getParameterCount() == 2)
+                .findFirst().orElseThrow();
+        var file = Files.createTempFile("befuck-metadata-check-", ".mp4");
+        try {
+            for (int version : new int[]{0, 1}) {
+                byte[] header = new byte[version == 0 ? 12 : 20];
+                header[0] = (byte) version;
+                byte[] payload = {11, 22, 33, 44};
+                byte[] input = atom("moov", atom("mvhd", header));
+                byte[] samples = atom("mdat", payload);
+                var buffer = new ByteArrayOutputStream();
+                buffer.write(input); buffer.write(samples);
+                Files.write(file, buffer.toByteArray());
+                write.invoke(metadata, file.toFile(), millis);
+                byte[] result = Files.readAllBytes(file);
+                var fields = ByteBuffer.wrap(result);
+                long expected = millis / 1000 + 2_082_844_800L;
+                long actual = version == 0 ? Integer.toUnsignedLong(fields.getInt(20)) : fields.getLong(20);
+                assert actual == expected : "Incorrect MP4 creation time";
+                assert Arrays.equals(samples, Arrays.copyOfRange(result, input.length, result.length)) : "Media samples changed";
+            }
+            Files.write(file, ByteBuffer.allocate(8).putInt(4).putInt(0x6d6f6f76).array());
+            try { write.invoke(metadata, file.toFile(), millis); throw new AssertionError("Accepted invalid atom size"); }
+            catch (InvocationTargetException expected) { assert expected.getCause() instanceof IllegalArgumentException; }
+        } finally { Files.deleteIfExists(file); }
+        System.out.println("PASS: version guards, authentication host boundaries, timestamps, MP4 sample preservation, malformed atoms, repair inference, selected RealMoji snapshot");
+    }
+
+    public static final class RealMojiFixture {
+        public String a = "reaction-id", b = "owner-id", c = "⚡", e = "https://cdn.bereal.network/first.jpg", f = "owner";
+        public long h = 1_759_655_091_573L;
+    }
+
+    private static byte[] atom(String name, byte[] payload) throws Exception {
+        var output = new ByteArrayOutputStream();
+        var data = new DataOutputStream(output);
+        data.writeInt(8 + payload.length); data.writeBytes(name); data.write(payload);
+        return output.toByteArray();
+    }
+}
+
+// Native menu action is a marker interface; the download action must remain separate from delete/report.
+interface ddi {}
