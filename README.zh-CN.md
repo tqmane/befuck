@@ -5,10 +5,20 @@
 BeReal 的 Xposed 功能增强模块。  
 支持版本：**3.97.0 (3597523)**（`com.bereal.ft`）。
 
+## 屏幕截图
+
+| 去除模糊与保存 | 相册发布 | 位置选择 |
+| :---: | :---: | :---: |
+| <img src="artwork/screenshots/01_unblur_download.png" width="220" alt="去除模糊与保存" /> | <img src="artwork/screenshots/02_gallery_post.png" width="220" alt="相册发布" /> | <img src="artwork/screenshots/03_location_picker.png" width="220" alt="位置选择" /> |
+
+| 发布效果（时间与位置伪装） | 保存 RealMoji |
+| :---: | :---: |
+| <img src="artwork/screenshots/04_posted_result.png" width="220" alt="发布效果" /> | <img src="artwork/screenshots/05_save_realmoji.png" width="220" alt="保存 RealMoji" /> |
+
 ## 主要功能
 
 - **去除模糊**：无需发帖即可查看被模糊的时间线和帖子。
-- **保存媒体**：将照片、视频、BTS 和 RealMoji 原画保存至设备（保留拍摄时间）。
+- **保存媒体**：将照片、视频（BTS）和 RealMoji 原画保存至设备（保留拍摄时间）。
 - **相册发布**：直接选择相册中的照片或视频发布到 BeReal（支持裁剪、位置、迟发和公开范围设置）。
 - **广告拦截**：隐藏信息流中的推广与赞助内容。
 - **历史记录**：随时查看并下载此前加载过的帖子。

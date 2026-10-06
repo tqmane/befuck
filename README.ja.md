@@ -5,10 +5,20 @@
 BeRealの機能を拡張するXposedモジュールです。  
 対応バージョン：**3.97.0 (3597523)**（`com.bereal.ft`）
 
+## スクリーンショット
+
+| ぼかし解除 & 保存 | ギャラリー投稿 | 位置情報の選択 |
+| :---: | :---: | :---: |
+| <img src="artwork/screenshots/01_unblur_download.png" width="220" alt="ぼかし解除と保存" /> | <img src="artwork/screenshots/02_gallery_post.png" width="220" alt="ギャラリーから投稿" /> | <img src="artwork/screenshots/03_location_picker.png" width="220" alt="位置情報の選択" /> |
+
+| 投稿完了（時間・位置偽装） | RealMojiの保存 |
+| :---: | :---: |
+| <img src="artwork/screenshots/04_posted_result.png" width="220" alt="投稿結果" /> | <img src="artwork/screenshots/05_save_realmoji.png" width="220" alt="RealMoji保存" /> |
+
 ## 主な機能
 
 - **ぼかし解除**: タイムラインや投稿のモザイクを解除して閲覧できます。
-- **投稿・メディア保存**: 写真、動画、BTS、RealMojiを高画質で端末に保存できます（撮影日時も保持）。
+- **投稿・メディア保存**: 写真、動画（BTS）、RealMojiを高画質で端末に保存できます（撮影日時も保持）。
 - **ギャラリー投稿**: 端末の写真や動画を選んでBeRealに投稿できます（切り抜き・位置情報・遅延投稿・公開範囲に対応）。
 - **広告非表示**: タイムライン上のスポンサー投稿や広告を非表示にします。
 - **保存リスト**: 過去に読み込んだ投稿の履歴一覧から、いつでもダウンロードできます。
