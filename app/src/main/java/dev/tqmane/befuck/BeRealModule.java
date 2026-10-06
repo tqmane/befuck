@@ -54,6 +54,7 @@ import dev.tqmane.befuck.symbols.BeRealSymbolResolver;
 import dev.tqmane.befuck.symbols.ResolvedSymbols;
 import dev.tqmane.befuck.symbols.KnownMappings3970;
 import dev.tqmane.befuck.runtime.RuntimeKnowledge;
+import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
 import dev.tqmane.befuck.posting.BeFakeUploadController;
 import dev.tqmane.befuck.download.FeedPostMediaCache;
@@ -122,6 +123,7 @@ public final class BeRealModule extends XposedModule {
     private final AtomicBoolean adViewSuppressionLogged = new AtomicBoolean();
     private final AtomicBoolean videoUploadDiagnosticsInstalled = new AtomicBoolean();
     private volatile ResolvedSymbols resolvedSymbols;
+    private boolean composeInjectionReady;
     private final ThreadLocal<Object> protobufMessageInfo = new ThreadLocal<>();
     private final ThreadLocal<Object> retryingConcurrentCamera = new ThreadLocal<>();
     private final ThreadLocal<Boolean> homeFeedModelMapping = new ThreadLocal<>();
@@ -334,6 +336,7 @@ public final class BeRealModule extends XposedModule {
         installMedia3NetworkTypeReceiverHook(classLoader);
         installConcurrentVideoSecondaryFrontSelection(classLoader, symbols);
         installBeFakeAuthHeaderCapture(classLoader);
+        installComposeInjectionScope(classLoader);
         installFeedMediaCaptureAndUnblur(classLoader, symbols);
         installHomeGridPostTileUnblurHook(classLoader, symbols);
         installFeedOptionsCanBlurHooks(classLoader, symbols);
@@ -837,6 +840,36 @@ public final class BeRealModule extends XposedModule {
         return null;
     }
 
+    private void installComposeInjectionScope(ClassLoader loader) {
+        Map<String, Method> methods = KnownMappings3970.composeRuntimeMethods(loader, RuntimeKnowledge.getVersionName());
+        if (methods.isEmpty()) {
+            info("Compose download additions disabled: runtime signatures unresolved");
+            return;
+        }
+        try {
+            hook(methods.get("start")).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                Object composer = chain.proceed();
+                ComposeHookScope.started(composer);
+                return composer;
+            });
+            hook(methods.get("execute")).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                Object execute = chain.proceed();
+                ComposeHookScope.executed(chain.getThisObject(), Boolean.TRUE.equals(execute));
+                return execute;
+            });
+            hook(methods.get("end")).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                ComposeHookScope.ending(chain.getThisObject());
+                Object scope = chain.proceed();
+                ComposeHookScope.ended(chain.getThisObject());
+                return scope;
+            });
+            composeInjectionReady = true;
+            info("Installed restart-scope Compose additions with paused/skipped composition tracking");
+        } catch (Throwable failure) {
+            error("Could not install Compose download scope tracking", failure);
+        }
+    }
+
     private void installFeedMediaCaptureAndUnblur(ClassLoader classLoader, ResolvedSymbols symbols) {
         FeedMediaSymbols media = symbols == null ? null : symbols.getFeedMediaSymbols();
         info("Installing feed media hooks; capture=" + (media != null && media.getCanCaptureFeedMedia())
@@ -915,6 +948,10 @@ public final class BeRealModule extends XposedModule {
             }
         }
 
+        Object sponsoredModifier = null;
+        try { sponsoredModifier = createZeroSizeComposeModifier(classLoader); }
+        catch (Throwable failure) { error("Could not resolve sponsored-card size modifier", failure); }
+        final Object hiddenSponsoredModifier = sponsoredModifier;
         Method feedCardMethod = media.getPostFeedCardComposableMethod();
         if (feedCardMethod != null) {
             try {
@@ -926,11 +963,12 @@ public final class BeRealModule extends XposedModule {
                             if (args.length > 1 && media.getViewStateRealSponsoredPostUiStateField() != null) {
                                 try {
                                     Object sponsoredState = media.getViewStateRealSponsoredPostUiStateField().get(args[1]);
-                                    if (sponsoredState != null) {
+                                    if (sponsoredState != null && hiddenSponsoredModifier != null &&
+                                            feedCardMethod.getParameterTypes()[0].isInstance(hiddenSponsoredModifier)) {
                                         if (sponsoredFeedPostSuppressionLogged.compareAndSet(false, true)) {
-                                            info("Suppressed BeReal's real sponsored feed-card composition at its validated sponsored-state boundary");
+                                            info("Hid the sponsored feed card with a zero-size modifier while preserving its composition");
                                         }
-                                        return null;
+                                        args[0] = hiddenSponsoredModifier;
                                     }
                                 } catch (Throwable error) {
                                     info("Sponsored feed-card state could not be read; leaving the card unchanged");
@@ -938,7 +976,7 @@ public final class BeRealModule extends XposedModule {
                             }
                             FeedPostMediaCache.beginVisiblePostComposition(args.length > 1 ? args[1] : null, media);
                             try {
-                                Object result = chain.proceed();
+                                Object result = chain.proceed(args);
                                 if (args.length > 1 && FeedPostMediaCache.captureVisibleFeedState(args[1], media)
                                         && visibleFeedMediaCaptureLogged.compareAndSet(false, true)) {
                                     info("Captured loaded primary/secondary/BTS media from the visible feed card state");
@@ -995,36 +1033,25 @@ public final class BeRealModule extends XposedModule {
                         .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                         .intercept(chain -> {
                             Object[] args = chain.getArgs().toArray();
-                            Object result;
-                            if (FeedPostMediaCache.hasPendingGridPostForDetail() &&
-                                    pendingDetailPmgSeenLogged.compareAndSet(false, true)) {
+                            if (FeedPostMediaCache.hasPendingGridPostForDetail() && pendingDetailPmgSeenLogged.compareAndSet(false, true)) {
                                 info("Selected-grid detail entered the pmg.a download hook");
                             }
                             if (args.length > 2 && Boolean.TRUE.equals(args[2])) {
                                 args[2] = Boolean.FALSE;
-                                if (localUnblurLogged.compareAndSet(false, true)) {
-                                    info("Disabled BeReal feed media blur at the local Compose rendering boundary only");
-                                }
-                                result = chain.proceed(args);
-                            } else {
-                                result = chain.proceed();
+                                if (localUnblurLogged.compareAndSet(false, true)) info("Disabled BeReal feed media blur at its local rendering boundary");
                             }
-                            if (overlaySymbols != null && args.length > 16 && args.length > 1 &&
-                                    !FeedPostMediaCache.hasPendingGridPostForDetail()) {
-                                Object post = FeedPostMediaCache.postForDualMedia(args[1]);
-                                if (post != null) {
-                                    try {
-                                        injectInlineDownloadOverlay(
-                                                args[16], classLoader, overlaySymbols, null, post, false
-                                        );
-                                    } catch (Throwable error) {
-                                        if (inlineDownloadInjectionFailedLogged.compareAndSet(false, true)) {
-                                            error("Could not insert the home-feed download control into the Compose media Box", error);
-                                        }
-                                    }
-                                }
+                            ComposeHookScope.Frame frame = null;
+                            if (composeInjectionReady && overlaySymbols != null && args.length > 16 && args[16] != null) {
+                                frame = ComposeHookScope.push(args[16], () -> {
+                                    if (FeedPostMediaCache.hasPendingGridPostForDetail()) return;
+                                    Object post = FeedPostMediaCache.postForDualMedia(args[1]);
+                                    if (post == null) return;
+                                    try { injectInlineDownloadOverlay(args[16], classLoader, overlaySymbols, null, post, false); }
+                                    catch (Throwable failure) { throw new IllegalStateException("Could not compose the feed download control", failure); }
+                                });
                             }
-                            return result;
+                            try { return chain.proceed(args); }
+                            finally { if (frame != null) ComposeHookScope.pop(frame); }
                         });
                 info("Hooked resolved feed-media renderer for local-only unblur and per-post downloads");
                 installCurrentPostMediaOrientationHook(classLoader);
@@ -1133,10 +1160,11 @@ public final class BeRealModule extends XposedModule {
                 Class<?> composerType = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
                 Class<?> functionType = Class.forName("ns8", false, classLoader);
                 Class<?> disposableType = Class.forName("androidx.compose.runtime.DisposableEffectResult", false, classLoader);
-                Method beginGroup = composerType.getMethod("r", int.class);
-                Method endGroup = composerType.getMethod("o");
-                Method effect = Class.forName("androidx.compose.runtime.EffectsKt", false, classLoader)
-                        .getDeclaredMethod("a", Object.class, functionType, composerType);
+                Map<String, Method> runtimeMethods = KnownMappings3970.composeRuntimeMethods(classLoader, symbols.getVersionName());
+                if (!composeInjectionReady || runtimeMethods.isEmpty()) throw new NoSuchMethodException("Compose restart-scope methods");
+                Method beginGroup = runtimeMethods.get("replaceStart");
+                Method endGroup = runtimeMethods.get("replaceEnd");
+                Method effect = runtimeMethods.get("effect");
                 ComposeDownloadOverlaySymbols overlaySymbols = resolveComposeDownloadOverlaySymbols(classLoader);
                 if (overlaySymbols == null) throw new NoSuchMethodException("Detail download Compose symbols");
                 int composerIndex = -1;
@@ -1165,34 +1193,34 @@ public final class BeRealModule extends XposedModule {
                                 selectedDetailPost = FeedPostMediaCache.postForDualMedia(args[2]);
                             }
                             Object composer = args[detailComposerIndex];
-                            // Keep the effect in a fixed group even when the native media renderer skips its body.
-                            beginGroup.invoke(composer, 0x42524644);
-                            try {
-                                if (args.length > 3 && Boolean.TRUE.equals(args[3])) {
-                                    args[3] = Boolean.FALSE;
-                                    if (pullDownGridMediaUnblurLogged.compareAndSet(false, true)) {
-                                        info("Disabled the mi6.a isBlurred gate at its local rendering boundary");
-                                    }
-                                }
-                                Object result = chain.proceed(args);
-                                if (selectedDetailPost instanceof dev.tqmane.befuck.download.FeedPostMedia) {
-                                    dev.tqmane.befuck.download.FeedPostMedia post = (dev.tqmane.befuck.download.FeedPostMedia) selectedDetailPost;
-                                    Object callback = Proxy.newProxyInstance(classLoader, new Class<?>[]{functionType},
-                                            composeFunctionHandler(overlaySymbols, ignored -> {
-                                                BeFuckGalleryUi.DetailDownloadBinding binding = BeFuckGalleryUi.showDetailDownloadButton(post);
-                                                return Proxy.newProxyInstance(classLoader, new Class<?>[]{disposableType}, (proxy, method, values) -> {
-                                                    if (method.getName().equals("dispose")) { BeFuckGalleryUi.disposeDetailDownloadButton(binding); return null; }
-                                                    if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
-                                                    if (method.getName().equals("equals")) return values != null && values.length == 1 && values[0] == proxy;
-                                                    return "BeFuckDetailDownloadLifetime";
-                                                });
-                                            }));
-                                    effect.invoke(null, post, callback, composer);
-                                }
-                                return result;
-                            } finally {
-                                endGroup.invoke(composer);
+                            if (args.length > 3 && Boolean.TRUE.equals(args[3])) {
+                                args[3] = Boolean.FALSE;
+                                if (pullDownGridMediaUnblurLogged.compareAndSet(false, true)) info("Disabled the mi6.a isBlurred gate at its local rendering boundary");
                             }
+                            final Object detailPost = selectedDetailPost;
+                            ComposeHookScope.Frame frame = ComposeHookScope.push(composer, () -> {
+                                try {
+                                    beginGroup.invoke(composer, 0x42524644);
+                                    try {
+                                        if (detailPost instanceof dev.tqmane.befuck.download.FeedPostMedia) {
+                                            dev.tqmane.befuck.download.FeedPostMedia post = (dev.tqmane.befuck.download.FeedPostMedia) detailPost;
+                                            Object callback = Proxy.newProxyInstance(classLoader, new Class<?>[]{functionType},
+                                                    composeFunctionHandler(overlaySymbols, ignored -> {
+                                                        BeFuckGalleryUi.DetailDownloadBinding binding = BeFuckGalleryUi.showDetailDownloadButton(post);
+                                                        return Proxy.newProxyInstance(classLoader, new Class<?>[]{disposableType}, (proxy, method, values) -> {
+                                                            if (method.getName().equals("dispose")) { BeFuckGalleryUi.disposeDetailDownloadButton(binding); return null; }
+                                                            if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
+                                                            if (method.getName().equals("equals")) return values != null && values.length == 1 && values[0] == proxy;
+                                                            return "BeFuckDetailDownloadLifetime";
+                                                        });
+                                                    }));
+                                            effect.invoke(null, post, callback, composer);
+                                        }
+                                    } finally { endGroup.invoke(composer); }
+                                } catch (Throwable failure) { throw new IllegalStateException("Could not compose the detail download lifetime", failure); }
+                            });
+                            try { return chain.proceed(args); }
+                            finally { ComposeHookScope.pop(frame); }
                         });
                 info("Hooked the version-mapped mi6.a media renderer for local-only unblur");
             } catch (Throwable error) {

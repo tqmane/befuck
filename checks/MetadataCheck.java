@@ -1,5 +1,6 @@
 import dev.tqmane.befuck.download.PostMediaMetadata;
 import dev.tqmane.befuck.runtime.RepairInference;
+import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.download.RealMojiDownloadAction;
 import dev.tqmane.befuck.download.FeedPostMedia;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
@@ -15,6 +16,7 @@ import java.util.Arrays;
 /** Run with the Gradle :app:checkModule task. */
 public final class MetadataCheck {
     public static void main(String[] args) throws Exception {
+        checkComposeScopes();
         assert KnownMappings3970.isKnownVersion("3.97.0", 3597523L);
         assert !KnownMappings3970.isKnownVersion("3.97.0", 3597524L);
         assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
@@ -77,7 +79,52 @@ public final class MetadataCheck {
             try { write.invoke(metadata, file.toFile(), millis); throw new AssertionError("Accepted invalid atom size"); }
             catch (InvocationTargetException expected) { assert expected.getCause() instanceof IllegalArgumentException; }
         } finally { Files.deleteIfExists(file); }
-        System.out.println("PASS: version guards, authentication host boundaries, timestamps, MP4 sample preservation, malformed atoms, repair inference, selected RealMoji snapshot");
+        System.out.println("PASS: paused/nested Compose scopes, version guards, authentication host boundaries, timestamps, MP4 sample preservation, malformed atoms, repair inference, selected RealMoji snapshot");
+    }
+
+    private static void checkComposeScopes() {
+        var composer = new Object();
+        var emissions = new java.util.ArrayList<String>();
+        var paused = ComposeHookScope.push(composer, () -> emissions.add("must not run"));
+        ComposeHookScope.started(composer);
+        ComposeHookScope.executed(composer, false);
+        ComposeHookScope.ending(composer);
+        ComposeHookScope.ended(composer);
+        ComposeHookScope.pop(paused);
+        assert emissions.isEmpty() : "A skipped/paused body emitted download UI";
+
+        var outer = ComposeHookScope.push(composer, () -> {
+            emissions.add("feed");
+            // AndroidView creates its own nested restart group during injection.
+            ComposeHookScope.started(composer);
+            ComposeHookScope.executed(composer, true);
+            ComposeHookScope.ending(composer);
+            ComposeHookScope.ended(composer);
+        });
+        ComposeHookScope.started(composer);
+        ComposeHookScope.executed(composer, true);
+        var inner = ComposeHookScope.push(composer, () -> emissions.add("detail"));
+        ComposeHookScope.started(composer);
+        ComposeHookScope.executed(composer, true);
+        ComposeHookScope.ending(new Object()); // Unrelated composers cannot mutate this frame.
+        assert emissions.isEmpty();
+        ComposeHookScope.ending(composer);
+        assert emissions.equals(java.util.List.of("detail"));
+        ComposeHookScope.ended(composer);
+        ComposeHookScope.pop(inner);
+        ComposeHookScope.ending(composer);
+        assert emissions.equals(java.util.List.of("detail", "feed")) : "Nested injection re-entered the host callback";
+        ComposeHookScope.ended(composer);
+        ComposeHookScope.pop(outer);
+
+        var failed = ComposeHookScope.push(composer, () -> { throw new IllegalStateException("fixture"); });
+        ComposeHookScope.started(composer);
+        ComposeHookScope.executed(composer, true);
+        try { ComposeHookScope.ending(composer); throw new AssertionError("Injection error was swallowed"); }
+        catch (IllegalStateException expected) { assert "fixture".equals(expected.getMessage()); }
+        finally { ComposeHookScope.pop(failed); }
+        ComposeHookScope.ending(composer);
+        assert emissions.size() == 2 : "Failed composition left an active frame";
     }
 
     public static final class RealMojiFixture {

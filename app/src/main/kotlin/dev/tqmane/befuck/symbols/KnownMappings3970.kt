@@ -15,6 +15,31 @@ internal object KnownMappings3970 {
     const val KOIN_RESOLVER_METHOD_NAME = "e"
     const val MAPS_CAMERA_IDLE_DESCRIPTOR = "com.google.android.gms.maps.internal.IOnCameraIdleListener"
 
+    @JvmStatic
+    fun composeRuntimeMethods(loader: ClassLoader, versionName: String?): Map<String, Method> {
+        if (!isKnownVersion(versionName)) return emptyMap()
+        return runCatching {
+            val composer = Class.forName("androidx.compose.runtime.Composer", false, loader)
+            val implementation = Class.forName("androidx.compose.runtime.GapComposer", false, loader)
+            val scope = Class.forName("androidx.compose.runtime.ScopeUpdateScope", false, loader)
+            fun method(name: String, result: Class<*>, vararg parameters: Class<*>) =
+                implementation.getDeclaredMethod(name, *parameters).apply {
+                    require(returnType == result && !Modifier.isStatic(modifiers))
+                    isAccessible = true
+                }
+            mapOf(
+                "start" to method("A", composer, Int::class.javaPrimitiveType!!),
+                "execute" to method("H", Boolean::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, Boolean::class.javaPrimitiveType!!),
+                "end" to method("C", scope),
+                "replaceStart" to method("r", Void.TYPE, Int::class.javaPrimitiveType!!),
+                "replaceEnd" to method("o", Void.TYPE),
+                "effect" to Class.forName("androidx.compose.runtime.EffectsKt", false, loader)
+                    .getDeclaredMethod("a", Any::class.java, Class.forName("ns8", false, loader), composer)
+                    .apply { require(returnType == Void.TYPE && Modifier.isStatic(modifiers)); isAccessible = true },
+            )
+        }.getOrDefault(emptyMap())
+    }
+
     private val stringFieldMappings = mapOf(
         "vungleAnalyticsTopic" to Pair("com.vungle.ads.internal.ST.IRpbunJxa", "STKzZyzJVBhw"),
         "safeDkAnalyticsTopic" to Pair("com.safedk.android.a.vjX.lUFzKIsaaZRNy", "arsx"),
