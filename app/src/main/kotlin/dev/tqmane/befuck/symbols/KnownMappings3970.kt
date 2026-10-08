@@ -14,6 +14,71 @@ internal object KnownMappings3970 {
         name == VERSION_NAME && code == VERSION_CODE
     const val KOIN_RESOLVER_METHOD_NAME = "e"
     const val MAPS_CAMERA_IDLE_DESCRIPTOR = "com.google.android.gms.maps.internal.IOnCameraIdleListener"
+    // SHA-256 of the signing certificate verified on the original Play base APK.
+    const val SIGNING_CERTIFICATE_SHA256 = "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q="
+
+    class EmailAnalyticsGuard(
+        val constructors: Map<java.lang.reflect.Constructor<*>, List<Field>>,
+        val baseConstructor: java.lang.reflect.Constructor<*>,
+        val emit: Method,
+        val eventNames: Map<Class<*>, String>,
+        private val label: Field,
+        private val emailStep: Any,
+    ) {
+        fun hasMissingStep(step: Any?): Boolean = step === emailStep && label.get(emailStep) == null
+
+        fun shouldOmit(event: Any?): Boolean {
+            if (event == null) return false
+            val fields = constructors.entries.singleOrNull { it.key.declaringClass == event.javaClass }?.value
+                ?: return false
+            return hasMissingStep(fields.first().get(event))
+        }
+    }
+
+    @JvmStatic
+    fun emailAnalyticsGuard(loader: ClassLoader, name: String?, code: Long): EmailAnalyticsGuard? {
+        if (!isKnownVersion(name, code)) return null
+        val step = Class.forName("a2", false, loader)
+        val origin = Class.forName("w1", false, loader)
+        val source = Class.forName("k2", false, loader)
+        val base = Class.forName("s7", false, loader)
+        val event = Class.forName("zb0", false, loader)
+        require(step.isEnum)
+        fun field(owner: Class<*>, name: String, type: Class<*>, static: Boolean) =
+            owner.getDeclaredField(name).apply {
+                require(this.type == type && Modifier.isStatic(modifiers) == static)
+                isAccessible = true
+            }
+        val viewed = Class.forName("c2", false, loader)
+        val completed = Class.forName("b2", false, loader)
+        require(viewed.superclass == base && completed.superclass == base && event.isAssignableFrom(base))
+        val method = Class.forName("dc0", false, loader).getDeclaredMethod("b", event).apply {
+            require(returnType == Void.TYPE && !Modifier.isStatic(modifiers))
+        }
+        return EmailAnalyticsGuard(mapOf(
+            viewed.getDeclaredConstructor(step, origin, source) to listOf(
+                field(viewed, "d", step, false), field(viewed, "e", origin, false), field(viewed, "f", source, false)),
+            completed.getDeclaredConstructor(step, origin, String::class.java, Integer::class.java) to listOf(
+                field(completed, "d", step, false), field(completed, "e", origin, false),
+                field(completed, "f", String::class.java, false), field(completed, "g", Integer::class.java, false))),
+            base.getDeclaredConstructor(Int::class.javaPrimitiveType, List::class.java, String::class.java),
+            method, mapOf(viewed to "Onboarding step viewed", completed to "Onboarding step completed"),
+            field(step, "a", String::class.java, false),
+            step.enumConstants.single { (it as Enum<*>).name == "EMAIL_ADDRESS" })
+    }
+
+    @JvmStatic
+    fun authDiagnosticConstructors(loader: ClassLoader, name: String?, code: Long): Map<String, java.lang.reflect.Constructor<*>> {
+        if (!isKnownVersion(name, code)) return emptyMap()
+        return mapOf(
+            "request_failure" to Class.forName("r3", false, loader)
+                .getDeclaredConstructor(String::class.java, String::class.java),
+            "challenge_token" to Class.forName("dj0", false, loader)
+                .getDeclaredConstructor(String::class.java, String::class.java),
+            "recaptcha_initialization" to Class.forName("c0", false, loader)
+                .getDeclaredConstructor(Integer::class.java, String::class.java),
+        )
+    }
 
     @JvmStatic
     fun preludeLibraryLoad(loader: ClassLoader, name: String?, code: Long): Method? {
@@ -36,7 +101,6 @@ internal object KnownMappings3970 {
     fun repackagedStartupChecks(loader: ClassLoader, name: String?, code: Long): List<Method> {
         if (!isKnownVersion(name, code)) return emptyList()
         return listOf(
-            "com.pairip.SignatureCheck" to "verifyIntegrity",
             "com.pairip.licensecheck.LicenseClient" to "checkLicense",
         ).map { (owner, method) ->
             Class.forName(owner, false, loader)

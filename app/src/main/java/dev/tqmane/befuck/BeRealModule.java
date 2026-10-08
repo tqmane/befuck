@@ -211,6 +211,8 @@ public final class BeRealModule extends XposedModule {
             moduleResources = loadModuleResources(context);
             installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
+            installAuthFailureDiagnostics(classLoader, versionName, versionCode);
+            installEmailAnalyticsGuard(classLoader, versionName, versionCode);
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
             installRuntimeRecoveryGuards(classLoader);
             resolvedSymbols = BeRealSymbolResolver.resolve(
@@ -229,12 +231,14 @@ public final class BeRealModule extends XposedModule {
 
     private void installRepackagedStartupCompatibility(Context host, ClassLoader loader, String name, long code) {
         // Repackaging changes the signing certificate and Play install provenance. Limit this
-        // to embedded patch loaders; leave PackageManager and BeReal authentication intact.
+        // to known embedded patch loaders; retain the host's remote authentication flow.
         try {
             ApplicationInfo installed = host.getPackageManager().getApplicationInfo(
                     TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
             if (installed.metaData == null || (!installed.metaData.containsKey("npatch")
                     && !installed.metaData.containsKey("lspatch"))) return;
+            if (!KnownMappings3970.isKnownVersion(name, code)) return;
+            installRepackagedSigningInfoCompatibility(host, installed.metaData);
             for (Method check : KnownMappings3970.repackagedStartupChecks(loader, name, code)) {
                 hook(check).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
                     Object context = chain.getArg(0);
@@ -260,6 +264,110 @@ public final class BeRealModule extends XposedModule {
             }
         } catch (Throwable failure) {
             error("Could not install repackaged application startup compatibility", failure);
+        }
+    }
+
+    private void installRepackagedSigningInfoCompatibility(Context host, Bundle metadata) throws Exception {
+        String encoded = metadata.getString("npatch");
+        if (encoded == null) encoded = metadata.getString("lspatch");
+        if (encoded == null) throw new IllegalStateException("Missing patch signature metadata");
+        org.json.JSONObject config = new org.json.JSONObject(new String(
+                android.util.Base64.decode(encoded, android.util.Base64.DEFAULT), java.nio.charset.StandardCharsets.UTF_8));
+        android.content.pm.Signature original = new android.content.pm.Signature(config.getString("originalSignature"));
+        String digest = android.util.Base64.encodeToString(
+                java.security.MessageDigest.getInstance("SHA-256").digest(original.toByteArray()), android.util.Base64.NO_WRAP);
+        if (!KnownMappings3970.SIGNING_CERTIFICATE_SHA256.equals(digest)) {
+            throw new IllegalStateException("Patch metadata certificate does not match the supported original APK");
+        }
+        // Some API 102 NPatch runtimes do not apply their legacy PackageManager hooks.
+        // Restore the configured certificate through the modern API, for this host only.
+        int count = 0;
+        for (Class<?> type = host.getPackageManager().getClass(); type != null; type = type.getSuperclass()) {
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getReturnType() != PackageInfo.class || Modifier.isAbstract(method.getModifiers())
+                        || !("getPackageInfo".equals(method.getName()) || "getPackageInfoAsUser".equals(method.getName()))) continue;
+                hook(method).intercept(chain -> {
+                    PackageInfo result = (PackageInfo) chain.proceed();
+                    if (result == null || !TARGET_PACKAGE.equals(result.packageName)) return result;
+                    if (result.signatures != null && result.signatures.length == 1) {
+                        result.signatures[0] = new android.content.pm.Signature(original.toByteArray());
+                    }
+                    if (result.signingInfo != null && !result.signingInfo.hasMultipleSigners()) {
+                        android.content.pm.Signature[] current = result.signingInfo.getApkContentsSigners();
+                        android.content.pm.Signature[] history = result.signingInfo.getSigningCertificateHistory();
+                        if (current != null && current.length == 1) current[0] = new android.content.pm.Signature(original.toByteArray());
+                        if (history != null && history.length == 1) history[0] = new android.content.pm.Signature(original.toByteArray());
+                    }
+                    return result;
+                });
+                count++;
+            }
+        }
+        PackageInfo legacy = host.getPackageManager().getPackageInfo(TARGET_PACKAGE, android.content.pm.PackageManager.GET_SIGNATURES);
+        PackageInfo modern = host.getPackageManager().getPackageInfo(TARGET_PACKAGE, android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES);
+        boolean legacyMatches = legacy.signatures != null && legacy.signatures.length == 1 && original.equals(legacy.signatures[0]);
+        android.content.pm.Signature[] modernSigners = modern.signingInfo == null ? null : modern.signingInfo.getApkContentsSigners();
+        boolean modernMatches = modernSigners != null && modernSigners.length == 1 && original.equals(modernSigners[0]);
+        info("Repackaged signing compatibility: methods=" + count + "; legacy=" + legacyMatches + "; modern=" + modernMatches);
+    }
+
+    private void installEmailAnalyticsGuard(ClassLoader loader, String name, long code) {
+        try {
+            KnownMappings3970.EmailAnalyticsGuard guard = KnownMappings3970.emailAnalyticsGuard(loader, name, code);
+            if (guard == null) return;
+            for (Map.Entry<Constructor<?>, List<Field>> entry : guard.getConstructors().entrySet()) {
+                hook(entry.getKey()).intercept(chain -> {
+                    if (!guard.hasMissingStep(chain.getArg(0))) return chain.proceed();
+                    // Keep a fully initialized event object for callers, but do not invent its
+                    // missing analytics label. The emission hook below drops this event.
+                    getInvoker(guard.getBaseConstructor()).invokeSpecial(chain.getThisObject(),
+                            0, Collections.emptyList(), guard.getEventNames().get(entry.getKey().getDeclaringClass()));
+                    for (int i = 0; i < entry.getValue().size(); i++) {
+                        entry.getValue().get(i).set(chain.getThisObject(), chain.getArg(i));
+                    }
+                    return null;
+                });
+            }
+            hook(guard.getEmit()).intercept(chain -> {
+                if (!guard.shouldOmit(chain.getArg(0))) return chain.proceed();
+                info("Omitted email onboarding analytics with a missing step label");
+                return null;
+            });
+            info("Installed version-scoped email screen analytics guard");
+        } catch (Throwable failure) {
+            error("Could not install email screen analytics guard", failure);
+        }
+    }
+
+    private void installAuthFailureDiagnostics(ClassLoader loader, String name, long code) {
+        try {
+            Map<String, Constructor<?>> constructors = KnownMappings3970.authDiagnosticConstructors(loader, name, code);
+            for (Map.Entry<String, Constructor<?>> entry : constructors.entrySet()) {
+                final String kind = entry.getKey();
+                hook(entry.getValue()).intercept(chain -> {
+                    Object result = chain.proceed();
+                    // Never stringify token arguments, exception messages, or network payloads.
+                    if ("request_failure".equals(kind)) {
+                        String reason = String.valueOf(chain.getArg(1));
+                        String[] known = {"AntibotChallengeFailure", "PhoneNumberBlocked", "CountryBlocked",
+                                "SessionExpired", "UserSuspended", "CountryCodeInvalid", "CountryNotAllowedAcrossAllOTP",
+                                "SmsServiceDown", "InvalidPayload", "PhoneNumberBanned", "RateLimitReached",
+                                "ConcurrentVerification", "SpamDetected", "UnderageBlocked"};
+                        boolean recognized = java.util.Arrays.asList(known).contains(reason);
+                        info("Auth request-code failure category=" + (recognized ? reason : "Unclassified"));
+                    } else if ("challenge_token".equals(kind)) {
+                        Object provider = chain.getArg(1);
+                        info("Challenge token generated provider=" + ("PR".equals(provider) ? "Prelude" : "RE".equals(provider) ? "Recaptcha" : "Other")
+                                + "; present=" + (chain.getArg(0) instanceof String && !((String) chain.getArg(0)).isEmpty()));
+                    } else if ("recaptcha_initialization".equals(kind)) {
+                        info("Recaptcha initialization failure code=" + (Integer) chain.getArg(0));
+                    }
+                    return result;
+                });
+            }
+            if (!constructors.isEmpty()) info("Installed version-scoped authentication diagnostics");
+        } catch (Throwable failure) {
+            error("Could not install authentication failure diagnostics", failure);
         }
     }
 
