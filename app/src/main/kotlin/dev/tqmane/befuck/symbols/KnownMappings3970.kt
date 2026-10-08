@@ -163,6 +163,7 @@ internal object KnownMappings3970 {
         "ktorDefaultUserAgent" to Pair("androidx.media3.extractor.text.pgs.wtco.kKFOp", "fZgFGgPb"),
         "sourcepointUsNatSampleRate" to Pair("bereal.app.features.sharing.ui.VrJ.usGKIW", "HAFqVkV"),
         "mapsCameraIdleDescriptor" to Pair("com.yoti.mobile.android.liveness.zoom.view.navigation.sjLd.aExjrwjFHmK", "FSmVbqmP"),
+        "phoneRegionBelarus" to Pair("org.mp4parser.boxes.threegpp.ts26245.ng.RoGgsUKZEi", "zHMEXkLvtGbGRa"),
     )
 
     // Confirmed constants for this APK; dynamic countdown values are recovered separately.
@@ -193,6 +194,8 @@ internal object KnownMappings3970 {
         "previewSurfaceRequestMessage" to "Surface requested by Preview.",
         "composeSemanticsTrace" to "Compose:semantics:sendSemanticsPropertyChangeEvents",
         "cameraPostAnalyticsValue" to "post",
+        // wkp.l(): calling code 375; confirmed by bundled PhoneNumberMetadataProto_BY.
+        "phoneRegionBelarus" to "BY",
     )
 
     @JvmStatic
