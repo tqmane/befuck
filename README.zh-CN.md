@@ -3,6 +3,7 @@
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 BeReal 的 Xposed 功能增强模块。  
+支持 **LSPosed** 与 **NPatch**。  
 支持版本：**3.97.0 (3597523)**（`com.bereal.ft`）。
 
 ## 屏幕截图
@@ -25,9 +26,15 @@ BeReal 的 Xposed 功能增强模块。
 
 ## 安装与使用
 
-1. 安装模块并在 LSPosed 等框架中启用，将作用域勾选为 **BeReal (`com.bereal.ft`)**。
+1. 安装模块并在 LSPosed 等框架中启用（或使用 NPatch 修补 APK），将作用域勾选为 **BeReal (`com.bereal.ft`)**。
 2. 打开 BeReal。
 3. 点击主页标题旁的 **+** 图标，即可使用相册发布、已保存帖子和设置。在帖子菜单中也可直接保存。
+
+> [!WARNING]
+> **登录注意事项**：
+> - 在模块生效（已 Hook）状态下，手机号短信验证码登录会失败（邮箱登录不受影响）。
+> - 若需要使用短信验证码登录，请先在未启用模块的状态下完成登录，然后再启用（Hook）该模块。
+> - 在 NPatch 等嵌入式环境下由于无法在登录后切换 Hook，因此仅支持**邮箱登录**。
 
 保存路径：`Pictures/BeFuck` 或 `Movies/BeFuck`。
 
