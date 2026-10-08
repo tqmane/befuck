@@ -1,0 +1,96 @@
+name: Release APK
+
+on:
+  push:
+    tags: ['**']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Validate release tag
+        run: git check-ref-format "refs/tags/$RELEASE_TAG"
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: Build release APK
+        run: bash ./gradlew --no-daemon :app:assembleRelease
+      - name: Sign with the release key
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in RELEASE_KEYSTORE_BASE64 RELEASE_STORE_PASSWORD RELEASE_KEY_ALIAS RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              exit 1
+            fi
+          done
+          umask 077
+          release_keystore="$RUNNER_TEMP/befuck-release.keystore"
+          release_aligned="$RUNNER_TEMP/befuck-release-aligned.apk"
+          trap 'rm -f "$release_keystore" "$release_aligned"' EXIT
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$release_keystore"
+          build_tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$build_tools/zipalign" -P 16 -f 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk "$release_aligned"
+          "$build_tools/apksigner" sign \
+            --ks "$release_keystore" \
+            --ks-key-alias "$RELEASE_KEY_ALIAS" \
+            --ks-pass env:RELEASE_STORE_PASSWORD \
+            --key-pass env:RELEASE_KEY_PASSWORD \
+            --out app/build/outputs/apk/release/app-release.apk \
+            "$release_aligned"
+          "$build_tools/apksigner" verify app/build/outputs/apk/release/app-release.apk
+      - name: Upload signed release APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: BeFuck-release-${{ github.run_number }}
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          if gh release view --json id -- "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload --clobber -- "$RELEASE_TAG" "$apk"
+          else
+            gh release create --verify-tag --title "$RELEASE_TAG" --generate-notes -- "$RELEASE_TAG" "$apk"
+          fi
