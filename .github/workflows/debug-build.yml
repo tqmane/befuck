@@ -28,10 +28,10 @@ jobs:
           # Match gradle/gradle-daemon-jvm.properties.
           java-version: '25'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
-          # The action's default includes the retired SDK package "tools".
-          packages: 'platform-tools platforms;android-37'
+          # API 37 uses the major.minor package name in the SDK repository.
+          packages: 'platform-tools platforms;android-37.0'
           log-accepted-android-sdk-licenses: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
