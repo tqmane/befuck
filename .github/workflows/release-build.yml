@@ -1,18 +1,34 @@
 name: Release APK
 
 on:
+  push:
+    tags: ['**']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and publish
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      - name: Validate release tag
+        run: git check-ref-format "refs/tags/$RELEASE_TAG"
       - uses: actions/checkout@v7
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
       - name: Set up JDK
         uses: actions/setup-java@v6
@@ -66,3 +82,15 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          apk=app/build/outputs/apk/release/app-release.apk
+          if gh release view --json id -- "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload --clobber -- "$RELEASE_TAG" "$apk"
+          else
+            gh release create --verify-tag --title "$RELEASE_TAG" --generate-notes -- "$RELEASE_TAG" "$apk"
+          fi
