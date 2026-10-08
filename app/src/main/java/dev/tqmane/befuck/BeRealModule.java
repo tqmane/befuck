@@ -209,6 +209,7 @@ public final class BeRealModule extends XposedModule {
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
             moduleResources = loadModuleResources(context);
+            installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
             installRuntimeRecoveryGuards(classLoader);
@@ -224,6 +225,42 @@ public final class BeRealModule extends XposedModule {
         }
 
         installRuntimeHooks(classLoader, resolvedSymbols);
+    }
+
+    private void installRepackagedStartupCompatibility(Context host, ClassLoader loader, String name, long code) {
+        // Repackaging changes the signing certificate and Play install provenance. Limit this
+        // to embedded patch loaders; leave PackageManager and BeReal authentication intact.
+        try {
+            ApplicationInfo installed = host.getPackageManager().getApplicationInfo(
+                    TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
+            if (installed.metaData == null || (!installed.metaData.containsKey("npatch")
+                    && !installed.metaData.containsKey("lspatch"))) return;
+            for (Method check : KnownMappings3970.repackagedStartupChecks(loader, name, code)) {
+                hook(check).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                    Object context = chain.getArg(0);
+                    if (context instanceof Context && TARGET_PACKAGE.equals(((Context) context).getPackageName())) {
+                        info("Skipped repackaged application startup check: " + check.getName());
+                        return null;
+                    }
+                    return chain.proceed();
+                });
+                info("Installed repackaged application compatibility: " + check.getName());
+            }
+            Method load = KnownMappings3970.preludeLibraryLoad(loader, name, code);
+            List<Class<?>> interfaces = KnownMappings3970.preludeLibraryInterfaces(loader, name, code);
+            if (load != null && moduleResources != null) {
+                hook(load).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                    if (!interfaces.contains(chain.getArg(1))) return chain.proceed();
+                    Object[] args = chain.getArgs().toArray();
+                    args[0] = dev.tqmane.befuck.runtime.PreludeNativeLibrary.extract(host, moduleResources);
+                    Object result = chain.proceed(args);
+                    info("Loaded upstream Prelude 0.4.1 native implementation with host ABI checks retained");
+                    return result;
+                });
+            }
+        } catch (Throwable failure) {
+            error("Could not install repackaged application startup compatibility", failure);
+        }
     }
 
     private Resources loadModuleResources(Context hostContext) {

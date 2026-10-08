@@ -16,6 +16,36 @@ internal object KnownMappings3970 {
     const val MAPS_CAMERA_IDLE_DESCRIPTOR = "com.google.android.gms.maps.internal.IOnCameraIdleListener"
 
     @JvmStatic
+    fun preludeLibraryLoad(loader: ClassLoader, name: String?, code: Long): Method? {
+        if (!isKnownVersion(name, code)) return null
+        val library = Class.forName("com.sun.jna.Library", false, loader)
+        return Class.forName("com.sun.jna.Native", false, loader)
+            .getDeclaredMethod("load", String::class.java, Class::class.java)
+            .apply { require(Modifier.isStatic(modifiers) && returnType == library) }
+    }
+
+    @JvmStatic
+    fun preludeLibraryInterfaces(loader: ClassLoader, name: String?, code: Long): List<Class<*>> {
+        if (!isKnownVersion(name, code)) return emptyList()
+        val library = Class.forName("com.sun.jna.Library", false, loader)
+        return listOf("so.prelude.android.sdk.IntegrityCheckingUniffiLib", "so.prelude.android.sdk.UniffiLib")
+            .map { Class.forName(it, false, loader).apply { require(isInterface && library.isAssignableFrom(this)) } }
+    }
+
+    @JvmStatic
+    fun repackagedStartupChecks(loader: ClassLoader, name: String?, code: Long): List<Method> {
+        if (!isKnownVersion(name, code)) return emptyList()
+        return listOf(
+            "com.pairip.SignatureCheck" to "verifyIntegrity",
+            "com.pairip.licensecheck.LicenseClient" to "checkLicense",
+        ).map { (owner, method) ->
+            Class.forName(owner, false, loader)
+                .getDeclaredMethod(method, android.content.Context::class.java)
+                .apply { require(Modifier.isStatic(modifiers) && returnType == Void.TYPE) }
+        }
+    }
+
+    @JvmStatic
     fun composeRuntimeMethods(loader: ClassLoader, versionName: String?): Map<String, Method> {
         if (!isKnownVersion(versionName)) return emptyMap()
         return runCatching {

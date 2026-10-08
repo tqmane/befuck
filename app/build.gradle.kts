@@ -28,14 +28,25 @@ android {
 
     sourceSets.named("main") {
         resources.directories.add("build/generated/notices")
+        assets.directories.add("build/generated/preludeAssets")
     }
 }
 
 val prepareNotices = tasks.register<Copy>("prepareNotices") {
     from(rootProject.files("LICENSE", "NOTICE"))
+    from(rootProject.file("licenses")) { into("licenses") }
     into(layout.buildDirectory.dir("generated/notices/META-INF/befuck"))
 }
 tasks.named("preBuild") { dependsOn(prepareNotices) }
+
+// Only the matching native implementation is needed; the host owns the SDK/JNA bindings.
+val preludeNative = configurations.create("preludeNative") { isTransitive = false }
+dependencies { add(preludeNative.name, "so.prelude.android:core-sdk:0.4.1@aar") }
+val preparePreludeNative = tasks.register<Sync>("preparePreludeNative") {
+    from(provider { zipTree(preludeNative.singleFile) }) { include("jni/*/libprelude.so") }
+    into(layout.buildDirectory.dir("generated/preludeAssets/befuck/prelude/0.4.1"))
+}
+tasks.named("preBuild") { dependsOn(preparePreludeNative) }
 
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
