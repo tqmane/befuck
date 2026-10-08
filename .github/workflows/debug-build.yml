@@ -29,8 +29,10 @@ jobs:
           java-version: '25'
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-      - name: Install SDK platform
-        run: sdkmanager "platforms;android-37"
+        with:
+          # The action's default includes the retired SDK package "tools".
+          packages: 'platform-tools platforms;android-37'
+          log-accepted-android-sdk-licenses: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
       - name: Check repaired Room schema
