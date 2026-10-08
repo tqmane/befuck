@@ -3,6 +3,7 @@
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 BeReal의 기능을 확장하는 Xposed 모듈입니다.  
+**LSPosed** 및 **NPatch**를 지원합니다.  
 지원 버전: **3.97.0 (3597523)** (`com.bereal.ft`).
 
 ## 스크린샷
@@ -25,9 +26,12 @@ BeReal의 기능을 확장하는 Xposed 모듈입니다.
 
 ## 설치 및 사용법
 
-1. 모듈을 설치하고 LSPosed 등 프레임워크에서 활성화한 후, 범위를 **BeReal (`com.bereal.ft`)**로 지정합니다.
+1. 모듈을 설치하고 LSPosed 등 프레임워크에서 활성화(또는 NPatch로 APK 패치)한 후, 범위를 **BeReal (`com.bereal.ft`)**로 지정합니다.
 2. BeReal을 실행합니다.
 3. 홈 화면 제목 옆의 **+** 아이콘을 탭하여 갤러리 게시, 저장된 게시물 목록, 설정을 엽니다. 게시물 메뉴에서도 바로 저장할 수 있습니다.
+
+> [!WARNING]
+> NPatch 환경에서는 **이메일 로그인만** 지원합니다 (SMS 인증 로그인 미지원).
 
 저장 위치: `Pictures/BeFuck` 또는 `Movies/BeFuck`.
 

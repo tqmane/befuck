@@ -3,6 +3,7 @@
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 An Xposed module for BeReal.  
+Supports **LSPosed** and **NPatch**.  
 Supported BeReal version: **3.97.0 (3597523)** (`com.bereal.ft`).
 
 ## Screenshots
@@ -25,9 +26,12 @@ Supported BeReal version: **3.97.0 (3597523)** (`com.bereal.ft`).
 
 ## How to Use
 
-1. Install and enable the module in LSPosed (or compatible framework), selecting **BeReal (`com.bereal.ft`)** in the scope.
+1. Install and enable the module in LSPosed (or embed/patch with NPatch), selecting **BeReal (`com.bereal.ft`)** in the scope.
 2. Open BeReal.
 3. Tap the **+** button beside the Home feed title to access gallery posting, saved posts, and settings. You can also save directly from post menus.
+
+> [!WARNING]
+> When using NPatch, only **email login** is supported (SMS login is not supported).
 
 Saved files location: `Pictures/BeFuck` or `Movies/BeFuck`.
 

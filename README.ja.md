@@ -3,6 +3,7 @@
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 BeRealの機能を拡張するXposedモジュールです。  
+**LSPosed** および **NPatch** に対応しています。  
 対応バージョン：**3.97.0 (3597523)**（`com.bereal.ft`）
 
 ## スクリーンショット
@@ -25,9 +26,12 @@ BeRealの機能を拡張するXposedモジュールです。
 
 ## 使い方
 
-1. モジュールをインストールし、LSPosed等のフレームワークで有効化して対象に **BeReal (`com.bereal.ft`)** を選択します。
+1. モジュールをインストールし、LSPosed等のフレームワークで有効化（またはNPatchでパッチ適用）して対象に **BeReal (`com.bereal.ft`)** を選択します。
 2. BeRealを起動します。
 3. ホーム画面のタイトル横にある **+** アイコンから、ギャラリー投稿や保存した投稿一覧、設定を開けます。各投稿のメニューからも保存できます。
+
+> [!WARNING]
+> NPatch環境では**メールログインのみ**サポートしています（SMS認証によるログインは利用できません）。
 
 保存先：端末の `Pictures/BeFuck` または `Movies/BeFuck`
 
