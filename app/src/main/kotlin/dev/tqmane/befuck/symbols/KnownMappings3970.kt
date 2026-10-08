@@ -143,6 +143,8 @@ internal object KnownMappings3970 {
         "roomMusicPreview" to Pair("com.google.firebase.crashlytics.yhxg.ZXgeV", "FYJMQ"),
         "roomConversationCreatedAt" to Pair("androidx.arch.core.internal.LSIM.KAqdjhmN", "hAUc"),
         "roomUserProfileQuery" to Pair("com.applovin.mediation.adapters.googleadmanager.gkls.musXWZnlt", "AYlf"),
+        "roomCreateFollowFeedInfos" to Pair("bereal.app.features.sharing.ui.VrJ.usGKIW", "vWApBn"),
+        "roomCreateActivityCenterItem" to Pair("org.mp4parser.boxes.threegpp.ts26245.ng.RoGgsUKZEi", "hLyCcSv"),
         "chatMessageViewTag" to Pair("com.moloco.sdk.internal.client_metrics_data.dcLb.gvCIexqtCeo", "HYGFD"),
         "notificationRealMojiPrefix" to Pair("androidx.transition.lG.taPxUPuw", "qKkC"),
         "deepLinkSeparator" to Pair("androidx.credentials.gZ.MqonvtnPZU", "GiMzDN"),
@@ -176,6 +178,12 @@ internal object KnownMappings3970 {
         "roomMusicPreview" to "music_preview",
         "roomConversationCreatedAt" to "createdAt",
         "roomUserProfileQuery" to "SELECT * FROM `UserProfileEntity` WHERE `userId` IN (",
+        // q05.a (createAllTables) reads these two PairIP strings at code-unit offsets
+        // 0xb3 and 0xfa. Reconstructed from q05.g's Room TableInfo validation:
+        // column affinity/nullability, primary-key order, no defaults or foreign keys.
+        // Restore before database creation; skipping null SQL leaves an incomplete schema.
+        "roomCreateFollowFeedInfos" to "CREATE TABLE IF NOT EXISTS `FollowFeedInfos` (`userIdFollower` TEXT NOT NULL, `type` TEXT NOT NULL, `nextCursor` TEXT, `totalCount` INTEGER, PRIMARY KEY(`userIdFollower`, `type`))",
+        "roomCreateActivityCenterItem" to "CREATE TABLE IF NOT EXISTS `ActivityCenterItemEntity` (`id` TEXT NOT NULL, `seen` INTEGER NOT NULL, `activityType` TEXT NOT NULL, `counterInfo` INTEGER NOT NULL, `mainElementId` TEXT NOT NULL, `lastUpdatedAt` INTEGER NOT NULL, `accountOwnerUid` TEXT NOT NULL, `commentPreview` TEXT, PRIMARY KEY(`id`))",
         "chatMessageViewTag" to "chat_message_",
         "recapSemantics" to "allrecapscreen_recap",
         "crashlyticsFidPrefix" to "Fetched Firebase Installation ID: ",

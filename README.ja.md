@@ -40,7 +40,7 @@ BeRealの機能を拡張するXposedモジュールです。
 
 ## ビルド
 
-JDK 17以上とAndroid SDKが必要です。
+GradleデーモンはJDK 25を使用します（`gradle/gradle-daemon-jvm.properties`）。JDK 25とAndroid SDK Platform 37を用意してください。Javaソースの互換性は17です。
 
 **Windows (PowerShell)**
 
@@ -56,6 +56,12 @@ chmod +x gradlew
 ```
 
 生成APK：`app/build/outputs/apk/debug/app-debug.apk`
+
+### GitHub Actions
+
+**Actions → Debug APK → Run workflow** からブランチを選んでビルドできます（ワークフローが`main`にマージされた後に利用可能）。PRと`main`へのpushでも自動実行します。実行結果の **Artifacts** にある `BeFuck-debug-<実行番号>` から `app-debug.apk` をダウンロードできます。保存期間は14日です。モジュール検査、Roomスキーマの回帰検査、Android lintも実行し、レポートを別途保存します。APKは自動生成したデバッグ鍵で署名するため、別ビルドのAPKへ上書きするには署名鍵を合わせる必要がある場合があります。リリース署名用のSecretは不要です。
+
+SQLスキーマだけをローカルで検査するには `python3 checks/check_room_schema.py` を実行します。CIの成功は実機でのLSPosed/NPatch動作確認を意味しません。
 
 ## ライセンス
 

@@ -40,7 +40,7 @@ BeReal 的 Xposed 功能增强模块。
 
 ## 构建
 
-需要 JDK 17+ 和 Android SDK。
+Gradle 守护进程使用 JDK 25（见 `gradle/gradle-daemon-jvm.properties`）。请安装 JDK 25 和 Android SDK Platform 37；Java 源码兼容级别仍为 17。
 
 **Windows (PowerShell)**
 
@@ -56,6 +56,12 @@ chmod +x gradlew
 ```
 
 输出文件：`app/build/outputs/apk/debug/app-debug.apk`
+
+### GitHub Actions
+
+在 **Actions → Debug APK → Run workflow** 中选择分支即可构建（工作流合并到 `main` 后可用）。PR 和推送到 `main` 也会自动构建。在运行结果的 **Artifacts** 中下载 `BeFuck-debug-<运行编号>`，其中包含 `app-debug.apk`，保留14天。CI 还会执行模块检查、Room 数据库结构回归检查和 Android lint，并单独上传报告。APK 使用自动生成的调试签名，覆盖安装其他构建时可能需要使用相同的签名密钥；无需发布签名 Secret。
+
+本地检查 SQL 结构：`python3 checks/check_room_schema.py`。CI 成功不代表已验证真机上的 LSPosed/NPatch 运行情况。
 
 ## 许可证
 

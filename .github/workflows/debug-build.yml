@@ -1,0 +1,56 @@
+name: Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: debug-apk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          # Match gradle/gradle-daemon-jvm.properties.
+          java-version: '25'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install SDK platform
+        run: sdkmanager "platforms;android-37"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: Check repaired Room schema
+        run: python3 checks/check_room_schema.py
+      - name: Build debug APK
+        run: bash ./gradlew --no-daemon :app:assembleDebug
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: BeFuck-debug-${{ github.run_number }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Run module checks and Android lint
+        run: bash ./gradlew --no-daemon :app:checkModule :app:lintDebug
+      - name: Upload verification reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: BeFuck-reports-${{ github.run_number }}
+          path: app/build/reports/
+          if-no-files-found: ignore
+          retention-days: 14

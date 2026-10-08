@@ -40,7 +40,7 @@ Saved files location: `Pictures/BeFuck` or `Movies/BeFuck`.
 
 ## Build
 
-Requires JDK 17+ and Android SDK.
+The Gradle daemon uses JDK 25 (see `gradle/gradle-daemon-jvm.properties`); install JDK 25 and Android SDK Platform 37. Java source compatibility remains 17.
 
 **Windows (PowerShell)**
 
@@ -56,6 +56,12 @@ chmod +x gradlew
 ```
 
 Output APK: `app/build/outputs/apk/debug/app-debug.apk`
+
+### GitHub Actions
+
+Open **Actions → Debug APK → Run workflow** and select a branch (available after the workflow is merged into `main`). PRs and pushes to `main` also build automatically. Download `BeFuck-debug-<run number>` from the run's **Artifacts** section; it contains `app-debug.apk`. Artifacts are kept for 14 days. Module checks, Room schema regression checks, and Android lint run in CI; reports are uploaded separately. The APK uses a generated debug key, so updates over an APK signed by another build may require matching signing keys. No release-signing secrets are needed.
+
+To check the repaired SQL schema locally: `python3 checks/check_room_schema.py`. CI success does not verify LSPosed/NPatch runtime behavior on a device.
 
 ## License
 
