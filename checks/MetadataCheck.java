@@ -21,6 +21,7 @@ public final class MetadataCheck {
         assert !KnownMappings3970.isKnownVersion("3.97.0", 3597524L);
         assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
         assert !KnownMappings3970.isKnownVersion(null, 3597523L);
+        checkSmsRequestPayload();
         BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
         assert !BeFakeAuthHeaders.hasAuthorization();
         BeFakeAuthHeaders.capture("MOBILE-L7.BEREAL.COM", "AUTHORIZATION", "Bearer test-only");
@@ -127,6 +128,25 @@ public final class MetadataCheck {
         assert emissions.size() == 2 : "Failed composition left an active frame";
     }
 
+    private static void checkSmsRequestPayload() throws Exception {
+        var loader = MetadataCheck.class.getClassLoader();
+        assert KnownMappings3970.smsRequestConstructor(loader, "3.98.0", 3597523L) == null;
+        assert KnownMappings3970.smsRequestConstructor(loader, "3.97.0", 3597524L) == null;
+        var constructor = KnownMappings3970.smsRequestConstructor(loader, "3.97.0", 3597523L);
+        assert constructor.getDeclaringClass() == mtj.class;
+        Object[] missing = {"device-fixture", "stable-fixture", "phone-fixture", null};
+        Object[] repaired = KnownMappings3970.smsRequestArguments(missing);
+        assert missing[3] == null : "Must not mutate the caller's arguments";
+        assert repaired != missing && ((java.util.ArrayList<?>) repaired[3]).isEmpty();
+        for (int i = 0; i < 3; i++) assert repaired[i] == missing[i];
+        assert KnownMappings3970.smsRequestArguments(repaired) == repaired : "Repair must be idempotent";
+        var tokens = new java.util.ArrayList<>(java.util.List.of(new Object()));
+        Object[] populated = {missing[0], missing[1], missing[2], tokens};
+        assert KnownMappings3970.smsRequestArguments(populated) == populated;
+        assert populated[3] == tokens : "Existing challenge tokens must retain identity and contents";
+        assert tokens.size() == 1;
+    }
+
     public static final class RealMojiFixture {
         public String a = "reaction-id", b = "owner-id", c = "⚡", e = "https://cdn.bereal.network/first.jpg", f = "owner";
         public long h = 1_759_655_091_573L;
@@ -142,3 +162,15 @@ public final class MetadataCheck {
 
 // Native menu action is a marker interface; the download action must remain separate from delete/report.
 interface ddi {}
+
+// Exact 3.97.0 request signature; contains no real account or device data.
+class mtj {
+    private String deviceId, stableDeviceId, phoneNumber;
+    private java.util.List<?> tokens;
+    mtj(String deviceId, String stableDeviceId, String phoneNumber, java.util.ArrayList<?> tokens) {
+        this.deviceId = deviceId;
+        this.stableDeviceId = stableDeviceId;
+        this.phoneNumber = phoneNumber;
+        this.tokens = tokens;
+    }
+}

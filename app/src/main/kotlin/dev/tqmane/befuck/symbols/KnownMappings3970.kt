@@ -81,6 +81,31 @@ internal object KnownMappings3970 {
     }
 
     @JvmStatic
+    fun smsRequestConstructor(loader: ClassLoader, name: String?, code: Long): java.lang.reflect.Constructor<*>? {
+        if (!isKnownVersion(name, code)) return null
+        val request = Class.forName("mtj", false, loader)
+        for ((fieldName, type) in mapOf(
+            "deviceId" to String::class.java, "stableDeviceId" to String::class.java,
+            "phoneNumber" to String::class.java, "tokens" to List::class.java,
+        )) {
+            val field = request.getDeclaredField(fieldName)
+            require(field.type == type && !Modifier.isStatic(field.modifiers))
+        }
+        return request.getDeclaredConstructor(String::class.java, String::class.java,
+            String::class.java, ArrayList::class.java)
+    }
+
+    // g01.invokeSuspend converts an empty token list to null before constructing mtj.
+    // Keep the JSON array shape used by the request-code endpoint's reference client.
+    // Never discard or replace an existing challenge token.
+    @JvmStatic
+    fun smsRequestArguments(args: Array<Any?>): Array<Any?> {
+        require(args.size == 4)
+        if (args[3] != null) return args
+        return args.copyOf().apply { this[3] = arrayListOf<Any>() }
+    }
+
+    @JvmStatic
     fun preludeLibraryLoad(loader: ClassLoader, name: String?, code: Long): Method? {
         if (!isKnownVersion(name, code)) return null
         val library = Class.forName("com.sun.jna.Library", false, loader)
@@ -166,6 +191,7 @@ internal object KnownMappings3970 {
         "sourcepointUsNatSampleRate" to Pair("bereal.app.features.sharing.ui.VrJ.usGKIW", "HAFqVkV"),
         "mapsCameraIdleDescriptor" to Pair("com.yoti.mobile.android.liveness.zoom.view.navigation.sjLd.aExjrwjFHmK", "FSmVbqmP"),
         "phoneRegionBelarus" to Pair("org.mp4parser.boxes.threegpp.ts26245.ng.RoGgsUKZEi", "zHMEXkLvtGbGRa"),
+        "media3Vp9MimeType" to Pair("okhttp3.internal.connection.udV.ewVWKVT", "oiooMrpCpO"),
     )
 
     // Confirmed constants for this APK; dynamic countdown values are recovered separately.
@@ -204,6 +230,9 @@ internal object KnownMappings3970 {
         "cameraPostAnalyticsValue" to "post",
         // wkp.l(): calling code 375; confirmed by bundled PhoneNumberMetadataProto_BY.
         "phoneRegionBelarus" to "BY",
+        // MediaCodecInfo.isHdr10PlusOutOfBandMetadataSupported compares VIDEO_VP9
+        // before checking VP9Profile2HDR10Plus (16384), matching upstream Media3.
+        "media3Vp9MimeType" to "video/x-vnd.on2.vp9",
     )
 
     @JvmStatic

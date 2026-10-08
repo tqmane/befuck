@@ -212,6 +212,7 @@ public final class BeRealModule extends XposedModule {
             installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
             installAuthFailureDiagnostics(classLoader, versionName, versionCode);
+            installSmsRequestPayloadRepair(classLoader, versionName, versionCode);
             installEmailAnalyticsGuard(classLoader, versionName, versionCode);
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
             installRuntimeRecoveryGuards(classLoader);
@@ -336,6 +337,24 @@ public final class BeRealModule extends XposedModule {
             info("Installed version-scoped email screen analytics guard");
         } catch (Throwable failure) {
             error("Could not install email screen analytics guard", failure);
+        }
+    }
+
+    private void installSmsRequestPayloadRepair(ClassLoader loader, String name, long code) {
+        try {
+            Constructor<?> constructor = KnownMappings3970.smsRequestConstructor(loader, name, code);
+            if (constructor == null) return;
+            hook(constructor).intercept(chain -> {
+                Object[] original = chain.getArgs().toArray();
+                Object[] args = KnownMappings3970.smsRequestArguments(original);
+                // Log only payload shape, never phone numbers, device IDs, or tokens.
+                info("SMS request-code payload: tokenCount=" + ((List<?>) args[3]).size()
+                        + "; normalizedNullTokens=" + (original != args));
+                return chain.proceed(args);
+            });
+            info("Installed version-scoped SMS request-code payload repair");
+        } catch (Throwable failure) {
+            error("Could not install SMS request-code payload repair", failure);
         }
     }
 
