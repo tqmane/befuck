@@ -4,9 +4,7 @@
 
 An Xposed module for BeReal.  
 Supports **LSPosed** and **NPatch**.  
-Supported BeReal version: **3.97.0 (3597523), 3.97.1 (3599414)** (`com.bereal.ft`).
-
-3.97.1 mappings are statically checked against the supplied APK and the module build; device validation is pending.
+Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** (`com.bereal.ft`).
 
 ## Screenshots
 
