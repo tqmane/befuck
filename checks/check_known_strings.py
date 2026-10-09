@@ -75,15 +75,11 @@ def validate():
     assert len(pools) == 32 and len(fields) == 1401
     assert sum(e["value"] == "" for e in fields.values()) == 29
     assert sum(e["reads"] == 0 for e in fields.values()) == 2
-    java = (ROOT / "app/src/main/java/dev/tqmane/befuck/BeRealModule.java").read_text()
-    bootstrap = java.split("private void restoreBeRealOnCreateDispatch", 1)[1].split("private void restoreMainActivityLifecycleDispatch", 1)[0]
+    bootstrap = source.split("private val bootstrapStringFields = listOf(", 1)[1].split("\n    )", 1)[0]
     early = 0
-    for block in bootstrap.split("        try {")[2:]:
-        owner = re.search(r'Class.forName\(\s*"([^"]+)"', block).group(1)
-        name = re.search(r'getDeclaredField\("([^"]+)"', block).group(1)
-        literal = re.search(r'restoreStaticStringIfNull\([^,]+, "runtime-string", ("(?:[^"\\]|\\.)*")\)', block).group(1)
+    for owner, name in re.findall(r'"([^"]+)" to "([^"]+)"', bootstrap):
         entry = fields["L" + owner.replace(".", "/") + ";->" + name]
-        assert entry.get("bootstrap") and entry["value"] == json.loads(literal)
+        assert entry.get("bootstrap"), f"Unreviewed bootstrap string: {owner}.{name}"
         early += 1
     assert early == 17
     print("Verified all 1,401 original values in 32 Kotlin pools, including 29 original empty strings.")

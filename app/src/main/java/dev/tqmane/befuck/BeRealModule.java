@@ -52,7 +52,10 @@ import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
 import dev.tqmane.befuck.symbols.BeRealSymbolResolver;
 import dev.tqmane.befuck.symbols.ResolvedSymbols;
-import dev.tqmane.befuck.symbols.KnownMappings3970;
+import dev.tqmane.befuck.symbols.KnownMappings;
+import dev.tqmane.befuck.symbols.HostMappings;
+import dev.tqmane.befuck.symbols.HostMethod;
+import dev.tqmane.befuck.symbols.HostClass;
 import dev.tqmane.befuck.runtime.RuntimeKnowledge;
 import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
@@ -64,16 +67,6 @@ import dev.tqmane.befuck.ui.BeFuckGalleryUi;
 public final class BeRealModule extends XposedModule {
     private static final String TAG = "BeFuck";
     private static final String TARGET_PACKAGE = "com.bereal.ft";
-    private static final String GENERATED_DEX_ENTRY = "assets/pairip/anonymous.dex";
-    private static final String APPLICATION_DISPATCH_CLASS =
-            "bereal.app.BeRealApplication$c2020060317";
-    private static final String ACTIVITY_CREATE_DISPATCH_CLASS =
-            "bereal.app.MainActivity$c2020060319";
-    private static final String ACTIVITY_DESTROY_DISPATCH_CLASS =
-            "bereal.app.MainActivity$c2020060318";
-    private static final String ACTIVITY_RESUME_DISPATCH_CLASS =
-            "bereal.app.MainActivity$c2020060317";
-
     private ClassLoader generatedDexParent;
     private ClassLoader generatedDexClassLoader;
     private ClassLoader targetClassLoader;
@@ -81,6 +74,7 @@ public final class BeRealModule extends XposedModule {
     private volatile Context applicationContext;
     private volatile Resources moduleResources;
     private boolean smsAuthCompatibility;
+    private HostMappings mappings;
     private final AtomicBoolean runtimeInitializationStarted = new AtomicBoolean();
     private final AtomicBoolean authHeaderCaptureInstalled = new AtomicBoolean();
     private final AtomicBoolean authUrlCaptureInstalled = new AtomicBoolean();
@@ -111,26 +105,20 @@ public final class BeRealModule extends XposedModule {
     private final AtomicBoolean universalReactionsEnabledLogged = new AtomicBoolean();
     private final AtomicBoolean universalPostStateRegularizedLogged = new AtomicBoolean();
     private final AtomicBoolean inlineDownloadInjectionLogged = new AtomicBoolean();
-    private final AtomicBoolean inlineDownloadInjectionFailedLogged = new AtomicBoolean();
-    private final AtomicBoolean inlineDownloadDetailFallbackLogged = new AtomicBoolean();
     private final AtomicBoolean detailDownloadFactoryLogged = new AtomicBoolean();
     private final AtomicBoolean detailDownloadViewLaidOutLogged = new AtomicBoolean();
-    private final AtomicBoolean detailGridMediaLookupMissLogged = new AtomicBoolean();
     private final AtomicBoolean pendingDetailPmgSeenLogged = new AtomicBoolean();
     private final AtomicBoolean pendingDetailGshSeenLogged = new AtomicBoolean();
     private final AtomicBoolean pendingDetailMi6SeenLogged = new AtomicBoolean();
     private final AtomicBoolean detailGridComposerBoundLogged = new AtomicBoolean();
-    private final AtomicBoolean detailMediaOverlayComposedLogged = new AtomicBoolean();
     private final AtomicBoolean adViewSuppressionLogged = new AtomicBoolean();
     private final Map<Class<?>, Boolean> adViewClasses = new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicBoolean videoUploadDiagnosticsInstalled = new AtomicBoolean();
     private volatile ResolvedSymbols resolvedSymbols;
     private boolean composeInjectionReady;
     private final ThreadLocal<Object> protobufMessageInfo = new ThreadLocal<>();
-    private final ThreadLocal<Object> retryingConcurrentCamera = new ThreadLocal<>();
     private final ThreadLocal<Boolean> homeFeedModelMapping = new ThreadLocal<>();
     private final ThreadLocal<Boolean> friendsOfFriendsModelMapping = new ThreadLocal<>();
-    private final Map<Object, Boolean> pendingConcurrentSessionRetries = new WeakHashMap<>();
     private final Map<Object, Map<String, String>> pendingAuthHeadersByBuilder =
             Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Class<?>, Field> okHttpBuilderUrlFields = new ConcurrentHashMap<>();
@@ -140,13 +128,6 @@ public final class BeRealModule extends XposedModule {
     private final AtomicBoolean cameraOriginSentinelLogged = new AtomicBoolean();
     private final AtomicBoolean media3NetworkObserverDispatchLogged = new AtomicBoolean();
     private volatile boolean fusedLocationApiHooksInstalled;
-    private volatile String lastCameraShutterState;
-    private volatile String lastMainCameraCaptureState;
-    private volatile String lastMainCameraGateState;
-    private volatile String lastMainCameraLayoutState;
-    private volatile String lastMainCameraControlState;
-    private volatile String lastCameraXConcurrentState;
-    private volatile Boolean lastCurrentUserVerified;
 
     @Override
     public void onPackageLoaded(XposedModuleInterface.PackageLoadedParam param) {
@@ -157,11 +138,10 @@ public final class BeRealModule extends XposedModule {
         final ClassLoader classLoader = param.getDefaultClassLoader();
         targetClassLoader = classLoader;
         targetApplicationInfo = param.getApplicationInfo();
-        info("Loaded for " + param.getPackageName() + "; installing PairIP bypass before deferred BeFuck resolution");
+        info("Loaded for " + param.getPackageName() + "; preparing version-scoped BeFuck hooks");
 
         installApplicationContextHook(classLoader);
         installNullTraceSectionGuard();
-        installComposeTracingContextGuard(classLoader);
         installVmRunnerInitializerHook(classLoader);
         installStartupLauncherHook(classLoader);
     }
@@ -206,21 +186,30 @@ public final class BeRealModule extends XposedModule {
             error("Could not read BeReal version before symbol resolution", error);
         }
 
+        mappings = KnownMappings.find(versionName, versionCode);
+        if (mappings == null) {
+            info("No mapping for BeReal " + versionName + " (" + versionCode + ")");
+            return;
+        }
+
         try {
             ApplicationInfo appInfo = targetApplicationInfo != null
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
             moduleResources = loadModuleResources(context);
-            smsAuthCompatibility = KnownMappings3970.isKnownVersion(versionName, versionCode);
-            installPreludeNativeCompatibility(context, classLoader, versionName, versionCode);
-            installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
+            smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
+            installPreludeNativeCompatibility(context, classLoader);
+            installRepackagedStartupCompatibility(context, classLoader);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
-            installAuthFailureDiagnostics(classLoader, versionName, versionCode);
-            installSmsRequestPayloadRepair(classLoader, versionName, versionCode);
-            installTextFieldFocusGuard(classLoader, versionName, versionCode);
-            installEmailAnalyticsGuard(classLoader, versionName, versionCode);
+            installComposeTracingContextGuard(classLoader);
+            installAuthFailureDiagnostics(classLoader);
+            installSmsRequestPayloadRepair(classLoader);
+            installTextFieldFocusGuard(classLoader);
+            installEmailAnalyticsGuard(classLoader);
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
-            installRuntimeRecoveryGuards(classLoader);
+            if (mappings.getRequiresRuntimeRecovery()) {
+                installRuntimeRecoveryGuards(classLoader);
+            }
             resolvedSymbols = BeRealSymbolResolver.resolve(
                     appInfo,
                     classLoader,
@@ -235,7 +224,7 @@ public final class BeRealModule extends XposedModule {
         installRuntimeHooks(classLoader, resolvedSymbols);
     }
 
-    private void installRepackagedStartupCompatibility(Context host, ClassLoader loader, String name, long code) {
+    private void installRepackagedStartupCompatibility(Context host, ClassLoader loader) {
         // Repackaging changes the signing certificate and Play install provenance. Limit this
         // to known embedded patch loaders; retain the host's remote authentication flow.
         try {
@@ -243,9 +232,9 @@ public final class BeRealModule extends XposedModule {
                     TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
             if (installed.metaData == null || (!installed.metaData.containsKey("npatch")
                     && !installed.metaData.containsKey("lspatch"))) return;
-            if (!KnownMappings3970.isKnownVersion(name, code)) return;
+            if (!mappings.getRequiresRuntimeRecovery()) return;
             installRepackagedSigningInfoCompatibility(host, installed.metaData);
-            for (Method check : KnownMappings3970.repackagedStartupChecks(loader, name, code)) {
+            for (Method check : mappings.repackagedStartupChecks(loader)) {
                 hook(check).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
                     Object context = chain.getArg(0);
                     if (context instanceof Context && TARGET_PACKAGE.equals(((Context) context).getPackageName())) {
@@ -261,13 +250,13 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installPreludeNativeCompatibility(Context host, ClassLoader loader, String name, long code) {
-        // The protected 3597523 library traps in ffi_prelude_uniffi_contract_version
+    private void installPreludeNativeCompatibility(Context host, ClassLoader loader) {
+        // The protected host library traps in ffi_prelude_uniffi_contract_version
         // after VMRunner is replaced, including on unmodified APKs using root Xposed.
         // This must not depend on repackaging metadata or certificate-hook success.
         try {
-            Method load = KnownMappings3970.preludeLibraryLoad(loader, name, code);
-            List<Class<?>> interfaces = KnownMappings3970.preludeLibraryInterfaces(loader, name, code);
+            Method load = mappings.preludeLibraryLoad(loader);
+            List<Class<?>> interfaces = mappings.preludeLibraryInterfaces(loader);
             if (load == null || moduleResources == null) return;
             hook(load).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
                 if (!interfaces.contains(chain.getArg(1))) return chain.proceed();
@@ -292,7 +281,7 @@ public final class BeRealModule extends XposedModule {
         android.content.pm.Signature original = new android.content.pm.Signature(config.getString("originalSignature"));
         String digest = android.util.Base64.encodeToString(
                 java.security.MessageDigest.getInstance("SHA-256").digest(original.toByteArray()), android.util.Base64.NO_WRAP);
-        if (!KnownMappings3970.SIGNING_CERTIFICATE_SHA256.equals(digest)) {
+        if (!digest.equals(mappings.getSigningCertificateSha256())) {
             throw new IllegalStateException("Patch metadata certificate does not match the supported original APK");
         }
         // Some API 102 NPatch runtimes do not apply their legacy PackageManager hooks.
@@ -327,9 +316,9 @@ public final class BeRealModule extends XposedModule {
         info("Repackaged signing compatibility: methods=" + count + "; legacy=" + legacyMatches + "; modern=" + modernMatches);
     }
 
-    private void installEmailAnalyticsGuard(ClassLoader loader, String name, long code) {
+    private void installEmailAnalyticsGuard(ClassLoader loader) {
         try {
-            KnownMappings3970.EmailAnalyticsGuard guard = KnownMappings3970.emailAnalyticsGuard(loader, name, code);
+            HostMappings.EmailAnalyticsGuard guard = mappings.emailAnalyticsGuard(loader);
             if (guard == null) return;
             for (Map.Entry<Constructor<?>, List<Field>> entry : guard.getConstructors().entrySet()) {
                 hook(entry.getKey()).intercept(chain -> {
@@ -355,9 +344,9 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installTextFieldFocusGuard(ClassLoader loader, String name, long code) {
+    private void installTextFieldFocusGuard(ClassLoader loader) {
         try {
-            KnownMappings3970.TextFieldFocusGuard guard = KnownMappings3970.textFieldFocusGuard(loader, name, code);
+            HostMappings.TextFieldFocusGuard guard = mappings.textFieldFocusGuard(loader);
             if (guard == null) return;
             hook(guard.getNotify()).intercept(chain -> chain.proceed(guard.arguments(chain.getArgs().toArray())));
             info("Installed version-scoped text-field focus layout guard");
@@ -366,18 +355,18 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installSmsRequestPayloadRepair(ClassLoader loader, String name, long code) {
+    private void installSmsRequestPayloadRepair(ClassLoader loader) {
         try {
-            Constructor<?> constructor = KnownMappings3970.smsRequestConstructor(loader, name, code);
+            Constructor<?> constructor = mappings.smsRequestConstructor(loader);
             if (constructor == null) return;
             hook(constructor).intercept(chain -> {
                 Object[] original = chain.getArgs().toArray();
-                Object[] args = KnownMappings3970.smsRequestArguments(original);
+                Object[] args = mappings.smsRequestArguments(original);
                 // Log only payload shape, never phone numbers, device IDs, or tokens.
                 info("SMS request-code payload: tokenCount=" + ((List<?>) args[3]).size()
                         + "; normalizedNullTokens=" + (original != args));
                 try {
-                    info("SMS request-code shape: " + KnownMappings3970.smsRequestShape(loader, name, code, args));
+                    info("SMS request-code shape: " + mappings.smsRequestShape(loader, args));
                 } catch (Throwable failure) {
                     // Diagnostic failures must not break authentication or expose request values.
                     info("SMS request-code shape unavailable: " + failure.getClass().getSimpleName());
@@ -390,9 +379,9 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installAuthFailureDiagnostics(ClassLoader loader, String name, long code) {
+    private void installAuthFailureDiagnostics(ClassLoader loader) {
         try {
-            Map<String, Constructor<?>> constructors = KnownMappings3970.authDiagnosticConstructors(loader, name, code);
+            Map<String, Constructor<?>> constructors = mappings.authDiagnosticConstructors(loader);
             for (Map.Entry<String, Constructor<?>> entry : constructors.entrySet()) {
                 final String kind = entry.getKey();
                 hook(entry.getValue()).intercept(chain -> {
@@ -500,9 +489,10 @@ public final class BeRealModule extends XposedModule {
         } catch (Throwable failure) {
             error("Could not install a String null-argument recovery hook", failure);
         }
-        if (KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName())) {
+        if (mappings.getRequiresRuntimeRecovery()) {
             try {
-                Method property = Class.forName("she", false, classLoader).getDeclaredMethod("K", Object.class, String.class);
+                Method property = mappings.analyticsPropertyMethod(classLoader);
+                if (property == null) return;
                 hook(property).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
                     if (chain.getArg(1) == null) {
                         String recovered = RuntimeKnowledge.recoverArgument("analytics_key");
@@ -518,17 +508,18 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installRuntimeHooks(ClassLoader classLoader, ResolvedSymbols symbols) {
-        for (Map.Entry<Field, String> repair : KnownMappings3970.runtimeStringRepairs(
-                classLoader, RuntimeKnowledge.getVersionName()).entrySet()) {
+        for (Map.Entry<Field, String> repair : mappings.runtimeStringRepairs(classLoader).entrySet()) {
             Field field = repair.getKey();
             restoreStaticStringIfNull(field, field.getDeclaringClass().getName() + "." + field.getName(), repair.getValue());
         }
-        installAnalyticsNullKeyGuard(classLoader);
-        installProtobufNullFieldProbe(classLoader);
-        installRoomNullColumnGuard(classLoader);
-        installCameraOriginSentinelGuard(classLoader, symbols);
+        if (mappings.getRequiresRuntimeRecovery()) {
+            installAnalyticsNullKeyGuard(classLoader);
+            installProtobufNullFieldProbe(classLoader);
+            installRoomNullColumnGuard(classLoader);
+            installCameraOriginSentinelGuard(classLoader, symbols);
+            installMedia3NetworkTypeReceiverHook(classLoader);
+        }
         installFusedLocationFallback(classLoader, symbols);
-        installMedia3NetworkTypeReceiverHook(classLoader);
         installConcurrentVideoSecondaryFrontSelection(classLoader, symbols);
         installBeFakeAuthHeaderCapture(classLoader);
         installComposeInjectionScope(classLoader);
@@ -541,19 +532,19 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installRealMojiDownloadMenu(ClassLoader loader) {
-        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName()) || moduleResources == null) return;
+        if (!KnownMappings.isSupportedVersion(RuntimeKnowledge.getVersionName()) || moduleResources == null) return;
         try {
-            Class<?> actionClass = Class.forName("ddi", false, loader);
-            Class<?> itemClass = Class.forName("a7i", false, loader);
-            Class<?> entryClass = Class.forName("edi", false, loader);
-            Class<?> selectedClass = Class.forName("ndi", false, loader);
-            Class<?> viewerItemClass = Class.forName("mdi", false, loader);
-            Class<?> listClass = Class.forName("u4a", false, loader);
+            Class<?> actionClass = mappings.type(HostClass.RealMojiMenuAction, loader);
+            Class<?> itemClass = mappings.type(HostClass.RealMojiMenuItem, loader);
+            Class<?> entryClass = mappings.type(HostClass.RealMojiMenuEntry, loader);
+            Class<?> selectedClass = mappings.type(HostClass.RealMojiSelection, loader);
+            Class<?> viewerItemClass = mappings.type(HostClass.RealMojiViewerItem, loader);
+            Class<?> listClass = mappings.type(HostClass.PersistentList, loader);
             Constructor<?> selected = selectedClass.getDeclaredConstructor(viewerItemClass, String.class, listClass, int.class);
             Constructor<?> item = itemClass.getDeclaredConstructor(String.class, String.class, String.class, boolean.class, Integer.class);
             Constructor<?> entry = entryClass.getDeclaredConstructor(actionClass, itemClass, String.class);
-            Method immutableList = Class.forName("ie5", false, loader).getDeclaredMethod("z", Iterable.class);
-            Method clicked = Class.forName("sdi", false, loader).getDeclaredMethod("G", actionClass);
+            Method immutableList = mappings.type(HostClass.ImmutableListFactory, loader).getDeclaredMethod(mappings.methodName(HostMethod.ImmutableListCopy), Iterable.class);
+            Method clicked = mappings.type(HostClass.RealMojiViewModel, loader).getDeclaredMethod("G", actionClass);
             Field realMoji = viewerItemClass.getDeclaredField("a");
             Field tag = entryClass.getDeclaredField("c");
             String downloadTag = "befuck.realmoji.download";
@@ -579,7 +570,7 @@ public final class BeRealModule extends XposedModule {
                     for (Object value : existing) if (downloadTag.equals(tag.get(value))) present = true;
                     if (!present) {
                         Object model = realMoji.get(args[0]);
-                        Object action = dev.tqmane.befuck.download.RealMojiDownloadAction.create(loader, model);
+                        Object action = dev.tqmane.befuck.download.RealMojiDownloadAction.create(actionClass, model);
                         Object menuItem = item.newInstance(label, null, label, false, icon == 0 ? null : Integer.valueOf(icon));
                         List<Object> items = new ArrayList<>(existing);
                         items.add(entry.newInstance(action, menuItem, downloadTag));
@@ -590,7 +581,7 @@ public final class BeRealModule extends XposedModule {
                 }
                 return chain.proceed(args);
             });
-            info("Installed selected RealMoji download entry in the native overflow menu for 3597523");
+            info("Installed selected RealMoji download entry for " + RuntimeKnowledge.getVersionName());
         } catch (Throwable failure) {
             error("Could not install the version-specific RealMoji download menu", failure);
         }
@@ -929,26 +920,8 @@ public final class BeRealModule extends XposedModule {
     private void installVideoUploadFailureDiagnostics(ClassLoader classLoader) {
         if (!videoUploadDiagnosticsInstalled.compareAndSet(false, true)) return;
         try {
-            if (resolvedSymbols != null && KnownMappings3970.isKnownVersion(resolvedSymbols.getVersionName())) {
-                Field recursionDepth = Class.forName("androidx.credentials.gZ.MqonvtnPZU", false, classLoader)
-                        .getDeclaredField("rjWJOvNnlBpCE");
-                recursionDepth.setAccessible(true);
-                restoreStaticStringIfNull(recursionDepth, "uploadRecursionDepth", "recursionDepth");
-                Class<?> fileTypeStrings = Class.forName("com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS", false, classLoader);
-                Field mp3Extension = fileTypeStrings.getDeclaredField("csWHdjHvbvur");
-                mp3Extension.setAccessible(true);
-                restoreStaticStringIfNull(mp3Extension, "media3Mp3Extension", ".mp3");
-                Field avifExtension = fileTypeStrings.getDeclaredField("OPbZdoBRniyAS");
-                avifExtension.setAccessible(true);
-                restoreStaticStringIfNull(avifExtension, "media3AvifExtension", ".avif");
-                Field commercialFlagName = Class.forName("androidx.media3.extractor.text.pgs.wtco.kKFOp", false, classLoader)
-                        .getDeclaredField("DJrrLBsuQ");
-                commercialFlagName.setAccessible(true);
-                restoreStaticStringIfNull(commercialFlagName, "cancelPostCommercialFlagName", "isCommercialCollaboration");
-                Field mentionPrefix = Class.forName("com.pubmatic.sdk.webrendering.rVzC.QfYVeFFNcJ", false, classLoader)
-                        .getDeclaredField("XpQSiFrhKPuQAsg");
-                mentionPrefix.setAccessible(true);
-                restoreStaticStringIfNull(mentionPrefix, "commentMentionPrefix", "@");
+            for (Map.Entry<Field, String> repair : mappings.uploadStringRepairs(classLoader).entrySet()) {
+                restoreStaticStringIfNull(repair.getKey(), "upload-string", repair.getValue());
             }
             Class<?> worker = Class.forName(
                     "bereal.app.data.post.repository.mypost.worker.UploadUnsentPostWorker",
@@ -974,7 +947,7 @@ public final class BeRealModule extends XposedModule {
                             if (stage instanceof String && failure instanceof Throwable) {
                                 Throwable throwable = (Throwable) failure;
                                 String details;
-                                if ("up4".equals(throwable.getClass().getSimpleName())) {
+                                if (mappings.className(HostClass.UploadFailure).equals(throwable.getClass().getSimpleName())) {
                                     try {
                                         details = throwable.toString();
                                     } catch (Throwable ignored) {
@@ -1051,7 +1024,7 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installComposeInjectionScope(ClassLoader loader) {
-        Map<String, Method> methods = KnownMappings3970.composeRuntimeMethods(loader, RuntimeKnowledge.getVersionName());
+        Map<String, Method> methods = mappings.composeRuntimeMethods(loader);
         if (methods.isEmpty()) {
             info("Compose download additions disabled: runtime signatures unresolved");
             return;
@@ -1089,10 +1062,10 @@ public final class BeRealModule extends XposedModule {
             return;
         }
 
-        if (KnownMappings3970.isKnownVersion(symbols.getVersionName())) {
+        if (KnownMappings.isSupportedVersion(symbols.getVersionName())) {
             try {
-                Class<?> currentUser = Class.forName("hun", false, classLoader);
-                Class<?> mediaModel = Class.forName("wi1", false, classLoader);
+                Class<?> currentUser = mappings.type(HostClass.User, classLoader);
+                Class<?> mediaModel = mappings.type(HostClass.BeRealMedia, classLoader);
                 Field aspectRatio = mediaModel.getDeclaredField("aspectRatio");
                 aspectRatio.setAccessible(true);
                 for (Constructor<?> constructor : mediaModel.getDeclaredConstructors()) {
@@ -1114,7 +1087,7 @@ public final class BeRealModule extends XposedModule {
                                 return result;
                             });
                 }
-                Class<?> corePost = Class.forName("h45", false, classLoader);
+                Class<?> corePost = mappings.type(HostClass.CorePost, classLoader);
                 for (Constructor<?> constructor : corePost.getDeclaredConstructors()) {
                     if (constructor.getParameterCount() != 28) continue;
                     hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -1125,9 +1098,9 @@ public final class BeRealModule extends XposedModule {
                             });
                 }
                 info("Capturing CorePost URLs, owner and original timestamps from all loaded feed models");
-                Class<?> unsentRepository = Class.forName("s55", false, classLoader);
-                Class<?> postRepository = Class.forName("z4e", false, classLoader);
-                Class<?> createContinuation = Class.forName("t4e", false, classLoader);
+                Class<?> unsentRepository = mappings.type(HostClass.UnsentPostRepository, classLoader);
+                Class<?> postRepository = mappings.type(HostClass.PostRepository, classLoader);
+                Class<?> createContinuation = mappings.type(HostClass.CreatePostContinuation, classLoader);
                 Field pendingCore = createContinuation.getDeclaredField("r");
                 pendingCore.setAccessible(true);
                 for (Method method : postRepository.getDeclaredMethods()) {
@@ -1143,7 +1116,7 @@ public final class BeRealModule extends XposedModule {
                                 return result;
                             });
                 }
-                Class<?> unsentPost = Class.forName("tin", false, classLoader);
+                Class<?> unsentPost = mappings.type(HostClass.UnsentPost, classLoader);
                 for (Method method : unsentRepository.getDeclaredMethods()) {
                     if (!"p".equals(method.getName()) || method.getParameterCount() != 2 ||
                             method.getParameterTypes()[0] != unsentPost) continue;
@@ -1167,8 +1140,7 @@ public final class BeRealModule extends XposedModule {
             sponsoredFields.add(media.getViewStateRealSponsoredPostUiStateField());
         }
         try {
-            for (Field field : KnownMappings3970.sponsoredFeedFields(classLoader,
-                    RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) {
+            for (Field field : mappings.sponsoredFeedFields(classLoader)) {
                 if (!sponsoredFields.contains(field)) sponsoredFields.add(field);
             }
         } catch (Throwable failure) {
@@ -1386,9 +1358,9 @@ public final class BeRealModule extends XposedModule {
         if (gridMedia != null) {
             try {
                 Class<?> composerType = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-                Class<?> functionType = Class.forName("ns8", false, classLoader);
+                Class<?> functionType = mappings.type(HostClass.Function1, classLoader);
                 Class<?> disposableType = Class.forName("androidx.compose.runtime.DisposableEffectResult", false, classLoader);
-                Map<String, Method> runtimeMethods = KnownMappings3970.composeRuntimeMethods(classLoader, symbols.getVersionName());
+                Map<String, Method> runtimeMethods = mappings.composeRuntimeMethods(classLoader);
                 if (!composeInjectionReady || runtimeMethods.isEmpty()) throw new NoSuchMethodException("Compose restart-scope methods");
                 Method beginGroup = runtimeMethods.get("replaceStart");
                 Method endGroup = runtimeMethods.get("replaceEnd");
@@ -1464,9 +1436,9 @@ public final class BeRealModule extends XposedModule {
             return;
         }
         try {
-            Class<?> tileClass = Class.forName("f3i", false, classLoader);
-            Class<?> imageDataClass = Class.forName("zxl", false, classLoader);
-            Class<?> badgeClass = Class.forName("u2i", false, classLoader);
+            Class<?> tileClass = mappings.type(HostClass.HomeGridTile, classLoader);
+            Class<?> imageDataClass = mappings.type(HostClass.ImageData, classLoader);
+            Class<?> badgeClass = mappings.type(HostClass.HomeGridBadge, classLoader);
             Field postIdField = tileClass.getDeclaredField("a");
             Field imageDataField = tileClass.getDeclaredField("b");
             Field nameField = tileClass.getDeclaredField("c");
@@ -1517,10 +1489,10 @@ public final class BeRealModule extends XposedModule {
 
     private void installHomeGridDetailsClickHook(ClassLoader classLoader) {
         try {
-            Class<?> clickLambdaClass = Class.forName("d42", false, classLoader);
-            Class<?> tileContainerClass = Class.forName("b99", false, classLoader);
-            Class<?> tileModelClass = Class.forName("f3i", false, classLoader);
-            Class<?> callbackClass = Class.forName("ps8", false, classLoader);
+            Class<?> clickLambdaClass = mappings.type(HostClass.HomeGridClick, classLoader);
+            Class<?> tileContainerClass = mappings.type(HostClass.HomeGridTileContainer, classLoader);
+            Class<?> tileModelClass = mappings.type(HostClass.HomeGridTile, classLoader);
+            Class<?> callbackClass = mappings.type(HostClass.Function2, classLoader);
             Field branchField = clickLambdaClass.getDeclaredField("a");
             Field callbackField = clickLambdaClass.getDeclaredField("b");
             Field tileContainerField = clickLambdaClass.getDeclaredField("c");
@@ -1582,7 +1554,7 @@ public final class BeRealModule extends XposedModule {
             return;
         }
         try {
-            Class<?> optionsClass = Class.forName("wl7", false, classLoader);
+            Class<?> optionsClass = mappings.type(HostClass.FeedBlurOptions, classLoader);
             FeedBlurModelRewriter blurModelRewriter = resolveFeedBlurModelRewriter(classLoader);
             Field[] optionFields = new Field[8];
             Class<?>[] booleanParameters = new Class<?>[8];
@@ -1617,7 +1589,7 @@ public final class BeRealModule extends XposedModule {
             }
 
             try {
-                Class<?> reactionsClass = Class.forName("lkg", false, classLoader);
+                Class<?> reactionsClass = mappings.type(HostClass.PostReactions, classLoader);
                 for (Constructor<?> c : reactionsClass.getDeclaredConstructors()) {
                     c.setAccessible(true);
                     hook(c)
@@ -1728,7 +1700,7 @@ public final class BeRealModule extends XposedModule {
                         if (changed) return chain.proceed(args);
                         return chain.proceed();
                     });
-            info("Hooked the 3.97.0 HomeFeed and FriendsOfFriends mappers for local canBlur=false and blurred-state normalization");
+            info("Hooked version-mapped HomeFeed and FriendsOfFriends mappers for local canBlur=false and blurred-state normalization");
         } catch (Throwable error) {
             error("Could not install the local feed canBlur model hooks", error);
         }
@@ -1812,12 +1784,12 @@ public final class BeRealModule extends XposedModule {
 
     private FeedBlurModelRewriter resolveFeedBlurModelRewriter(ClassLoader classLoader) {
         try {
-            Class<?> postClass = Class.forName("rm7", false, classLoader);
-            Class<?> blurredStateClass = Class.forName("om7", false, classLoader);
-            Class<?> regularStateClass = Class.forName("pm7", false, classLoader);
-            Class<?> myRealmojisClass = Class.forName("c8e", false, classLoader);
-            Class<?> realmojisClass = Class.forName("jpg", false, classLoader);
-            Class<?> emptyListClass = Class.forName("ax6", false, classLoader);
+            Class<?> postClass = mappings.type(HostClass.HomeFeedPost, classLoader);
+            Class<?> blurredStateClass = mappings.type(HostClass.BlurredPostState, classLoader);
+            Class<?> regularStateClass = mappings.type(HostClass.RegularPostState, classLoader);
+            Class<?> myRealmojisClass = mappings.type(HostClass.MyRealMojis, classLoader);
+            Class<?> realmojisClass = mappings.type(HostClass.RealMojis, classLoader);
+            Class<?> emptyListClass = mappings.type(HostClass.EmptyList, classLoader);
             Field stateField = postClass.getDeclaredField("f");
             stateField.setAccessible(true);
             Field[] postFields = new Field[15];
@@ -1829,8 +1801,8 @@ public final class BeRealModule extends XposedModule {
             for (Constructor<?> candidate : postClass.getDeclaredConstructors()) {
                 Class<?>[] parameters = candidate.getParameterTypes();
                 if (parameters.length == 15 && parameters[0] == String.class &&
-                        parameters[1] == Boolean.TYPE && parameters[2].getName().equals("h45") &&
-                        parameters[5].getName().equals("qm7")) {
+                        parameters[1] == Boolean.TYPE && parameters[2].getName().equals(mappings.className(HostClass.CorePost)) &&
+                        parameters[5].getName().equals(mappings.className(HostClass.PostViewState))) {
                     postConstructor = candidate;
                     break;
                 }
@@ -1841,7 +1813,7 @@ public final class BeRealModule extends XposedModule {
             Field emptyListField = emptyListClass.getDeclaredField("a");
             emptyListField.setAccessible(true);
             Object emptyList = emptyListField.get(null);
-            Constructor<?> myRealmojisConstructor = myRealmojisClass.getDeclaredConstructor(List.class, Class.forName("b8e", false, classLoader));
+            Constructor<?> myRealmojisConstructor = myRealmojisClass.getDeclaredConstructor(List.class, mappings.type(HostClass.MyRealMojiState, classLoader));
             Constructor<?> realmojisConstructor = realmojisClass.getDeclaredConstructor(Boolean.TYPE, Integer.TYPE, Integer.TYPE, List.class);
             Constructor<?> regularStateConstructor = regularStateClass.getDeclaredConstructor(myRealmojisClass, realmojisClass);
             myRealmojisConstructor.setAccessible(true);
@@ -1887,7 +1859,7 @@ public final class BeRealModule extends XposedModule {
         try {
             Class<?> modifierClass = Class.forName("androidx.compose.ui.Modifier", false, classLoader);
             Class<?> composerClass = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-            Class<?> function1Class = Class.forName("ns8", false, classLoader);
+            Class<?> function1Class = mappings.type(HostClass.Function1, classLoader);
             Class<?> androidViewClass = Class.forName("androidx.compose.ui.viewinterop.AndroidView_androidKt", false, classLoader);
             Method androidViewComposable = null;
             for (Method method : androidViewClass.getDeclaredMethods()) {
@@ -1929,7 +1901,7 @@ public final class BeRealModule extends XposedModule {
             zIndex.setAccessible(true);
             Object fillMaxSizeTopmostModifier = zIndex.invoke(null, fillMaxSizeModifier, Float.MAX_VALUE);
 
-            Class<?> unitClass = Class.forName("bhn", false, classLoader);
+            Class<?> unitClass = mappings.type(HostClass.Unit, classLoader);
             Field unitField = unitClass.getDeclaredField("a");
             unitField.setAccessible(true);
             Object kotlinUnit = unitField.get(null);
@@ -2026,13 +1998,13 @@ public final class BeRealModule extends XposedModule {
     private void installCurrentPostMediaOrientationHook(ClassLoader classLoader) {
         try {
             Class<?> composerClass = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-            Class<?> mediaRenderer = Class.forName("mi6", false, classLoader);
+            Class<?> mediaRenderer = mappings.type(HostClass.DualMediaRenderer, classLoader);
             Method orientationMethod = null;
             for (Method method : mediaRenderer.getDeclaredMethods()) {
                 Class<?>[] parameters = method.getParameterTypes();
                 if (Modifier.isStatic(method.getModifiers()) && method.getName().equals("c") &&
                         method.getReturnType() == Void.TYPE && parameters.length == 34 &&
-                        parameters[0].getName().equals("zh6") && parameters[9] == Boolean.TYPE &&
+                        parameters[0].getName().equals(mappings.className(HostClass.DualViewData)) && parameters[9] == Boolean.TYPE &&
                         parameters[30] == composerClass && parameters[31] == Integer.TYPE &&
                         parameters[32] == Integer.TYPE && parameters[33] == Integer.TYPE) {
                     orientationMethod = method;
@@ -2057,7 +2029,7 @@ public final class BeRealModule extends XposedModule {
                         }
                     });
 
-            Class<?> flipLambda = Class.forName("eu", false, classLoader);
+            Class<?> flipLambda = mappings.type(HostClass.MediaFlipState, classLoader);
             Class<?> mutableStateClass = Class.forName("androidx.compose.runtime.MutableState", false, classLoader);
             Constructor<?> flipConstructor = null;
             for (Constructor<?> constructor : flipLambda.getDeclaredConstructors()) {
@@ -2109,7 +2081,7 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installAdViewSuppression() {
-        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
+        if (!KnownMappings.isSupportedVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
         try {
             hook(View.class.getDeclaredMethod("setVisibility", int.class))
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -2156,8 +2128,7 @@ public final class BeRealModule extends XposedModule {
     }
 
     private boolean isAdSdkView(View view) {
-        return adViewClasses.computeIfAbsent(view.getClass(), type -> KnownMappings3970.isAdViewClass(
-                type, RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode()));
+        return adViewClasses.computeIfAbsent(view.getClass(), type -> mappings.isAdViewClass(type));
     }
 
     private Object createZeroSizeComposeModifier(ClassLoader classLoader) throws Exception {
@@ -2385,7 +2356,7 @@ public final class BeRealModule extends XposedModule {
                     false,
                     classLoader
             );
-            Class<?> unitClass = Class.forName("bhn", false, classLoader);
+            Class<?> unitClass = mappings.type(HostClass.Unit, classLoader);
             Field unitField = unitClass.getDeclaredField("a");
             unitField.setAccessible(true);
             Object unit = unitField.get(null);
@@ -2414,640 +2385,6 @@ public final class BeRealModule extends XposedModule {
             }
         } catch (Throwable error) {
             error("Could not restore resolved string field " + symbol, error);
-        }
-    }
-
-    private void installLocationAndCaptureDiagnostics(
-            ClassLoader classLoader,
-            ResolvedSymbols symbols
-    ) {
-        try {
-            Method requestLocation = symbols == null ? null : symbols.getLocationRequestMethod();
-            if (requestLocation == null) {
-                info("[SymbolResolver] Location request diagnostics disabled: request method unresolved");
-                return;
-            }
-            hook(requestLocation)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        info("Location request entered; fresh=" + chain.getArg(0));
-                        try {
-                            Object result = chain.proceed();
-                            info("Location request returned " + summarizeLocationResult(result));
-                            return result;
-                        } catch (Throwable failure) {
-                            error("Location request threw " + failure.getClass().getName(), failure);
-                            throw failure;
-                        }
-                    });
-            info("Hooked BeReal fused-location request");
-        } catch (Throwable error) {
-            error("Could not hook BeReal fused-location request", error);
-        }
-
-        try {
-            Class<?> locationContinuation = Class.forName("pfb", false, classLoader);
-            Method resume = locationContinuation.getDeclaredMethod("invokeSuspend", Object.class);
-            hook(resume)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        try {
-                            Object result = chain.proceed();
-                            info("Location task completed " + summarizeLocationResult(result));
-                            return result;
-                        } catch (Throwable failure) {
-                            error("Location task continuation threw " + failure.getClass().getName(), failure);
-                            throw failure;
-                        }
-                    });
-            info("Hooked BeReal location task completion");
-        } catch (Throwable error) {
-            error("Could not hook BeReal location task completion", error);
-        }
-
-        try {
-            Class<?> geocoderContinuation = Class.forName("ofb", false, classLoader);
-            Method geocode = geocoderContinuation.getDeclaredMethod("invokeSuspend", Object.class);
-            hook(geocode)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        try {
-                            Object result = chain.proceed();
-                            info("Reverse geocoder completed " + summarizeLocationResult(result));
-                            return result;
-                        } catch (Throwable failure) {
-                            error("Reverse geocoder threw " + failure.getClass().getName(), failure);
-                            throw failure;
-                        }
-                    });
-            info("Hooked BeReal reverse-geocoder completion");
-        } catch (Throwable error) {
-            error("Could not hook BeReal reverse-geocoder completion", error);
-        }
-
-        try {
-            Class<?> cameraViewModel = Class.forName("uo2", false, classLoader);
-            Class<?> uiEvent = Class.forName("p00", false, classLoader);
-            Method publishUiEvent = cameraViewModel.getDeclaredMethod("U", uiEvent);
-            hook(publishUiEvent)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object event = chain.getArg(0);
-                        if (event != null) {
-                            info("BeReal camera/post UI event: "
-                                    + event.getClass().getSimpleName());
-                        }
-                        if (event != null && "ll2".equals(event.getClass().getSimpleName())) {
-                            try {
-                                Field message = event.getClass().getDeclaredField("b");
-                                message.setAccessible(true);
-                                info("BeReal camera/post error event: " + message.get(event));
-                            } catch (Throwable ignored) {
-                                info("BeReal camera/post error event received");
-                            }
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked BeReal camera/post error events");
-        } catch (Throwable error) {
-            error("Could not hook BeReal camera/post error events", error);
-        }
-
-        installCameraLocationEventProbe(classLoader);
-        installCameraShutterStateProbe(classLoader);
-        installCameraShutterButtonProbe(classLoader);
-        installMainCameraCaptureButtonProbe(classLoader);
-        installMainCameraGateProbe(classLoader);
-        installMainCameraLayoutProbe(classLoader);
-        installMainCameraControlProbe(classLoader);
-        installConcurrentVideoSessionRetry(classLoader);
-        installCameraStateRegistryProbe(classLoader);
-        installCurrentUserVerificationProbe(classLoader);
-        installFusedLocationFallback(classLoader, symbols);
-        installLocationPipelineProbe(classLoader);
-        installCameraLocationStateProbe(classLoader);
-        installLocationInputStateProbe(classLoader);
-    }
-
-    private void installCameraShutterStateProbe(ClassLoader classLoader) {
-        try {
-            Class<?> cameraUi = Class.forName("tai", false, classLoader);
-            Method shutterComposable = null;
-            for (Method method : cameraUi.getDeclaredMethods()) {
-                if ("b".equals(method.getName())
-                        && Modifier.isStatic(method.getModifiers())
-                        && method.getParameterCount() == 9) {
-                    shutterComposable = method;
-                    break;
-                }
-            }
-            if (shutterComposable == null) {
-                throw new NoSuchMethodException("tai.b shutter composable");
-            }
-            hook(shutterComposable)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object state = chain.getArg(1);
-                        String stateName = state == null
-                                ? "null"
-                                : state.getClass().getSimpleName();
-                        if (!stateName.equals(lastCameraShutterState)) {
-                            lastCameraShutterState = stateName;
-                            info("Camera shutter state=" + stateName
-                                    + ", enabled=" + "nwm".equals(stateName));
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked BeReal camera shutter state");
-        } catch (Throwable error) {
-            error("Could not hook BeReal camera shutter state", error);
-        }
-    }
-
-    private void installCameraShutterButtonProbe(ClassLoader classLoader) {
-        try {
-            Class<?> cameraButtons = Class.forName("qzh", false, classLoader);
-            Method buttonComposable = null;
-            for (Method method : cameraButtons.getDeclaredMethods()) {
-                if ("a".equals(method.getName())
-                        && Modifier.isStatic(method.getModifiers())
-                        && method.getParameterCount() == 10) {
-                    buttonComposable = method;
-                    break;
-                }
-            }
-            if (buttonComposable == null) {
-                throw new NoSuchMethodException("qzh.a composable button");
-            }
-            hook(buttonComposable)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object label = chain.getArg(4);
-                        if ("shutter button".equals(label)) {
-                            Object enabled = chain.getArg(0);
-                            info("Camera shutter composable enabled=" + enabled);
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked BeReal camera shutter composable");
-        } catch (Throwable error) {
-            error("Could not hook BeReal camera shutter composable", error);
-        }
-    }
-
-    private void installMainCameraCaptureButtonProbe(ClassLoader classLoader) {
-        try {
-            Class<?> captureButton = Class.forName("gql", false, classLoader);
-            Method composeCaptureButton = null;
-            for (Method method : captureButton.getDeclaredMethods()) {
-                if ("a".equals(method.getName())
-                        && Modifier.isStatic(method.getModifiers())
-                        && method.getParameterCount() == 10) {
-                    composeCaptureButton = method;
-                    break;
-                }
-            }
-            if (composeCaptureButton == null) {
-                throw new NoSuchMethodException("gql.a camera capture button");
-            }
-            hook(composeCaptureButton)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object mode = chain.getArg(2);
-                        Object captureState = chain.getArg(3);
-                        String state = "mode=" + mode
-                                + ", visible=" + chain.getArg(0)
-                                + ", enabled=" + chain.getArg(5)
-                                + ", captureState=" + (captureState == null
-                                ? "null"
-                                : captureState.getClass().getSimpleName());
-                        if (!state.equals(lastMainCameraCaptureState)) {
-                            lastMainCameraCaptureState = state;
-                            info("Main camera capture button: " + state);
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked main BeReal camera capture button state");
-        } catch (Throwable error) {
-            error("Could not hook main BeReal camera capture button state", error);
-        }
-    }
-
-    private void installCurrentUserVerificationProbe(ClassLoader classLoader) {
-        try {
-            Class<?> currentUser = Class.forName("hun", false, classLoader);
-            Method isVerified = currentUser.getDeclaredMethod("x");
-            hook(isVerified)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object result = chain.proceed();
-                        if (result instanceof Boolean) {
-                            Boolean verified = (Boolean) result;
-                            if (!verified.equals(lastCurrentUserVerified)) {
-                                lastCurrentUserVerified = verified;
-                                info("Current-user isVerified state=" + verified);
-                            }
-                        }
-                        return result;
-                    });
-            info("Hooked BeReal current-user verification flag");
-        } catch (Throwable error) {
-            error("Could not hook BeReal current-user verification flag", error);
-        }
-    }
-
-    private void installMainCameraGateProbe(ClassLoader classLoader) {
-        try {
-            Class<?> cameraScreen = Class.forName("tl2", false, classLoader);
-            Method composeCameraScreen = cameraScreen.getDeclaredMethod(
-                    "b",
-                    Class.forName("uo2", false, classLoader),
-                    Class.forName("androidx.compose.runtime.Composer", false, classLoader),
-                    int.class
-            );
-            hook(composeCameraScreen)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object viewModel = chain.getArg(0);
-                        Object gateValue = null;
-                        try {
-                            Field gateFlow = viewModel.getClass().getDeclaredField("n0");
-                            gateFlow.setAccessible(true);
-                            Object flowState = gateFlow.get(viewModel);
-                            Method getValue = flowState.getClass().getMethod("getValue");
-                            gateValue = getValue.invoke(flowState);
-                        } catch (Throwable ignored) {
-                        }
-                        String state = "rootCaptureGate=" + gateValue;
-                        if (!state.equals(lastMainCameraGateState)) {
-                            lastMainCameraGateState = state;
-                            info("Main camera gate: " + state);
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked main BeReal camera capture gate");
-        } catch (Throwable error) {
-            error("Could not hook main BeReal camera capture gate", error);
-        }
-    }
-
-    private void installMainCameraLayoutProbe(ClassLoader classLoader) {
-        try {
-            Class<?> cameraLayout = Class.forName("tl2", false, classLoader);
-            Method composeCameraLayout = null;
-            for (Method method : cameraLayout.getDeclaredMethods()) {
-                if ("a".equals(method.getName())
-                        && Modifier.isStatic(method.getModifiers())
-                        && method.getParameterCount() == 17) {
-                    composeCameraLayout = method;
-                    break;
-                }
-            }
-            if (composeCameraLayout == null) {
-                throw new NoSuchMethodException("tl2.a camera layout");
-            }
-            hook(composeCameraLayout)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object cameraState = chain.getArg(1);
-                        String state = "layoutEnabledArg=" + chain.getArg(11)
-                                + ", cameraState=" + (cameraState == null
-                                ? "null"
-                                : cameraState.getClass().getSimpleName());
-                        if (!state.equals(lastMainCameraLayoutState)) {
-                            lastMainCameraLayoutState = state;
-                            info("Main camera layout: " + state);
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked main BeReal camera layout state");
-        } catch (Throwable error) {
-            error("Could not hook main BeReal camera layout state", error);
-        }
-    }
-
-    private void installMainCameraControlProbe(ClassLoader classLoader) {
-        try {
-            Class<?> cameraControls = Class.forName("vk2", false, classLoader);
-            Method composeCameraControls = null;
-            for (Method method : cameraControls.getDeclaredMethods()) {
-                if ("a".equals(method.getName())
-                        && Modifier.isStatic(method.getModifiers())
-                        && method.getParameterCount() == 9) {
-                    composeCameraControls = method;
-                    break;
-                }
-            }
-            if (composeCameraControls == null) {
-                throw new NoSuchMethodException("vk2.a camera controls");
-            }
-            hook(composeCameraControls)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object preview = chain.getArg(1);
-                        Object previewOptions = null;
-                        Object mode = null;
-                        boolean showControls = false;
-                        try {
-                            Field showField = preview.getClass().getDeclaredField("a");
-                            showField.setAccessible(true);
-                            showControls = showField.getBoolean(preview);
-                            Field optionsField = preview.getClass().getDeclaredField("d");
-                            optionsField.setAccessible(true);
-                            previewOptions = optionsField.get(preview);
-                            Field mandatoryField = previewOptions.getClass().getDeclaredField("a");
-                            mandatoryField.setAccessible(true);
-                            Object mandatory = mandatoryField.get(previewOptions);
-                            Field modeField = mandatory.getClass().getDeclaredField("b");
-                            modeField.setAccessible(true);
-                            mode = modeField.get(mandatory);
-                        } catch (Throwable ignored) {
-                        }
-                        Object captureState = chain.getArg(2);
-                        String state = "mode=" + mode
-                                + ", showControls=" + showControls
-                                + ", captureEnabledArg=" + chain.getArg(4)
-                                + ", captureState=" + (captureState == null
-                                ? "null"
-                                : captureState.getClass().getSimpleName());
-                        if (!state.equals(lastMainCameraControlState)) {
-                            lastMainCameraControlState = state;
-                            info("Main camera controls: " + state);
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked main BeReal camera controls state");
-        } catch (Throwable error) {
-            error("Could not hook main BeReal camera controls state", error);
-        }
-    }
-
-    private void installConcurrentVideoSessionRetry(ClassLoader classLoader) {
-        try {
-            Class<?> camera2 = Class.forName(
-                    "androidx.camera.camera2.internal.Camera2CameraImpl",
-                    false,
-                    classLoader
-            );
-            Method createCaptureSession = camera2.getDeclaredMethod("E");
-            hook(createCaptureSession)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object camera = chain.getThisObject();
-                        logCameraXConcurrentState(camera, "before-session-create");
-                        Object result = chain.proceed();
-                        logCameraXConcurrentState(camera, "after-session-create");
-                        if (camera == null || camera == retryingConcurrentCamera.get()) {
-                            return result;
-                        }
-                        if (isConcurrentVideoMode(camera) && !isConcurrentSessionReady(camera)) {
-                            scheduleConcurrentSessionRetry(camera, createCaptureSession, 1);
-                        }
-                        return result;
-                    });
-            info("Hooked CameraX concurrent capture-session readiness");
-        } catch (Throwable error) {
-            error("Could not hook CameraX concurrent capture-session readiness", error);
-        }
-    }
-
-    private void installCameraStateRegistryProbe(ClassLoader classLoader) {
-        try {
-            Class<?> registryClass = Class.forName(
-                    "androidx.camera.core.impl.CameraStateRegistry",
-                    false,
-                    classLoader
-            );
-            Method cameraReadiness = registryClass.getDeclaredMethod(
-                    "i",
-                    String.class,
-                    String.class
-            );
-            hook(cameraReadiness)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object registry = chain.getThisObject();
-                        Object result = chain.proceed();
-                        if (Boolean.FALSE.equals(result)) {
-                            try {
-                                Field coordinatorField = registry.getClass().getDeclaredField("d");
-                                coordinatorField.setAccessible(true);
-                                Object coordinator = coordinatorField.get(registry);
-                                Method modeMethod = coordinator.getClass().getMethod("d");
-                                if (((Number) modeMethod.invoke(coordinator)).intValue() == 2) {
-                                    String state = "camera=" + chain.getArg(0)
-                                            + ", partner=" + chain.getArg(1)
-                                            + ", concurrentRegistryReady=false";
-                                    if (!state.equals(lastCameraXConcurrentState)) {
-                                        lastCameraXConcurrentState = state;
-                                        info("CameraX concurrent readiness: " + state);
-                                    }
-                                }
-                            } catch (Throwable ignored) {
-                            }
-                        }
-                        return result;
-                    });
-            info("Hooked CameraX concurrent camera-state readiness");
-        } catch (Throwable error) {
-            error("Could not hook CameraX concurrent camera-state readiness", error);
-        }
-    }
-
-    private void logCameraXConcurrentState(Object camera, String phase) {
-        if (camera == null) {
-            return;
-        }
-        try {
-            Field coordinatorField = camera.getClass().getDeclaredField("t");
-            coordinatorField.setAccessible(true);
-            Object coordinator = coordinatorField.get(camera);
-            Method modeMethod = coordinator.getClass().getMethod("d");
-            int mode = ((Number) modeMethod.invoke(coordinator)).intValue();
-            if (mode != 2) {
-                return;
-            }
-            Field infoField = camera.getClass().getDeclaredField("j");
-            infoField.setAccessible(true);
-            Object cameraInfo = infoField.get(camera);
-            Field idField = cameraInfo.getClass().getDeclaredField("a");
-            idField.setAccessible(true);
-            String cameraId = String.valueOf(idField.get(cameraInfo));
-            String partnerId = String.valueOf(
-                    coordinator.getClass().getMethod("c", String.class)
-                            .invoke(coordinator, cameraId)
-            );
-            Field stateField = camera.getClass().getDeclaredField("e");
-            stateField.setAccessible(true);
-            Object internalState = stateField.get(camera);
-            String state = phase + ": camera=" + cameraId
-                    + ", partner=" + partnerId
-                    + ", internalState=" + internalState
-                    + ", registryReady=" + isConcurrentSessionReady(camera);
-            if (!state.equals(lastCameraXConcurrentState)) {
-                lastCameraXConcurrentState = state;
-                info("CameraX concurrent session state: " + state);
-            }
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private boolean isConcurrentVideoMode(Object camera) {
-        try {
-            Field coordinatorField = camera.getClass().getDeclaredField("t");
-            coordinatorField.setAccessible(true);
-            Object coordinator = coordinatorField.get(camera);
-            Method operatingMode = coordinator.getClass().getMethod("d");
-            return ((Number) operatingMode.invoke(coordinator)).intValue() == 2;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private boolean isConcurrentSessionReady(Object camera) {
-        try {
-            Field infoField = camera.getClass().getDeclaredField("j");
-            infoField.setAccessible(true);
-            Object cameraInfo = infoField.get(camera);
-            Field idField = cameraInfo.getClass().getDeclaredField("a");
-            idField.setAccessible(true);
-            String cameraId = (String) idField.get(cameraInfo);
-
-            Field coordinatorField = camera.getClass().getDeclaredField("t");
-            coordinatorField.setAccessible(true);
-            Object coordinator = coordinatorField.get(camera);
-            Method partnerMethod = coordinator.getClass().getMethod("c", String.class);
-            String partnerId = (String) partnerMethod.invoke(coordinator, cameraId);
-
-            Field registryField = camera.getClass().getDeclaredField("u");
-            registryField.setAccessible(true);
-            Object registry = registryField.get(camera);
-            Method readyMethod = registry.getClass().getMethod("i", String.class, String.class);
-            return Boolean.TRUE.equals(readyMethod.invoke(registry, cameraId, partnerId));
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private void scheduleConcurrentSessionRetry(Object camera, Method createCaptureSession, int attempt) {
-        if (attempt > 5) {
-            info("CameraX concurrent session stayed unready after retries");
-            return;
-        }
-        synchronized (pendingConcurrentSessionRetries) {
-            if (Boolean.TRUE.equals(pendingConcurrentSessionRetries.get(camera))) {
-                return;
-            }
-            pendingConcurrentSessionRetries.put(camera, Boolean.TRUE);
-        }
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            synchronized (pendingConcurrentSessionRetries) {
-                pendingConcurrentSessionRetries.remove(camera);
-            }
-            if (!isConcurrentVideoMode(camera)) {
-                return;
-            }
-
-            try {
-                Field stateField = camera.getClass().getDeclaredField("e");
-                stateField.setAccessible(true);
-                Object cameraState = stateField.get(camera);
-                if (!(cameraState instanceof Enum)
-                        || !"OPENED".equals(((Enum<?>) cameraState).name())) {
-                    return;
-                }
-
-                if (!isConcurrentSessionReady(camera)) {
-                    scheduleConcurrentSessionRetry(camera, createCaptureSession, attempt + 1);
-                    return;
-                }
-
-                Field executorField = camera.getClass().getDeclaredField("c");
-                executorField.setAccessible(true);
-                Executor cameraExecutor = (Executor) executorField.get(camera);
-                cameraExecutor.execute(() -> {
-                    try {
-                        retryingConcurrentCamera.set(camera);
-                        createCaptureSession.invoke(camera);
-                        info("Retried CameraX session after both concurrent cameras became ready");
-                    } catch (Throwable error) {
-                        error("CameraX concurrent capture-session retry failed", error);
-                    } finally {
-                        retryingConcurrentCamera.remove();
-                    }
-                });
-            } catch (Throwable error) {
-                error("Could not inspect CameraX concurrent capture-session state", error);
-            }
-        }, 300L);
-    }
-
-    private void installCameraLocationEventProbe(ClassLoader classLoader) {
-        try {
-            Class<?> cameraViewModel = Class.forName("uo2", false, classLoader);
-            Class<?> cameraAction = Class.forName("kk2", false, classLoader);
-            Class<?> cameraActionKind = Class.forName("qf2", false, classLoader);
-            Field locationAction = cameraActionKind.getDeclaredField("b");
-            locationAction.setAccessible(true);
-            Object locationActionValue = locationAction.get(null);
-
-            Method dispatchAction = cameraViewModel.getDeclaredMethod("T", cameraAction);
-            hook(dispatchAction)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object event = chain.getArg(0);
-                        String eventName = event == null ? "null" : event.getClass().getName();
-                        String actionName = eventName;
-                        String simpleName = event == null
-                                ? "null"
-                                : event.getClass().getSimpleName();
-                        if (event != null && "mj2".equals(simpleName)) {
-                            try {
-                                Field kind = event.getClass().getDeclaredField("a");
-                                kind.setAccessible(true);
-                                Object value = kind.get(event);
-                                actionName = locationActionValue.equals(value)
-                                        ? "Location"
-                                        : "other-camera-control";
-                            } catch (Throwable ignored) {
-                                actionName = "other-camera-control";
-                            }
-                        } else if (event != null && "uj2".equals(simpleName)) {
-                            try {
-                                Field option = event.getClass().getDeclaredField("a");
-                                option.setAccessible(true);
-                                Object optionValue = option.get(event);
-                                Field mode = optionValue.getClass().getDeclaredField("d");
-                                mode.setAccessible(true);
-                                actionName = "Location option selected: "
-                                        + summarizeLocationMode(mode.get(optionValue));
-                            } catch (Throwable ignored) {
-                                actionName = "Location option selected";
-                            }
-                        } else if (event != null && "tj2".equals(simpleName)) {
-                            actionName = "Hide location sheet";
-                        }
-                        info("Camera control event: " + actionName);
-                        return chain.proceed();
-                    });
-            info("Hooked BeReal camera location-control events");
-        } catch (Throwable error) {
-            error("Could not hook BeReal camera location-control events", error);
         }
     }
 
@@ -3506,260 +2843,8 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installLocationPipelineProbe(ClassLoader classLoader) {
-        try {
-            Class<?> locationMode = Class.forName("hjl", false, classLoader);
-            Class<?> continuation = Class.forName("wx4", false, classLoader);
-            Class<?> callback = Class.forName("js8", false, classLoader);
-
-            installLocationMethodProbe(
-                    classLoader,
-                    "tlg",
-                    "c",
-                    new Class<?>[]{locationMode, callback, continuation},
-                    "Camera location selection",
-                    0,
-                    -1
-            );
-            installLocationMethodProbe(
-                    classLoader,
-                    "fjf",
-                    "a",
-                    new Class<?>[]{locationMode, continuation},
-                    "Camera location permission check",
-                    0,
-                    -1
-            );
-            installLocationMethodProbe(
-                    classLoader,
-                    "fwj",
-                    "a",
-                    new Class<?>[]{locationMode, boolean.class, continuation},
-                    "Camera location fetch",
-                    0,
-                    1
-            );
-
-            installLocationContinuationProbe(classLoader, "rlg", "Camera location selection");
-            installLocationContinuationProbe(classLoader, "ejf", "Camera location permission check");
-            installLocationContinuationProbe(classLoader, "dwj", "Camera location fetch");
-        } catch (Throwable error) {
-            error("Could not install Camera location pipeline probes", error);
-        }
-    }
-
-    private void installCameraLocationStateProbe(ClassLoader classLoader) {
-        try {
-            Class<?> locationState = Class.forName("qgb", false, classLoader);
-            Class<?> continuation = Class.forName("vx4", false, classLoader);
-            Class<?> cameraStateCollector = Class.forName("pc4", false, classLoader);
-            Method emit = cameraStateCollector.getDeclaredMethod(
-                    "emit",
-                    Object.class,
-                    continuation
-            );
-            hook(emit)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object state = chain.getArg(0);
-                        if (state != null && locationState.isInstance(state)) {
-                            try {
-                                Field mode = locationState.getDeclaredField("a");
-                                Field userLocation = locationState.getDeclaredField("b");
-                                Field allowPrecise = locationState.getDeclaredField("c");
-                                mode.setAccessible(true);
-                                userLocation.setAccessible(true);
-                                allowPrecise.setAccessible(true);
-                                info("Camera location state emitted: mode="
-                                        + summarizeLocationMode(mode.get(state))
-                                        + ", hasLocation=" + (userLocation.get(state) != null)
-                                        + ", allowPrecise=" + allowPrecise.getBoolean(state));
-                            } catch (Throwable inspectionError) {
-                                error("Could not inspect Camera location state", inspectionError);
-                            }
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked Camera location state emissions");
-        } catch (Throwable error) {
-            error("Could not hook Camera location state emissions", error);
-        }
-
-        try {
-            Class<?> locationFlow = Class.forName("s0f", false, classLoader);
-            Method createFlow = locationFlow.getDeclaredMethod("b");
-            hook(createFlow)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        info("Camera location flow requested");
-                        Object result = chain.proceed();
-                        info("Camera location flow returned "
-                                + (result == null ? "null" : result.getClass().getName()));
-                        return result;
-                    });
-            info("Hooked Camera location flow creation");
-        } catch (Throwable error) {
-            error("Could not hook Camera location flow creation", error);
-        }
-
-        installLocationContinuationProbe(classLoader, "r0f", "Camera location state mapping");
-    }
-
-    private void installLocationInputStateProbe(ClassLoader classLoader) {
-        try {
-            Class<?> mapper = Class.forName("on2", false, classLoader);
-            Method mapLocationState = mapper.getDeclaredMethod(
-                    "invoke",
-                    Object.class,
-                    Object.class,
-                    Object.class,
-                    Object.class
-            );
-            hook(mapLocationState)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        Object source = chain.getArg(0);
-                        String sourceName = source == null
-                                ? "null"
-                                : source.getClass().getSimpleName();
-                        if ("nf5".equals(sourceName) || "of5".equals(sourceName)) {
-                            Object permissions = chain.getArg(1);
-                            String permissionState = "unreadable";
-                            if (permissions != null) {
-                                try {
-                                    Field approximate = permissions.getClass().getDeclaredField("a");
-                                    Field precise = permissions.getClass().getDeclaredField("b");
-                                    Field any = permissions.getClass().getDeclaredField("c");
-                                    approximate.setAccessible(true);
-                                    precise.setAccessible(true);
-                                    any.setAccessible(true);
-                                    permissionState = "approx=" + approximate.getBoolean(permissions)
-                                            + ", precise=" + precise.getBoolean(permissions)
-                                            + ", any=" + any.getBoolean(permissions);
-                                } catch (Throwable ignored) {
-                                    permissionState = "unreadable";
-                                }
-                            }
-                            info("Camera location input: " + sourceName
-                                    + "; permissions{" + permissionState + "}");
-                        }
-                        try {
-                            Object result = chain.proceed();
-                            if ("nf5".equals(sourceName) || "of5".equals(sourceName)) {
-                                info("Camera location state mapper returned "
-                                        + (result == null ? "null" : result.getClass().getName()));
-                            }
-                            return result;
-                        } catch (Throwable failure) {
-                            error("Camera location state mapper threw "
-                                    + failure.getClass().getName(), failure);
-                            throw failure;
-                        }
-                    });
-            info("Hooked Camera location input-state mapping");
-        } catch (Throwable error) {
-            error("Could not hook Camera location input-state mapping", error);
-        }
-    }
-
-    private void installLocationMethodProbe(
-            ClassLoader classLoader,
-            String className,
-            String methodName,
-            Class<?>[] parameterTypes,
-            String label,
-            int modeArgument,
-            int booleanArgument
-    ) {
-        try {
-            Class<?> owner = Class.forName(className, false, classLoader);
-            Method method = owner.getDeclaredMethod(methodName, parameterTypes);
-            hook(method)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        StringBuilder details = new StringBuilder();
-                        if (modeArgument >= 0) {
-                            details.append(" mode=")
-                                    .append(summarizeLocationMode(chain.getArg(modeArgument)));
-                        }
-                        if (booleanArgument >= 0) {
-                            details.append(" flag=").append(chain.getArg(booleanArgument));
-                        }
-                        info(label + " entered" + details);
-                        try {
-                            Object result = chain.proceed();
-                            info(label + " returned " + summarizeLocationResult(result));
-                            return result;
-                        } catch (Throwable failure) {
-                            error(label + " threw " + failure.getClass().getName(), failure);
-                            throw failure;
-                        }
-                    });
-            info("Hooked " + label);
-        } catch (Throwable error) {
-            error("Could not hook " + label, error);
-        }
-    }
-
-    private void installLocationContinuationProbe(
-            ClassLoader classLoader,
-            String className,
-            String label
-    ) {
-        try {
-            Class<?> continuation = Class.forName(className, false, classLoader);
-            Method resume = continuation.getDeclaredMethod("invokeSuspend", Object.class);
-            hook(resume)
-                    .setPriority(XposedInterface.PRIORITY_LOWEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        try {
-                            Object result = chain.proceed();
-                            info(label + " continuation returned " + summarizeLocationResult(result));
-                            return result;
-                        } catch (Throwable failure) {
-                            error(label + " continuation threw "
-                                    + failure.getClass().getName(), failure);
-                            throw failure;
-                        }
-                    });
-            info("Hooked " + label + " continuation");
-        } catch (Throwable error) {
-            error("Could not hook " + label + " continuation", error);
-        }
-    }
-
-    private String summarizeLocationMode(Object mode) {
-        if (mode == null) {
-            return "null";
-        }
-        if (mode instanceof Enum<?>) {
-            return ((Enum<?>) mode).name();
-        }
-        return mode.getClass().getName();
-    }
-
     private String summarizeLocationResult(Object result) {
-        if (result == null) {
-            return "null";
-        }
-        String resultType = result.getClass().getName();
-        if (!"df7".equals(result.getClass().getSimpleName())) {
-            return resultType;
-        }
-        try {
-            Field failureField = result.getClass().getDeclaredField("a");
-            failureField.setAccessible(true);
-            Object failure = failureField.get(result);
-            return resultType + "; failure="
-                    + (failure == null ? "null" : failure.getClass().getName());
-        } catch (Throwable error) {
-            return resultType + "; failure=unreadable";
-        }
+        return result == null ? "null" : result.getClass().getName();
     }
 
     private void installVmRunnerInitializerHook(ClassLoader classLoader) {
@@ -3773,6 +2858,8 @@ public final class BeRealModule extends XposedModule {
                         return null;
                     });
             info("Hooked VMRunner class initializer");
+        } catch (ClassNotFoundException absent) {
+            info("Host has no PairIP VMRunner; using its original initialization");
         } catch (Throwable error) {
             error("Could not hook VMRunner class initializer", error);
         }
@@ -3786,12 +2873,13 @@ public final class BeRealModule extends XposedModule {
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                     .intercept(chain -> {
-                        restoreBeRealOnCreateDispatch(classLoader);
-                        restoreMainActivityLifecycleDispatch(classLoader);
+                        restoreLifecycleDispatch(classLoader);
                         info("Skipped StartupLauncher.launch() PairIP VM entry");
                         return null;
                     });
             info("Hooked StartupLauncher.launch()");
+        } catch (ClassNotFoundException absent) {
+            info("Host has no PairIP launcher; using its original lifecycle");
         } catch (Throwable error) {
             error("Could not hook StartupLauncher.launch()", error);
         }
@@ -3799,8 +2887,8 @@ public final class BeRealModule extends XposedModule {
 
     private void installAnalyticsNullKeyGuard(ClassLoader classLoader) {
         try {
-            Class<?> analyticsIdentity = Class.forName("rb0", false, classLoader);
-            Method identify = analyticsIdentity.getDeclaredMethod("g", Map.class);
+            Method identify = mappings.analyticsIdentifyMethod(classLoader);
+            if (identify == null) return;
             hook(identify)
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -3828,21 +2916,8 @@ public final class BeRealModule extends XposedModule {
 
     private void installProtobufNullFieldProbe(ClassLoader classLoader) {
         try {
-            Class<?> protobufSchema = Class.forName("sxc", false, classLoader);
-            Class<?> messageInfo = Class.forName("rqh", false, classLoader);
-            Method buildSchema = null;
-            for (Method method : protobufSchema.getDeclaredMethods()) {
-                Class<?>[] parameters = method.getParameterTypes();
-                if ("C".equals(method.getName())
-                        && parameters.length > 0
-                        && parameters[0] == messageInfo) {
-                    buildSchema = method;
-                    break;
-                }
-            }
-            if (buildSchema == null) {
-                throw new NoSuchMethodException("sxc.C(rqh, ...)");
-            }
+            Method buildSchema = mappings.protobufSchemaMethod(classLoader);
+            if (buildSchema == null) return;
 
             Method schemaBuilder = buildSchema;
             hook(schemaBuilder)
@@ -3862,7 +2937,8 @@ public final class BeRealModule extends XposedModule {
                         }
                     });
 
-            Method getField = protobufSchema.getDeclaredMethod("O", Class.class, String.class);
+            Method getField = mappings.protobufFieldLookupMethod(classLoader);
+            if (getField == null) return;
             hook(getField)
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -4063,302 +3139,27 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void restoreBeRealOnCreateDispatch(ClassLoader classLoader) {
+    private void restoreLifecycleDispatch(ClassLoader loader) {
+        HostMappings host = mappings != null ? mappings : KnownMappings.protectedRuntime(loader);
+        if (host == null || host.getLifecycleDexAsset() == null) return;
         try {
-            Class<?> applicationClass = Class.forName("bereal.app.BeRealApplication", false, classLoader);
-            ClassLoader generatedLoader = getGeneratedDexClassLoader(classLoader);
-            Class<?> dispatchClass = Class.forName(
-                    APPLICATION_DISPATCH_CLASS,
-                    false,
-                    generatedLoader
-            );
-            Method applicationOnCreate = dispatchClass.getDeclaredMethod("onCreate", applicationClass);
-
-            Class<?> dispatchHolder = Class.forName(
-                    "androidx.lifecycle.viewmodel.savedstate.bJTm.Siorkv",
-                    false,
-                    classLoader
-            );
-            Field dispatchField = dispatchHolder.getDeclaredField("osFLetKzporkDk");
-            dispatchField.setAccessible(true);
-            dispatchField.set(null, applicationOnCreate);
-            info("Restored BeRealApplication.onCreate from the captured PairIP DEX");
-        } catch (Throwable error) {
-            error("Could not restore BeRealApplication.onCreate dispatch method", error);
+            ClassLoader generated = getGeneratedDexClassLoader(loader, host.getLifecycleDexAsset());
+            for (dev.tqmane.befuck.symbols.LifecycleBinding binding : host.getLifecycleBindings()) {
+                try {
+                    binding.install(loader, generated);
+                } catch (Throwable failure) {
+                    error("Could not restore a host lifecycle binding", failure);
+                }
+            }
+        } catch (Throwable failure) {
+            error("Could not load the host lifecycle DEX", failure);
         }
-
-        try {
-            Class<?> firebaseStringHolder = Class.forName(
-                    "androidx.compose.foundation.text.input.internal.ZDPh.NhqDXGO",
-                    false,
-                    classLoader
-            );
-            Field googleApiKeyResourceName = firebaseStringHolder.getDeclaredField("nSRuyL");
-            googleApiKeyResourceName.setAccessible(true);
-            restoreStaticStringIfNull(googleApiKeyResourceName, "runtime-string", "google_api_key");
-            info("Restored Firebase google_api_key resource-name constant");
-        } catch (Throwable error) {
-            error("Could not restore Firebase google_api_key resource-name constant", error);
-        }
-
-        try {
-            Class<?> firebaseAuthStringHolder = Class.forName(
-                    "io.adn.sdk.internal.data.repository.player.zs.ueWceEmbmp",
-                    false,
-                    classLoader
-            );
-            Field processDeathAppName = firebaseAuthStringHolder.getDeclaredField("etoRAGaqfz");
-            processDeathAppName.setAccessible(true);
-            restoreStaticStringIfNull(processDeathAppName, "runtime-string", "firebaseAppName");
-            info("Restored Firebase Auth process-death app-name key");
-        } catch (Throwable error) {
-            error("Could not restore Firebase Auth process-death app-name key", error);
-        }
-
-        try {
-            Class<?> grpcStringHolder = Class.forName(
-                    "com.moloco.sdk.internal.client_metrics_data.dcLb.gvCIexqtCeo",
-                    false,
-                    classLoader
-            );
-            Field initialBackoffKey = grpcStringHolder.getDeclaredField("JzYCqx");
-            initialBackoffKey.setAccessible(true);
-            restoreStaticStringIfNull(initialBackoffKey, "runtime-string", "initialBackoff");
-            info("Restored gRPC initialBackoff service-config key");
-        } catch (Throwable error) {
-            error("Could not restore gRPC initialBackoff service-config key", error);
-        }
-
-        try {
-            Class<?> yotiStepTrackerStrings = Class.forName(
-                    "com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS",
-                    false,
-                    classLoader
-            );
-            Field stepTrackerDataStoreName = yotiStepTrackerStrings.getDeclaredField("aURUwWhsGN");
-            stepTrackerDataStoreName.setAccessible(true);
-            restoreStaticStringIfNull(stepTrackerDataStoreName, "runtime-string", "hjdbfhjebe");
-            info("Restored Yoti StepTracker DataStore name");
-        } catch (Throwable error) {
-            error("Could not restore Yoti StepTracker DataStore name", error);
-        }
-
-        try {
-            Class<?> serializationStringHolder = Class.forName(
-                    "bereal.app.features.sharing.ui.VrJ.usGKIW",
-                    false,
-                    classLoader
-            );
-            Field serializerMethodName = serializationStringHolder.getDeclaredField("PjJIMWYD");
-            serializerMethodName.setAccessible(true);
-            restoreStaticStringIfNull(serializerMethodName, "runtime-string", "serializer");
-            info("Restored kotlinx.serialization serializer method-name constant");
-        } catch (Throwable error) {
-            error("Could not restore kotlinx.serialization serializer method-name constant", error);
-        }
-
-        try {
-            Class<?> navigationStringHolder = Class.forName(
-                    "com.google.firebase.crashlytics.yhxg.ZXgeV",
-                    false,
-                    classLoader
-            );
-            Field regexWildcard = navigationStringHolder.getDeclaredField("idmeSbwqjtNmJat");
-            regexWildcard.setAccessible(true);
-            restoreStaticStringIfNull(regexWildcard, "runtime-string", ".*");
-            info("Restored NavDeepLink regex wildcard constant");
-        } catch (Throwable error) {
-            error("Could not restore NavDeepLink regex wildcard constant", error);
-        }
-
-        try {
-            Class<?> sourcepointStringHolder = Class.forName(
-                    "androidx.credentials.gZ.MqonvtnPZU",
-                    false,
-                    classLoader
-            );
-            Field localVersionElementName = sourcepointStringHolder.getDeclaredField("krGLjoMJIyAqbMV");
-            localVersionElementName.setAccessible(true);
-            restoreStaticStringIfNull(localVersionElementName, "runtime-string", "localVersion");
-            info("Restored Sourcepoint State serializer localVersion element name");
-        } catch (Throwable error) {
-            error("Could not restore Sourcepoint State serializer localVersion element name", error);
-        }
-
-        try {
-            Class<?> sourcepointErrorStrings = Class.forName(
-                    "com.yalantis.ucrop.task.zsyC.uFMhyqS",
-                    false,
-                    classLoader
-            );
-            Field invalidRequestApiPrefix = sourcepointErrorStrings.getDeclaredField("UKeYkGMltUg");
-            invalidRequestApiPrefix.setAccessible(true);
-            restoreStaticStringIfNull(invalidRequestApiPrefix, "runtime-string", "The SDK got an unexpected response from ");
-            info("Restored Sourcepoint InvalidRequestAPIError description prefix");
-        } catch (Throwable error) {
-            error("Could not restore Sourcepoint InvalidRequestAPIError description prefix", error);
-        }
-
-        try {
-            Class<?> protobufStringHolder = Class.forName(
-                    "io.adn.sdk.internal.data.repository.player.zs.ueWceEmbmp",
-                    false,
-                    classLoader
-            );
-            Field connectProfileFieldName = protobufStringHolder.getDeclaredField("lzWf");
-            connectProfileFieldName.setAccessible(true);
-            restoreStaticStringIfNull(connectProfileFieldName, "runtime-string", "connectProfileEnabled_");
-            info("Restored protobuf iyn.connectProfileEnabled_ field-name constant");
-        } catch (Throwable error) {
-            error("Could not restore protobuf iyn field-name constant", error);
-        }
-
-        try {
-            Class<?> roomStringHolder = Class.forName(
-                    "io.adn.sdk.internal.data.repository.player.zs.ueWceEmbmp",
-                    false,
-                    classLoader
-            );
-            Field realMojiIdColumnName = roomStringHolder.getDeclaredField("PcmDyNHwOUmDKo");
-            realMojiIdColumnName.setAccessible(true);
-            restoreStaticStringIfNull(realMojiIdColumnName, "runtime-string", "id");
-            info("Restored Room RealMojiEntity id column name");
-        } catch (Throwable error) {
-            error("Could not restore Room RealMojiEntity id column name", error);
-        }
-
-        try {
-            Class<?> protobufDurationStrings = Class.forName(
-                    "com.google.android.gms.ads.mediation.customevent.DL.dbGwTqUCgbZlbI",
-                    false,
-                    classLoader
-            );
-            Field nanosFieldName = protobufDurationStrings.getDeclaredField("MkYePb");
-            nanosFieldName.setAccessible(true);
-            restoreStaticStringIfNull(nanosFieldName, "runtime-string", "nanos_");
-            info("Restored protobuf bk6.nanos_ field-name constant");
-        } catch (Throwable error) {
-            error("Could not restore protobuf bk6 field-name constant", error);
-        }
-
-        try {
-            Class<?> conversationStringHolder = Class.forName(
-                    "com.applovin.mediation.adapters.googleadmanager.gkls.musXWZnlt",
-                    false,
-                    classLoader
-            );
-            Field currentSeqNumFieldName = conversationStringHolder.getDeclaredField("rnrBfmTsvrx");
-            currentSeqNumFieldName.setAccessible(true);
-            restoreStaticStringIfNull(currentSeqNumFieldName, "runtime-string", "currentSeqNum_");
-            info("Restored protobuf u7d.currentSeqNum_ field-name constant");
-        } catch (Throwable error) {
-            error("Could not restore protobuf u7d field-name constant", error);
-        }
-
-        try {
-            Class<?> requestStringHolder = Class.forName(
-                    "com.moloco.sdk.xenoss.sdkdevkit.android.adrenderer.internal.ui.utils.UdT.vACnWl",
-                    false,
-                    classLoader
-            );
-            Field bitFieldName = requestStringHolder.getDeclaredField("KbRdYlMM");
-            bitFieldName.setAccessible(true);
-            restoreStaticStringIfNull(bitFieldName, "runtime-string", "bitField0_");
-            info("Restored protobuf r8j.bitField0_ field-name constant");
-        } catch (Throwable error) {
-            error("Could not restore protobuf r8j field-name constant", error);
-        }
-
-        try {
-            Class<?> cdnConfigStringHolder = Class.forName(
-                    "com.moloco.sdk.internal.client_metrics_data.dcLb.gvCIexqtCeo",
-                    false,
-                    classLoader
-            );
-            Field cdnConfigWeightName = cdnConfigStringHolder.getDeclaredField("MTWLxtc");
-            cdnConfigWeightName.setAccessible(true);
-            restoreStaticStringIfNull(cdnConfigWeightName, "runtime-string", "weight");
-            info("Restored CDNConfigDomainApiModel.weight field-name constant");
-        } catch (Throwable error) {
-            error("Could not restore CDNConfigDomainApiModel field-name constant", error);
-        }
-
-        try {
-            Class<?> yotiStrings = Class.forName(
-                    "com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS",
-                    false,
-                    classLoader
-            );
-            Field linkedUserProfilePictureName = yotiStrings.getDeclaredField("kFIUlRtoLhCxv");
-            linkedUserProfilePictureName.setAccessible(true);
-            restoreStaticStringIfNull(linkedUserProfilePictureName, "runtime-string", "profilePicture");
-            info("Restored LinkedUser.profilePicture field-name constant");
-        } catch (Throwable error) {
-            error("Could not restore LinkedUser.profilePicture field-name constant", error);
-        }
-
-        try {
-            Class<?> roomEnumStrings = Class.forName(
-                    "com.moloco.sdk.xenoss.sdkdevkit.android.adrenderer.internal.ui.utils.UdT.vACnWl",
-                    false,
-                    classLoader
-            );
-            Field visibleStatusName = roomEnumStrings.getDeclaredField("nJwTuZXtvIyRt");
-            visibleStatusName.setAccessible(true);
-            restoreStaticStringIfNull(visibleStatusName, "runtime-string", "Visible");
-            info("Restored Room Visible enum value string");
-        } catch (Throwable error) {
-            error("Could not restore Room Visible enum value string", error);
-        }
-
-        try {
-            Class<?> cameraStringHolder = Class.forName(
-                    "com.bytedance.sdk.openadsdk.of.ykK.nmvDveFz",
-                    false,
-                    classLoader
-            );
-            Field supportedSizesMessage = cameraStringHolder.getDeclaredField("SmlWeNRBla");
-            supportedSizesMessage.setAccessible(true);
-            restoreStaticStringIfNull(supportedSizesMessage, "runtime-string", "No available output size is found for ");
-            info("Restored CameraX supported-size validation message prefix");
-        } catch (Throwable error) {
-            error("Could not restore CameraX supported-size validation message prefix", error);
+        for (Map.Entry<Field, String> repair : host.bootstrapStringRepairs(loader).entrySet()) {
+            restoreStaticStringIfNull(repair.getKey(), "runtime-string", repair.getValue());
         }
     }
 
-    private void restoreMainActivityLifecycleDispatch(ClassLoader classLoader) {
-        try {
-            Class<?> activityClass = Class.forName("bereal.app.MainActivity", false, classLoader);
-            ClassLoader generatedLoader = getGeneratedDexClassLoader(classLoader);
-            Class<?> bundleClass = Bundle.class;
-            Method onCreate = Class.forName(ACTIVITY_CREATE_DISPATCH_CLASS, false, generatedLoader)
-                    .getDeclaredMethod("onCreate", activityClass, bundleClass);
-            Method onDestroy = Class.forName(ACTIVITY_DESTROY_DISPATCH_CLASS, false, generatedLoader)
-                    .getDeclaredMethod("onDestroy", activityClass);
-            Method onResume = Class.forName(ACTIVITY_RESUME_DISPATCH_CLASS, false, generatedLoader)
-                    .getDeclaredMethod("onResume", activityClass);
-
-            Class<?> lifecycleDispatch = Class.forName(
-                    "android.net.http.XXN.LDboynjnJnbjK",
-                    false,
-                    classLoader
-            );
-            setStaticMethod(lifecycleDispatch, "EPGBjnKOVGcR", onCreate);
-            setStaticMethod(lifecycleDispatch, "Clh", onDestroy);
-
-            Class<?> resumeDispatch = Class.forName(
-                    "com.moloco.sdk.acm.http.pg.JZLYrXU",
-                    false,
-                    classLoader
-            );
-            setStaticMethod(resumeDispatch, "wdndhQOAVjwiG", onResume);
-            info("Restored MainActivity onCreate/onDestroy/onResume dispatch from the captured PairIP DEX");
-        } catch (Throwable error) {
-            error("Could not restore MainActivity lifecycle dispatch", error);
-        }
-    }
-
-    private synchronized ClassLoader getGeneratedDexClassLoader(ClassLoader parent)
+    private synchronized ClassLoader getGeneratedDexClassLoader(ClassLoader parent, String assetEntry)
             throws IOException {
         if (generatedDexClassLoader != null && generatedDexParent == parent) {
             return generatedDexClassLoader;
@@ -4372,9 +3173,9 @@ public final class BeRealModule extends XposedModule {
 
         byte[] dexBytes;
         try (ZipFile zipFile = new ZipFile(moduleApk)) {
-            ZipEntry entry = zipFile.getEntry(GENERATED_DEX_ENTRY);
+            ZipEntry entry = zipFile.getEntry(assetEntry);
             if (entry == null) {
-                throw new IOException("Missing " + GENERATED_DEX_ENTRY + " in " + moduleApk);
+                throw new IOException("Missing " + assetEntry + " in " + moduleApk);
             }
             if (entry.getSize() <= 0 || entry.getSize() > 4 * 1024 * 1024) {
                 throw new IOException("Unexpected PairIP DEX size: " + entry.getSize());
@@ -4395,13 +3196,6 @@ public final class BeRealModule extends XposedModule {
         generatedDexParent = parent;
         info("Loaded captured PairIP DEX (" + dexBytes.length + " bytes) into the target class loader");
         return generatedDexClassLoader;
-    }
-
-    private static void setStaticMethod(Class<?> holder, String fieldName, Method value)
-            throws ReflectiveOperationException {
-        Field field = holder.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(null, value);
     }
 
     private void info(String message) {

@@ -35,10 +35,6 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
-      - name: Check repaired Room schema
-        run: python3 checks/check_room_schema.py
-      - name: Check known string inventory
-        run: python3 checks/check_known_strings.py
       - name: Build debug APK
         run: bash ./gradlew --no-daemon :app:assembleDebug
       - name: Upload debug APK

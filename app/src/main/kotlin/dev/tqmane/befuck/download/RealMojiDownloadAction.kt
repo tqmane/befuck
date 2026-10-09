@@ -37,7 +37,8 @@ class RealMojiDownloadAction private constructor(private val media: FeedPostMedi
 
     companion object {
         @JvmStatic
-        fun create(loader: ClassLoader, model: Any): Any {
+        fun create(actionType: Class<*>, model: Any): Any {
+            require(actionType.isInterface)
             fun field(name: String) = model.javaClass.getDeclaredField(name).get(model)
             val date = field("h") as Long
             val media = FeedPostMedia(
@@ -51,7 +52,7 @@ class RealMojiDownloadAction private constructor(private val media: FeedPostMedi
                 postedAt = date.takeIf { it > 0 }?.let { Instant.ofEpochMilli(it).toString() },
                 ownerUid = field("b") as String,
             )
-            return Proxy.newProxyInstance(loader, arrayOf(Class.forName("ddi", false, loader)), RealMojiDownloadAction(media))
+            return Proxy.newProxyInstance(actionType.classLoader, arrayOf(actionType), RealMojiDownloadAction(media))
         }
     }
 }

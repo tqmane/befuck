@@ -4,7 +4,12 @@ import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.download.RealMojiDownloadAction;
 import dev.tqmane.befuck.download.FeedPostMedia;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
-import dev.tqmane.befuck.symbols.KnownMappings3970;
+import dev.tqmane.befuck.posting.CropRegion;
+import dev.tqmane.befuck.posting.VideoEdit;
+import dev.tqmane.befuck.symbols.KnownMappings;
+import dev.tqmane.befuck.symbols.HostMappings;
+import dev.tqmane.befuck.symbols.HostClass;
+import dev.tqmane.befuck.symbols.HostMethod;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.lang.reflect.InvocationTargetException;
@@ -15,12 +20,16 @@ import java.util.Arrays;
 
 /** Run with the Gradle :app:checkModule task. */
 public final class MetadataCheck {
+    private static final HostMappings LEGACY = KnownMappings.find("3.97.0", 3597523L);
+    private static final HostMappings CURRENT = KnownMappings.find("3.97.1", 3599414L);
     public static void main(String[] args) throws Exception {
         checkComposeScopes();
-        assert KnownMappings3970.isKnownVersion("3.97.0", 3597523L);
-        assert !KnownMappings3970.isKnownVersion("3.97.0", 3597524L);
-        assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
-        assert !KnownMappings3970.isKnownVersion(null, 3597523L);
+        checkVideoEdits();
+        assert LEGACY.isKnownVersion("3.97.0", 3597523L);
+        assert !LEGACY.isKnownVersion("3.97.0", 3597524L);
+        assert !LEGACY.isKnownVersion("3.98.0", 3597523L);
+        assert !LEGACY.isKnownVersion(null, 3597523L);
+        checkVersionMappings();
         checkSmsRequestPayload();
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
@@ -38,13 +47,13 @@ public final class MetadataCheck {
         assert metadata.parseTimestamp("invalid") == null;
         var loader = MetadataCheck.class.getClassLoader();
         var reaction = new RealMojiFixture();
-        var action = RealMojiDownloadAction.create(loader, reaction);
-        assert action.equals(RealMojiDownloadAction.create(loader, reaction));
+        var action = RealMojiDownloadAction.create(ddi.class, reaction);
+        assert action.equals(RealMojiDownloadAction.create(ddi.class, reaction));
         var mediaField = RealMojiDownloadAction.class.getDeclaredField("media");
         mediaField.setAccessible(true);
         var saved = (FeedPostMedia) mediaField.get(java.lang.reflect.Proxy.getInvocationHandler(action));
         reaction.e = "https://cdn.bereal.network/second.jpg";
-        assert !action.equals(RealMojiDownloadAction.create(loader, reaction));
+        assert !action.equals(RealMojiDownloadAction.create(ddi.class, reaction));
         assert saved.getPrimary().getUrl().endsWith("first.jpg") : "Selected RealMoji was not snapshotted";
         assert metadata.timestamp(saved) == reaction.h;
         assert metadata.filename(saved, "realmoji").contains("_realmoji_reaction-id");
@@ -139,20 +148,18 @@ public final class MetadataCheck {
 
     private static void checkTextFieldFocusMapping() throws Exception {
         var loader = MetadataCheck.class.getClassLoader();
-        assert KnownMappings3970.textFieldFocusGuard(loader, "3.98.0", 3597523L) == null;
-        assert KnownMappings3970.textFieldFocusGuard(loader, "3.97.0", 3597524L) == null;
         var transform = FocusOffsetFixture.class.getMethod("d", int.class);
         FocusOffsetFixture original = new FocusOffsetFixture() {
             public int d(int offset) { return offset * 2; }
             public int a(int offset) { return offset / 2; }
         };
-        var bounded = (FocusOffsetFixture) KnownMappings3970.boundedFocusMapping(original, transform, 5);
+        var bounded = (FocusOffsetFixture) HostMappings.boundedFocusMapping(original, transform, 5);
         assert bounded.d(3) == 5 : "Stale layout must bound the transformed cursor";
         assert bounded.d(2) == 4 : "Valid transformed positions must stay unchanged";
         assert bounded.d(-1) == 0;
         assert bounded.a(12) == 6 : "Reverse mapping must stay unchanged";
         assert original.d(3) == 6 : "Do not change the text field's own mapping";
-        var empty = (FocusOffsetFixture) KnownMappings3970.boundedFocusMapping(original, transform, 0);
+        var empty = (FocusOffsetFixture) HostMappings.boundedFocusMapping(original, transform, 0);
         assert empty.d(3) == 0 : "Empty layout must use the host's empty-field rectangle";
     }
 
@@ -186,25 +193,23 @@ public final class MetadataCheck {
 
     private static void checkSmsRequestPayload() throws Exception {
         var loader = MetadataCheck.class.getClassLoader();
-        assert KnownMappings3970.smsRequestConstructor(loader, "3.98.0", 3597523L) == null;
-        assert KnownMappings3970.smsRequestConstructor(loader, "3.97.0", 3597524L) == null;
-        var constructor = KnownMappings3970.smsRequestConstructor(loader, "3.97.0", 3597523L);
+        var constructor = LEGACY.smsRequestConstructor(loader);
         assert constructor.getDeclaringClass() == mtj.class;
         Object[] missing = {"device-fixture", "stable-fixture", "phone-fixture", null};
-        Object[] repaired = KnownMappings3970.smsRequestArguments(missing);
+        Object[] repaired = LEGACY.smsRequestArguments(missing);
         assert missing[3] == null : "Must not mutate the caller's arguments";
         assert repaired != missing && ((java.util.ArrayList<?>) repaired[3]).isEmpty();
         for (int i = 0; i < 3; i++) assert repaired[i] == missing[i];
-        assert KnownMappings3970.smsRequestArguments(repaired) == repaired : "Repair must be idempotent";
+        assert LEGACY.smsRequestArguments(repaired) == repaired : "Repair must be idempotent";
         var tokens = new java.util.ArrayList<>(java.util.List.of(new Object()));
         Object[] populated = {missing[0], missing[1], missing[2], tokens};
-        assert KnownMappings3970.smsRequestArguments(populated) == populated;
+        assert LEGACY.smsRequestArguments(populated) == populated;
         assert populated[3] == tokens : "Existing challenge tokens must retain identity and contents";
         assert tokens.size() == 1;
         var validTokens = new java.util.ArrayList<>(java.util.List.of(
                 new hj0("private-recaptcha-fixture", "RE"), new hj0("private-prelude-fixture", "PR")));
         Object[] valid = {missing[0], missing[1], missing[2], validTokens};
-        String shape = KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L, valid);
+        String shape = LEGACY.smsRequestShape(loader, valid);
         assert shape.contains("recaptcha=1; prelude=1");
         assert shape.contains("unknownIdentifiers=0; missingTokens=0; invalidEntries=0");
         for (String secret : new String[]{"device-fixture", "stable-fixture", "phone-fixture",
@@ -215,22 +220,17 @@ public final class MetadataCheck {
         malformed.add(new hj0(" ", "private-unknown-provider"));
         malformed.add(null);
         malformed.add(new Object() { @Override public String toString() { throw new AssertionError("Must not stringify"); } });
-        shape = KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L,
-                new Object[]{null, "", null, malformed});
+        shape = LEGACY.smsRequestShape(loader, new Object[]{null, "", null, malformed});
         assert shape.contains("deviceIdPresent=false; stableDeviceIdPresent=false; phonePresent=false");
         assert shape.contains("unknownIdentifiers=1; missingTokens=2; invalidEntries=2");
         assert !shape.contains("private-unknown-provider");
-        assert KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597524L, valid).equals("unsupportedVersion=true");
-        assert KnownMappings3970.smsRequestShape(loader, "3.98.0", 3597523L, valid).equals("unsupportedVersion=true");
-        assert KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L, new Object[0]).equals("unexpectedArguments=true");
-        assert KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L, missing).equals("tokenListPresent=false");
+        assert LEGACY.smsRequestShape(loader, new Object[0]).equals("unexpectedArguments=true");
+        assert LEGACY.smsRequestShape(loader, missing).equals("tokenListPresent=false");
     }
 
     private static void checkKnownStrings() throws Exception {
         var loader = MetadataCheck.class.getClassLoader();
-        assert KnownMappings3970.runtimeStringRepairs(loader, "3.98.0", 3597523L).isEmpty();
-        assert KnownMappings3970.runtimeStringRepairs(loader, "3.97.0", 3597524L).isEmpty();
-        var repairs = KnownMappings3970.runtimeStringRepairs(loader, "3.97.0", 3597523L);
+        var repairs = LEGACY.runtimeStringRepairs(loader);
         var fixture = okhttp3.internal.connection.udV.ewVWKVT.class;
         assert repairs.size() == 2 : "Exclude final, instance, non-String, and missing fields";
         assert "".equals(repairs.get(fixture.getDeclaredField("PLXlOOMCGp")));
@@ -239,17 +239,78 @@ public final class MetadataCheck {
         assert "already initialized".equals(okhttp3.internal.connection.udV.ewVWKVT.oiooMrpCpO);
     }
 
-    private static void checkAdClassification() throws Exception {
-        assert KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.97.0", 3597523L)
-                : "SDK subclasses must remain hidden";
-        assert !KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.97.0", 3597524L);
-        assert !KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.98.0", 3597523L);
-        assert !KnownMappings3970.isAdViewClass(OrdinaryAdViewNamedFixture.class, "3.97.0", 3597523L)
-                : "An ad-like name is not evidence that a view is an advertisement";
-        assert !KnownMappings3970.isAdViewClass(Object.class, "3.97.0", 3597523L);
+    private static void checkVideoEdits() {
+        var landscape = CropRegion.portrait(1920, 1080);
+        var size = landscape.outputSize(1920, 1080);
+        assert size.getFirst() == 540 && size.getSecond() == 720;
+        assert landscape.getLeft() > 0 && landscape.getRight() < 1;
+        var portrait = CropRegion.portrait(1080, 1920);
+        assert portrait.getTop() > 0 && portrait.getBottom() < 1;
+        var nativeVideo = CropRegion.portrait(1080, 1440);
+        assert nativeVideo.getLeft() == 0 && nativeVideo.getTop() == 0;
+        assert nativeVideo.getRight() == 1 && nativeVideo.getBottom() == 1;
+        var rotated = new CropRegion(.25f, .25f, .75f, .75f, 90).outputSize(1920, 1080);
+        assert rotated.getFirst() == 406 && rotated.getSecond() == 720;
+        var original = new VideoEdit(3954, 7954, landscape);
+        var aligned = original.withDuration(2000).validateSource(8000);
+        assert aligned.getStartMs() == 3954 && aligned.getEndMs() == 5954;
+        assert aligned.getCrop() == original.getCrop();
+        assert original.getEndMs() == 7954 : "Pair alignment must not mutate the selection snapshot";
+        assert VideoEdit.initial(120000).getDurationMs() == 30000 : "Long sources can select a short interval";
+        assert VideoEdit.initial(1).getDurationMs() == 1;
+        assert aligned.withDuration(4000).validateSource(8000).getEndMs() == 7954;
+        for (Runnable invalid : new Runnable[]{
+                () -> new VideoEdit(-1, 1000, landscape),
+                () -> new VideoEdit(1000, 1000, landscape),
+                () -> new VideoEdit(0, 30001, landscape),
+                () -> aligned.withDuration(5000).validateSource(8000),
+                () -> new CropRegion(Float.NaN, 0, 1, 1, 0),
+                () -> new CropRegion(1, 0, 0, 1, 0),
+                () -> new CropRegion(0, 0, 1, 1, 45)}) {
+            try { invalid.run(); throw new AssertionError("Invalid video edit was accepted"); }
+            catch (IllegalArgumentException expected) { }
+        }
+    }
+
+    private static void checkVersionMappings() throws Exception {
+        assert LEGACY != null && CURRENT != null && LEGACY != CURRENT;
+        assert KnownMappings.find("3.97.1", 3597523L) == null;
+        assert KnownMappings.find("3.97.0", 3599414L) == null;
+        assert KnownMappings.find("3.98.0", 3599414L) == null;
+        assert KnownMappings.find(null, 3599414L) == null;
+        for (var role : HostClass.values()) {
+            assert !LEGACY.className(role).isBlank() && !CURRENT.className(role).isBlank() : role;
+        }
+        for (var role : HostMethod.values()) {
+            assert !LEGACY.methodName(role).isBlank() && !CURRENT.methodName(role).isBlank() : role;
+        }
+        assert LEGACY.className(HostClass.PostFeedState).equals("okg");
+        assert CURRENT.className(HostClass.PostFeedState).equals("hlg");
+        assert LEGACY.methodName(HostMethod.FlowFirst).equals("x");
+        assert CURRENT.methodName(HostMethod.FlowFirst).equals("s");
+        assert LEGACY.getRequiresRuntimeRecovery() && !CURRENT.getRequiresRuntimeRecovery();
+        assert LEGACY.getLifecycleDexAsset() != null && CURRENT.getLifecycleDexAsset() == null;
+        assert CURRENT.getLifecycleBindings().isEmpty();
         var loader = MetadataCheck.class.getClassLoader();
-        assert KnownMappings3970.sponsoredFeedFields(loader, "3.97.0", 3597524L).isEmpty();
-        var fields = KnownMappings3970.sponsoredFeedFields(loader, "3.97.0", 3597523L);
+        assert CURRENT.runtimeStringRepairs(loader).isEmpty();
+        assert CURRENT.bootstrapStringRepairs(loader).isEmpty();
+        assert CURRENT.smsRequestConstructor(loader) == null;
+        assert CURRENT.isAdViewClass(AdManagerViewFixture.class);
+        var fields = CURRENT.sponsoredFeedFields(loader);
+        var card = new hlg();
+        card.e = new clg();
+        card.h = new yki();
+        assert fields.size() == 2 && fields.get(0).get(card) == card.e && fields.get(1).get(card) == card.h;
+    }
+
+    private static void checkAdClassification() throws Exception {
+        assert LEGACY.isAdViewClass(AdManagerViewFixture.class)
+                : "SDK subclasses must remain hidden";
+        assert !LEGACY.isAdViewClass(OrdinaryAdViewNamedFixture.class)
+                : "An ad-like name is not evidence that a view is an advertisement";
+        assert !LEGACY.isAdViewClass(Object.class);
+        var loader = MetadataCheck.class.getClassLoader();
+        var fields = LEGACY.sponsoredFeedFields(loader);
         assert fields.size() == 2;
         var ordinary = new okg();
         for (var field : fields) assert field.get(ordinary) == null;
@@ -263,7 +324,7 @@ public final class MetadataCheck {
     }
 
     public static final class RealMojiFixture {
-        public String a = "reaction-id", b = "owner-id", c = "⚡", e = "https://cdn.bereal.network/first.jpg", f = "owner";
+        public String a = "reaction-id", b = "owner-id", c = "笞｡", e = "https://cdn.bereal.network/first.jpg", f = "owner";
         public long h = 1_759_655_091_573L;
     }
 
@@ -280,6 +341,9 @@ class OrdinaryAdViewNamedFixture {}
 class okg { public jkg e; public eki h; }
 class jkg {}
 class eki {}
+class hlg { public clg e; public yki h; }
+class clg {}
+class yki {}
 class hj0 {
     private final String token, identifier;
     hj0(String token, String identifier) { this.token = token; this.identifier = identifier; }

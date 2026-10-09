@@ -11,6 +11,8 @@ data class GalleryMediaFile(
     val previewPath: String? = null,
     val previewWidth: Int? = null,
     val previewHeight: Int? = null,
+    val sourcePath: String? = null,
+    val videoEdit: VideoEdit? = null,
 )
 
 data class LocationData(

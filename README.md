@@ -4,7 +4,7 @@
 
 An Xposed module for BeReal.  
 Supports **LSPosed** and **NPatch**.  
-Supported BeReal version: **3.97.0 (3597523)** (`com.bereal.ft`).
+Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** (`com.bereal.ft`).
 
 ## Screenshots
 
@@ -21,6 +21,7 @@ Supported BeReal version: **3.97.0 (3597523)** (`com.bereal.ft`).
 - **Unblur**: View blurred posts and timeline cards without restrictions.
 - **Save Media**: Save photos, videos (BTS), and RealMojis directly to your device with original timestamps.
 - **Gallery Posting**: Post photos or videos directly from your gallery (supports cropping, captions, location, and late posting).
+- **Video Editing**: Crop and rotate in portrait 3:4, and trim clips up to 30 seconds with thumbnail timeline preview. Both clips are automatically aligned in duration.
 - **Ad Blocker**: Hide sponsored posts and feed ads.
 - **Post History**: View and download previously loaded posts anytime.
 

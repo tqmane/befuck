@@ -2,26 +2,32 @@
 
 ## Scope and layout
 
-- Read the working tree, affected code, and every caller before changing shared behavior. Preserve unrelated changes.
-- `app/` is the only Android application module. Its package and resource namespace are `dev.tqmane.befuck`.
-- `app/src/main/java/` owns the libxposed entry point and hook registration; `app/src/main/kotlin/` owns runtime recovery, symbol resolution, posting, downloads, and UI.
-- Put version-specific names, member signatures, and confirmed repair values in `app/src/main/kotlin/dev/tqmane/befuck/symbols/KnownMappings<version>.kt`. Gate them by both version name and code, and validate member types.
-- `RuntimeKnowledge.kt` manages persisted knowledge and invalidation; `BeRealSymbolResolver.kt` manages DexKit queries and validated reflection signatures. Do not duplicate their responsibilities.
+- Read the working tree, affected code, and all callers before changing shared behavior. Preserve unrelated changes.
+- `app/` is the only Android application module (`dev.tqmane.befuck`).
+- `app/src/main/java/dev/tqmane/befuck/BeRealModule.java` owns the libxposed entry point and hook registration. Keep version numbers and obfuscated class names out of it.
+- Kotlin sources live under `app/src/main/kotlin/dev/tqmane/befuck/`:
+  - `symbols/`: Version-specific symbol mappings (`KnownMappings<version>.kt`), shared reflection helpers (`HostMappings.kt`), DexKit dynamic resolution (`BeRealSymbolResolver.kt`), and signature caching (`SymbolCacheCodec.kt`).
+  - `runtime/`: Runtime state, persistence, settings, Compose state tracking, and authentication compatibility helpers.
+  - `posting/`: Gallery post requests, media preparation, and upload pipeline orchestration.
+  - `ui/`: Module UI, dialogs, media preview/cropping, and user interaction.
+  - `download/`: Feed media capture, metadata extraction, and saving.
+- Assets: Versioned signature presets live in `app/src/main/assets/befuck/`.
 
-## Implementation
+## Architecture and implementation principles
 
-- Reuse existing helpers and platform APIs. Prefer the smallest change that fixes the shared cause; avoid speculative abstractions and dependencies.
-- Preserve authentication host restrictions, selection snapshots, lifecycle cleanup, and interface-token validation. Do not guess missing strings or choose ambiguous symbol candidates.
-- Keep credentials in memory. Never commit credentials, signing keys, personal information, device identifiers, local absolute paths, runtime dumps, or private artifacts.
-- Take environment configuration from environment variables or ignored local settings. Use repository-relative paths in documentation.
-- Keep user-facing text in Android resources. Maintain English and Japanese resources, and keep the four README files consistent with implemented features and compatibility limits.
-- Preserve third-party attribution and the PolyForm Noncommercial 1.0.0 license. Do not change or silently regenerate the version-specific lifecycle DEX.
+- **Minimal, focused changes**: Prefer minimal, direct solutions. Avoid speculative abstractions, unnecessary dependencies, or reinventing platform/host APIs.
+- **Symbol encapsulation**: Keep version numbers and obfuscated host symbols isolated within `symbols/`. Never reference obfuscated host names across modules or translate one version's names directly into another.
+- **Host boundary and safety**: Respect host app boundaries, API contracts, selection snapshots, and interface validations. Do not bypass host integrity checks carelessly.
+- **Resource and lifecycle management**: Always release heavy resources (players, surfaces, bitmaps, and listeners) when UI components dismiss or the host activity pauses.
+- **Security and privacy**: Keep tokens and credentials strictly in memory. Never commit credentials, private keys, personal data, local paths, or runtime dumps.
+- **Localization and documentation**: Maintain user-facing strings in Android resources (both default English and Japanese). Keep all four README files (`README.md`, `README.ja.md`, `README.zh-CN.md`, `README.ko.md`) consistent.
+- **Attribution and licensing**: Preserve third-party notices and comply with the PolyForm Noncommercial 1.0.0 license.
 
 ## Validation
 
-- Use the checked-in Gradle wrapper with JDK 17 or later and Android SDK Platform 37.
-- Windows: `./gradlew.bat :app:assembleDebug :app:checkModule :app:lintDebug`.
-- Linux/macOS: `./gradlew :app:assembleDebug :app:checkModule :app:lintDebug`.
-- Keep small, runnable regression checks in `checks/`; put generated output under `build/`.
-- Verify package metadata and the Xposed entry point after identifier changes. Build/test success does not prove runtime compatibility: report build, static, and device verification separately.
-- Select a target device explicitly for device work. Installation, restart, data removal, posting, comments, and messages must remain within the requested scope.
+- Use the checked-in Gradle wrapper with JDK 17+ and Android SDK Platform 37.
+- Windows: `./gradlew.bat :app:assembleDebug :app:checkModule :app:lintDebug`
+- Linux/macOS: `./gradlew :app:assembleDebug :app:checkModule :app:lintDebug`
+- Keep small, runnable regression checks in `checks/`; build output belongs under `build/`.
+- Device testing: Do not start an emulator or install/run test apps on a device unless explicitly requested by the user. Rely on Gradle builds, `:app:checkModule`, and lint.
+- Report build, static, and device verification separately.

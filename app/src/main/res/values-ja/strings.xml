@@ -15,7 +15,7 @@
     <string name="befuck_regular_video_selected">動画を選択中 · %1$d×%2$d · %3$d ms</string>
     <string name="befuck_media_pair_type_hint">内カメと外カメは、両方とも写真にするか両方とも動画にしてください。</string>
     <string name="befuck_media_type_mismatch">写真と動画は組み合わせられません。両方写真にするか、両方動画にしてください。</string>
-    <string name="befuck_video_prepare_error">動画を読み込めませんでした。30秒以内のMP4を選択してください。</string>
+    <string name="befuck_video_prepare_error">動画を読み込めませんでした。30秒以内の再生可能なMP4を選択してください。</string>
     <string name="befuck_front_selected">内カメを選択中 · %1$d×%2$d</string>
     <string name="befuck_back_selected">外カメを選択中 · %1$d×%2$d</string>
     <string name="befuck_caption">キャプション</string>
@@ -113,4 +113,16 @@
     <string name="befuck_settings_test_failed">自動修復テストに失敗しました。診断ログを確認してください。</string>
     <string name="befuck_selection_cancelled">選択をキャンセルしました</string>
     <string name="befuck_media_ready">%1$sの投稿準備ができました。</string>
+    <string name="befuck_video_edit_title">動画の編集</string>
+    <string name="befuck_video_crop_hint">ピンチで拡大縮小、ドラッグで位置を調整。縦3:4で切り抜きます。</string>
+    <string name="befuck_video_trim_hint">スライダーで開始位置と長さを調整（最大30秒）。長さは内カメ・外カメ共通です。</string>
+    <string name="befuck_video_play">再生</string>
+    <string name="befuck_video_pause">一時停止</string>
+    <string name="befuck_video_start_seconds">開始位置（秒）</string>
+    <string name="befuck_video_length_seconds">長さ（秒）</string>
+    <string name="befuck_video_invalid_range">元動画の範囲内で、最大%1$.3f秒まで指定してください。</string>
+    <string name="befuck_video_range_summary">%1$s ～ %2$s / 全長 %3$s · 投稿 %4$s</string>
+    <string name="befuck_video_pair_duration">内カメと外カメの長さを%1$.2f秒に揃えました。</string>
+    <string name="befuck_video_selected_range">動画 · %1$d×%2$d · %3$.2f～%4$.2f秒</string>
+    <string name="befuck_video_exporting">動画を書き出し中…</string>
 </resources>
