@@ -487,11 +487,10 @@ public final class BeRealModule extends XposedModule {
 
     private void installRuntimeHooks(ClassLoader classLoader, ResolvedSymbols symbols) {
         for (Map.Entry<Field, String> repair : KnownMappings3970.runtimeStringRepairs(
-                classLoader, RuntimeKnowledge.getVersionName(), symbols).entrySet()) {
+                classLoader, RuntimeKnowledge.getVersionName()).entrySet()) {
             Field field = repair.getKey();
             restoreStaticStringIfNull(field, field.getDeclaringClass().getName() + "." + field.getName(), repair.getValue());
         }
-        installCameraCountdownInitialTextRepair(symbols);
         installAnalyticsNullKeyGuard(classLoader);
         installProtobufNullFieldProbe(classLoader);
         installRoomNullColumnGuard(classLoader);
@@ -2337,38 +2336,6 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installCameraCountdownInitialTextRepair(ResolvedSymbols symbols) {
-        if (symbols == null || symbols.getCameraCountdownComposableMethod() == null) {
-            info("[SymbolResolver] Camera countdown initial value repair disabled: composable unresolved");
-            return;
-        }
-        Field field = symbols.stringField("cameraCountdownInitialText");
-        if (field == null) {
-            info("[SymbolResolver] Camera countdown initial value repair disabled: backing field unresolved");
-            return;
-        }
-        try {
-            Method composable = symbols.getCameraCountdownComposableMethod();
-            hook(composable)
-                    .setPriority(XposedInterface.PRIORITY_HIGHEST)
-                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> {
-                        if (field.get(null) == null) {
-                            Object incomingText = chain.getArg(5);
-                            if (incomingText instanceof String) {
-                                field.set(null, incomingText);
-                                info("Restored camera countdown initial text from its live composable argument; "
-                                        + "source=x95 remaining-duration formatter, arg[5]");
-                            }
-                        }
-                        return chain.proceed();
-                    });
-            info("Hooked the resolved countdown composable to seed its static TextView state from the current countdown string");
-        } catch (Throwable error) {
-            error("Could not install evidence-based camera countdown initial text repair", error);
-        }
-    }
-
     private void restoreStaticStringIfNull(Field field, String symbol, String value) {
         try {
             field.setAccessible(true);
@@ -4103,7 +4070,7 @@ public final class BeRealModule extends XposedModule {
             );
             Field stepTrackerDataStoreName = yotiStepTrackerStrings.getDeclaredField("aURUwWhsGN");
             stepTrackerDataStoreName.setAccessible(true);
-            restoreStaticStringIfNull(stepTrackerDataStoreName, "runtime-string", "step_tracker");
+            restoreStaticStringIfNull(stepTrackerDataStoreName, "runtime-string", "hjdbfhjebe");
             info("Restored Yoti StepTracker DataStore name");
         } catch (Throwable error) {
             error("Could not restore Yoti StepTracker DataStore name", error);
@@ -4159,7 +4126,7 @@ public final class BeRealModule extends XposedModule {
             );
             Field invalidRequestApiPrefix = sourcepointErrorStrings.getDeclaredField("UKeYkGMltUg");
             invalidRequestApiPrefix.setAccessible(true);
-            restoreStaticStringIfNull(invalidRequestApiPrefix, "runtime-string", "Invalid request API: ");
+            restoreStaticStringIfNull(invalidRequestApiPrefix, "runtime-string", "The SDK got an unexpected response from ");
             info("Restored Sourcepoint InvalidRequestAPIError description prefix");
         } catch (Throwable error) {
             error("Could not restore Sourcepoint InvalidRequestAPIError description prefix", error);
@@ -4285,7 +4252,7 @@ public final class BeRealModule extends XposedModule {
             );
             Field supportedSizesMessage = cameraStringHolder.getDeclaredField("SmlWeNRBla");
             supportedSizesMessage.setAccessible(true);
-            restoreStaticStringIfNull(supportedSizesMessage, "runtime-string", "Supported sizes must not be empty for use case ");
+            restoreStaticStringIfNull(supportedSizesMessage, "runtime-string", "No available output size is found for ");
             info("Restored CameraX supported-size validation message prefix");
         } catch (Throwable error) {
             error("Could not restore CameraX supported-size validation message prefix", error);

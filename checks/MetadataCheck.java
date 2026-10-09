@@ -22,6 +22,7 @@ public final class MetadataCheck {
         assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
         assert !KnownMappings3970.isKnownVersion(null, 3597523L);
         checkSmsRequestPayload();
+        checkKnownStrings();
         BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
         assert !BeFakeAuthHeaders.hasAuthorization();
         BeFakeAuthHeaders.capture("MOBILE-L7.BEREAL.COM", "AUTHORIZATION", "Bearer test-only");
@@ -145,6 +146,19 @@ public final class MetadataCheck {
         assert KnownMappings3970.smsRequestArguments(populated) == populated;
         assert populated[3] == tokens : "Existing challenge tokens must retain identity and contents";
         assert tokens.size() == 1;
+    }
+
+    private static void checkKnownStrings() throws Exception {
+        var loader = MetadataCheck.class.getClassLoader();
+        assert KnownMappings3970.runtimeStringRepairs(loader, "3.98.0", 3597523L).isEmpty();
+        assert KnownMappings3970.runtimeStringRepairs(loader, "3.97.0", 3597524L).isEmpty();
+        var repairs = KnownMappings3970.runtimeStringRepairs(loader, "3.97.0", 3597523L);
+        var fixture = okhttp3.internal.connection.udV.ewVWKVT.class;
+        assert repairs.size() == 2 : "Exclude final, instance, non-String, and missing fields";
+        assert "".equals(repairs.get(fixture.getDeclaredField("PLXlOOMCGp")));
+        assert "video/x-vnd.on2.vp9".equals(repairs.get(fixture.getDeclaredField("oiooMrpCpO")));
+        assert okhttp3.internal.connection.udV.ewVWKVT.PLXlOOMCGp == null : "Resolution must not write fields";
+        assert "already initialized".equals(okhttp3.internal.connection.udV.ewVWKVT.oiooMrpCpO);
     }
 
     public static final class RealMojiFixture {

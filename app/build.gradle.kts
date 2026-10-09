@@ -59,6 +59,7 @@ dependencies {
 val compileChecks = tasks.register<JavaCompile>("compileChecks") {
     dependsOn("compileDebugKotlin", "compileDebugJavaWithJavac")
     source(rootProject.file("checks/MetadataCheck.java"))
+    source(rootProject.fileTree("checks/fixtures") { include("**/*.java") })
     classpath = files(
         provider { tasks.named("compileDebugKotlin").get().outputs.files },
         provider { tasks.named<JavaCompile>("compileDebugJavaWithJavac").get().destinationDirectory },
