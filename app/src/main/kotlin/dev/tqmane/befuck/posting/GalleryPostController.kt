@@ -47,11 +47,11 @@ object GalleryPostController {
     /** Refreshes the app-owned feed state after a BeFake created its post outside the feed ViewModel. */
     @JvmStatic
     fun refreshHomeFeed(activity: Activity, versionName: String?) {
-        if (activity.isFinishing || activity.isDestroyed || !KnownMappings3970.isKnownVersion(versionName)) return
+        if (activity.isFinishing || activity.isDestroyed || !KnownMappings3970.isSupportedVersion(versionName)) return
         executor.execute {
             try {
                 val loader = activity.classLoader
-                val stateHolderClass = Class.forName("x3j", false, loader)
+                val stateHolderClass = Class.forName(KnownMappings3970.className("x3j"), false, loader)
                 val stateHolder = resolveKoinInstance(stateHolderClass, loader, versionName)
                 val feedSource = stateHolderClass.getDeclaredField("b").apply { isAccessible = true }.get(stateHolder)
                     ?: error("Refresh feed source is unavailable")
@@ -60,18 +60,18 @@ object GalleryPostController {
                 } ?: error("Home feed force-fetch method is unresolved")
                 forceFetch.isAccessible = true
                 val feedFlow = requireNotNull(forceFetch.invoke(feedSource, true)) { "Home feed force-fetch returned null" }
-                val flowClass = Class.forName("t28", false, loader)
-                val continuationType = Class.forName("vx4", false, loader)
-                val firstFlowValue = Class.forName("uak", false, loader).getDeclaredMethod(
-                    "x",
+                val flowClass = Class.forName(KnownMappings3970.className("t28"), false, loader)
+                val continuationType = Class.forName(KnownMappings3970.className("vx4"), false, loader)
+                val firstFlowValue = Class.forName(KnownMappings3970.className("uak"), false, loader).getDeclaredMethod(
+                    KnownMappings3970.methodName("uak", "x"),
                     flowClass,
                     continuationType,
                 ).apply { isAccessible = true }
                 require(flowClass.isInstance(feedFlow)) { "Home feed source did not return the expected Flow type" }
 
-                val feedClass = Class.forName("fk9", false, loader)
+                val feedClass = Class.forName(KnownMappings3970.className("fk9"), false, loader)
                 val trackingField = feedClass.getDeclaredField("g").apply { isAccessible = true }
-                val refreshReasonClass = Class.forName("r0l", false, loader)
+                val refreshReasonClass = Class.forName(KnownMappings3970.className("r0l"), false, loader)
                 val refreshReasonField = refreshReasonClass.getDeclaredField("a").apply { isAccessible = true }
                 val refreshReason = requireNotNull(refreshReasonField.get(null)) { "Feed refresh reason is unavailable" }
                 require(refreshReason.toString() == "FromToaster") { "Resolved feed refresh reason is not FromToaster" }
@@ -116,10 +116,10 @@ object GalleryPostController {
 
     @JvmStatic
     fun noteOfficialPostPublished(core: Any?, result: Any?) {
-        if (core == null || result?.javaClass?.simpleName != "hkm") return
+        if (core == null || result?.javaClass?.simpleName != KnownMappings3970.className("hkm")) return
         runCatching {
             val post = result.javaClass.getDeclaredField("a").apply { isAccessible = true }.get(result) ?: return
-            if (post.javaClass.simpleName != "mfg") return
+            if (post.javaClass.simpleName != KnownMappings3970.className("mfg")) return
             val localId = core.javaClass.getDeclaredField("a").apply { isAccessible = true }.get(core) as? String ?: return
             val remoteId = post.javaClass.getDeclaredField("id").apply { isAccessible = true }.get(post) as? String ?: return
             if (remoteId.isBlank() || remoteId.startsWith("berealLocal")) return
@@ -150,7 +150,7 @@ object GalleryPostController {
         draftSaved: Consumer<String>? = null,
         completion: Consumer<Boolean>,
     ) {
-        if (!isReady(symbols) || symbols.versionName != KnownMappings3970.VERSION_NAME) {
+        if (!isReady(symbols) || !KnownMappings3970.isSupportedVersion(symbols.versionName)) {
             completion.accept(false)
             return
         }
@@ -168,7 +168,7 @@ object GalleryPostController {
                     observeUpload(existingPostId)
                     return@execute
                 }
-                val senderClass = Class.forName("isk", false, loader)
+                val senderClass = Class.forName(KnownMappings3970.className("isk"), false, loader)
                 val sender = resolveKoinInstance(senderClass, loader, symbols.versionName)
                 val context = coroutineContext(lifecycleScope(activity, loader))
                 val provider = senderClass.getDeclaredField("c").apply { isAccessible = true }.get(sender)
@@ -197,7 +197,7 @@ object GalleryPostController {
                         Log.i(TAG, "Creating official media pair; isMain=$isMain, video=${request.back?.isVideo}")
                         invokeSuspend(sender, send, arrayOf(domain, errorCallback), send.parameterTypes[2], context) { result, failure ->
                             val postId = createdPostIds.remove(session)?.takeIf(String::isNotBlank)
-                            if (failure != null || result?.javaClass?.simpleName != "hkm" || postId == null) {
+                            if (failure != null || result?.javaClass?.simpleName != KnownMappings3970.className("hkm") || postId == null) {
                                 Log.e(TAG, "Official post creation failed; result=${result?.javaClass?.simpleName}, persisted=${postId != null}", failure)
                                 completion.accept(false)
                             } else runCatching { observeUpload(postId) }.onFailure {
@@ -258,7 +258,7 @@ object GalleryPostController {
     ) {
         val completed = AtomicBoolean(false)
         val contract = if (continuationType.isInterface) continuationType
-            else Class.forName("vx4", false, receiver.javaClass.classLoader)
+            else Class.forName(KnownMappings3970.className("vx4"), false, receiver.javaClass.classLoader)
         val callback = Proxy.newProxyInstance(
             continuationType.classLoader ?: receiver.javaClass.classLoader,
             arrayOf(contract),
@@ -281,12 +281,12 @@ object GalleryPostController {
         )
 
         val continuation = if (continuationType.isInterface) callback else {
-            require(continuationType.name == "wx4") {
+            require(continuationType.name == KnownMappings3970.className("wx4")) {
                 "Unsupported concrete coroutine continuation: ${continuationType.name}"
             }
             // Reuse Kotlin's bundled coroutine bridge. Its running state forwards
             // the native result (including failures) unchanged to our completion.
-            val stateClass = Class.forName("lia", false, receiver.javaClass.classLoader)
+            val stateClass = Class.forName(KnownMappings3970.className("lia"), false, receiver.javaClass.classLoader)
             val state = stateClass.declaredConstructors.single { it.parameterCount == 4 }
                 .newInstance(callback, coroutineContext, null, callback)
             stateClass.getDeclaredField("r").apply { isAccessible = true }.setInt(state, 1)
@@ -679,7 +679,7 @@ object GalleryPostController {
                     }
             }
             if (methods.size == 1) return instance to methods.single()
-            if (methods.size > 1 && versionName == KnownMappings3970.VERSION_NAME) {
+            if (methods.size > 1 && KnownMappings3970.isSupportedVersion(versionName)) {
                 methods.singleOrNull { it.name == KnownMappings3970.KOIN_RESOLVER_METHOD_NAME }?.let { return instance to it }
             }
             if (depth >= 3) continue

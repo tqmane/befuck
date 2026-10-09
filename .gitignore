@@ -1,5 +1,6 @@
 .gradle/
 .kotlin/
+__pycache__/
 .idea/
 .kilo/
 **/build/

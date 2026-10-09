@@ -1,5 +1,6 @@
 package dev.tqmane.befuck.download
 
+import dev.tqmane.befuck.symbols.KnownMappings3970
 import android.content.Context
 import android.content.res.Resources
 import android.os.Handler
@@ -51,7 +52,7 @@ class RealMojiDownloadAction private constructor(private val media: FeedPostMedi
                 postedAt = date.takeIf { it > 0 }?.let { Instant.ofEpochMilli(it).toString() },
                 ownerUid = field("b") as String,
             )
-            return Proxy.newProxyInstance(loader, arrayOf(Class.forName("ddi", false, loader)), RealMojiDownloadAction(media))
+            return Proxy.newProxyInstance(loader, arrayOf(Class.forName(KnownMappings3970.className("ddi"), false, loader)), RealMojiDownloadAction(media))
         }
     }
 }

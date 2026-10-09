@@ -216,7 +216,7 @@ object BeRealSymbolResolver {
                 }
             }
 
-            val useKnownFallback = KnownMappings3970.isKnownVersion(versionName)
+            val useKnownFallback = KnownMappings3970.isSupportedVersion(versionName)
             if (useKnownFallback) {
                 fallbackField(fields, classLoader, versionName, "recapSemantics", logger)
                 fallbackField(fields, classLoader, versionName, "cameraCountdownInitialText", logger)
@@ -519,7 +519,7 @@ object BeRealSymbolResolver {
     ): Class<*>? {
         if (candidate != null) {
             emit(logger, "[SymbolResolver] $symbol resolved: class=${candidate.name} confidence=version-mapped strategy=KnownMappings3970")
-        } else if (versionName == KnownMappings3970.VERSION_NAME) {
+        } else if (KnownMappings3970.isSupportedVersion(versionName)) {
             emit(logger, "[SymbolResolver] Failed to resolve $symbol reason=known mapping unavailable")
         }
         return candidate
@@ -533,7 +533,7 @@ object BeRealSymbolResolver {
     ): Method? {
         if (candidate != null) {
             emit(logger, "[SymbolResolver] $symbol resolved: ${candidate.declaringClass.name}.${candidate.name} confidence=version-mapped strategy=KnownMappings3970")
-        } else if (versionName == KnownMappings3970.VERSION_NAME) {
+        } else if (KnownMappings3970.isSupportedVersion(versionName)) {
             emit(logger, "[SymbolResolver] Failed to resolve $symbol reason=known mapping unavailable")
         }
         return candidate
@@ -1014,7 +1014,7 @@ object BeRealSymbolResolver {
             diagnostics,
         )
         val currentUserUidField = resolveCurrentUserUidField(bridge, classLoader, logger, diagnostics)
-        val currentUserProvider = KnownMappings3970.resolveCurrentUserProvider(classLoader, KnownMappings3970.VERSION_NAME)
+        val currentUserProvider = KnownMappings3970.resolveCurrentUserProvider(classLoader, RuntimeKnowledge.versionName)
         if (currentUserProvider.first != null && currentUserProvider.second != null) {
             emit(logger, "[SymbolResolver] CurrentUser provider resolved: ${currentUserProvider.first!!.name}.${currentUserProvider.second!!.name} confidence=version-mapped strategy=KnownMappings3970")
         } else {

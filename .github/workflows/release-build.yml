@@ -42,6 +42,11 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Check BeReal compatibility
+        run: |
+          python3 checks/check_compatibility.py
+          python3 checks/check_known_strings.py
+          python3 checks/check_room_schema.py
       - name: Build release APK
         run: bash ./gradlew --no-daemon :app:assembleRelease
       - name: Sign with the release key

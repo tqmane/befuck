@@ -21,6 +21,7 @@ public final class MetadataCheck {
         assert !KnownMappings3970.isKnownVersion("3.97.0", 3597524L);
         assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
         assert !KnownMappings3970.isKnownVersion(null, 3597523L);
+        checkVersionMappings();
         checkSmsRequestPayload();
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
@@ -239,6 +240,31 @@ public final class MetadataCheck {
         assert "already initialized".equals(okhttp3.internal.connection.udV.ewVWKVT.oiooMrpCpO);
     }
 
+    private static void checkVersionMappings() throws Exception {
+        assert KnownMappings3970.isSupportedVersion("3.97.0", 3597523L);
+        assert KnownMappings3970.isSupportedVersion("3.97.1", 3599414L);
+        assert !KnownMappings3970.isSupportedVersion("3.97.1", 3597523L);
+        assert !KnownMappings3970.isSupportedVersion("3.97.0", 3599414L);
+        assert !KnownMappings3970.isSupportedVersion("3.98.0", 3599414L);
+        assert !KnownMappings3970.isSupportedVersion(null, 3599414L);
+        assert !KnownMappings3970.isKnownVersion("3.97.1", 3599414L);
+        assert KnownMappings3970.className("okg", "3.97.1", 3599414L).equals("hlg");
+        assert KnownMappings3970.className("okg", "3.97.0", 3597523L).equals("okg");
+        assert KnownMappings3970.className("okg", "3.97.1", 3597523L).equals("okg");
+        assert KnownMappings3970.methodName("uak", "x", "3.97.1", 3599414L).equals("s");
+        assert KnownMappings3970.methodName("uak", "x", "3.97.0", 3597523L).equals("x");
+        assert KnownMappings3970.methodName("uak", "x", "3.97.1", 3597523L).equals("x");
+        var loader = MetadataCheck.class.getClassLoader();
+        assert KnownMappings3970.runtimeStringRepairs(loader, "3.97.1", 3599414L).isEmpty();
+        assert KnownMappings3970.smsRequestConstructor(loader, "3.97.1", 3599414L) == null;
+        assert KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.97.1", 3599414L);
+        var fields = KnownMappings3970.sponsoredFeedFields(loader, "3.97.1", 3599414L);
+        var card = new hlg();
+        card.e = new clg();
+        card.h = new yki();
+        assert fields.size() == 2 && fields.get(0).get(card) == card.e && fields.get(1).get(card) == card.h;
+    }
+
     private static void checkAdClassification() throws Exception {
         assert KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.97.0", 3597523L)
                 : "SDK subclasses must remain hidden";
@@ -280,6 +306,9 @@ class OrdinaryAdViewNamedFixture {}
 class okg { public jkg e; public eki h; }
 class jkg {}
 class eki {}
+class hlg { public clg e; public yki h; }
+class clg {}
+class yki {}
 class hj0 {
     private final String token, identifier;
     hj0(String token, String identifier) { this.token = token; this.identifier = identifier; }

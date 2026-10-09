@@ -157,11 +157,10 @@ public final class BeRealModule extends XposedModule {
         final ClassLoader classLoader = param.getDefaultClassLoader();
         targetClassLoader = classLoader;
         targetApplicationInfo = param.getApplicationInfo();
-        info("Loaded for " + param.getPackageName() + "; installing PairIP bypass before deferred BeFuck resolution");
+        info("Loaded for " + param.getPackageName() + "; preparing version-scoped BeFuck hooks");
 
         installApplicationContextHook(classLoader);
         installNullTraceSectionGuard();
-        installComposeTracingContextGuard(classLoader);
         installVmRunnerInitializerHook(classLoader);
         installStartupLauncherHook(classLoader);
     }
@@ -215,12 +214,15 @@ public final class BeRealModule extends XposedModule {
             installPreludeNativeCompatibility(context, classLoader, versionName, versionCode);
             installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
+            installComposeTracingContextGuard(classLoader);
             installAuthFailureDiagnostics(classLoader, versionName, versionCode);
             installSmsRequestPayloadRepair(classLoader, versionName, versionCode);
             installTextFieldFocusGuard(classLoader, versionName, versionCode);
             installEmailAnalyticsGuard(classLoader, versionName, versionCode);
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
-            installRuntimeRecoveryGuards(classLoader);
+            if (KnownMappings3970.isKnownVersion(versionName, versionCode)) {
+                installRuntimeRecoveryGuards(classLoader);
+            }
             resolvedSymbols = BeRealSymbolResolver.resolve(
                     appInfo,
                     classLoader,
@@ -523,12 +525,14 @@ public final class BeRealModule extends XposedModule {
             Field field = repair.getKey();
             restoreStaticStringIfNull(field, field.getDeclaringClass().getName() + "." + field.getName(), repair.getValue());
         }
-        installAnalyticsNullKeyGuard(classLoader);
-        installProtobufNullFieldProbe(classLoader);
-        installRoomNullColumnGuard(classLoader);
-        installCameraOriginSentinelGuard(classLoader, symbols);
+        if (KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName())) {
+            installAnalyticsNullKeyGuard(classLoader);
+            installProtobufNullFieldProbe(classLoader);
+            installRoomNullColumnGuard(classLoader);
+            installCameraOriginSentinelGuard(classLoader, symbols);
+            installMedia3NetworkTypeReceiverHook(classLoader);
+        }
         installFusedLocationFallback(classLoader, symbols);
-        installMedia3NetworkTypeReceiverHook(classLoader);
         installConcurrentVideoSecondaryFrontSelection(classLoader, symbols);
         installBeFakeAuthHeaderCapture(classLoader);
         installComposeInjectionScope(classLoader);
@@ -541,19 +545,19 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installRealMojiDownloadMenu(ClassLoader loader) {
-        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName()) || moduleResources == null) return;
+        if (!KnownMappings3970.isSupportedVersion(RuntimeKnowledge.getVersionName()) || moduleResources == null) return;
         try {
-            Class<?> actionClass = Class.forName("ddi", false, loader);
-            Class<?> itemClass = Class.forName("a7i", false, loader);
-            Class<?> entryClass = Class.forName("edi", false, loader);
-            Class<?> selectedClass = Class.forName("ndi", false, loader);
-            Class<?> viewerItemClass = Class.forName("mdi", false, loader);
-            Class<?> listClass = Class.forName("u4a", false, loader);
+            Class<?> actionClass = Class.forName(KnownMappings3970.className("ddi"), false, loader);
+            Class<?> itemClass = Class.forName(KnownMappings3970.className("a7i"), false, loader);
+            Class<?> entryClass = Class.forName(KnownMappings3970.className("edi"), false, loader);
+            Class<?> selectedClass = Class.forName(KnownMappings3970.className("ndi"), false, loader);
+            Class<?> viewerItemClass = Class.forName(KnownMappings3970.className("mdi"), false, loader);
+            Class<?> listClass = Class.forName(KnownMappings3970.className("u4a"), false, loader);
             Constructor<?> selected = selectedClass.getDeclaredConstructor(viewerItemClass, String.class, listClass, int.class);
             Constructor<?> item = itemClass.getDeclaredConstructor(String.class, String.class, String.class, boolean.class, Integer.class);
             Constructor<?> entry = entryClass.getDeclaredConstructor(actionClass, itemClass, String.class);
-            Method immutableList = Class.forName("ie5", false, loader).getDeclaredMethod("z", Iterable.class);
-            Method clicked = Class.forName("sdi", false, loader).getDeclaredMethod("G", actionClass);
+            Method immutableList = Class.forName(KnownMappings3970.className("ie5"), false, loader).getDeclaredMethod(KnownMappings3970.methodName("ie5", "z"), Iterable.class);
+            Method clicked = Class.forName(KnownMappings3970.className("sdi"), false, loader).getDeclaredMethod("G", actionClass);
             Field realMoji = viewerItemClass.getDeclaredField("a");
             Field tag = entryClass.getDeclaredField("c");
             String downloadTag = "befuck.realmoji.download";
@@ -590,7 +594,7 @@ public final class BeRealModule extends XposedModule {
                 }
                 return chain.proceed(args);
             });
-            info("Installed selected RealMoji download entry in the native overflow menu for 3597523");
+            info("Installed selected RealMoji download entry for " + RuntimeKnowledge.getVersionName());
         } catch (Throwable failure) {
             error("Could not install the version-specific RealMoji download menu", failure);
         }
@@ -974,7 +978,7 @@ public final class BeRealModule extends XposedModule {
                             if (stage instanceof String && failure instanceof Throwable) {
                                 Throwable throwable = (Throwable) failure;
                                 String details;
-                                if ("up4".equals(throwable.getClass().getSimpleName())) {
+                                if (KnownMappings3970.className("up4").equals(throwable.getClass().getSimpleName())) {
                                     try {
                                         details = throwable.toString();
                                     } catch (Throwable ignored) {
@@ -1089,10 +1093,10 @@ public final class BeRealModule extends XposedModule {
             return;
         }
 
-        if (KnownMappings3970.isKnownVersion(symbols.getVersionName())) {
+        if (KnownMappings3970.isSupportedVersion(symbols.getVersionName())) {
             try {
-                Class<?> currentUser = Class.forName("hun", false, classLoader);
-                Class<?> mediaModel = Class.forName("wi1", false, classLoader);
+                Class<?> currentUser = Class.forName(KnownMappings3970.className("hun"), false, classLoader);
+                Class<?> mediaModel = Class.forName(KnownMappings3970.className("wi1"), false, classLoader);
                 Field aspectRatio = mediaModel.getDeclaredField("aspectRatio");
                 aspectRatio.setAccessible(true);
                 for (Constructor<?> constructor : mediaModel.getDeclaredConstructors()) {
@@ -1114,7 +1118,7 @@ public final class BeRealModule extends XposedModule {
                                 return result;
                             });
                 }
-                Class<?> corePost = Class.forName("h45", false, classLoader);
+                Class<?> corePost = Class.forName(KnownMappings3970.className("h45"), false, classLoader);
                 for (Constructor<?> constructor : corePost.getDeclaredConstructors()) {
                     if (constructor.getParameterCount() != 28) continue;
                     hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -1125,9 +1129,9 @@ public final class BeRealModule extends XposedModule {
                             });
                 }
                 info("Capturing CorePost URLs, owner and original timestamps from all loaded feed models");
-                Class<?> unsentRepository = Class.forName("s55", false, classLoader);
-                Class<?> postRepository = Class.forName("z4e", false, classLoader);
-                Class<?> createContinuation = Class.forName("t4e", false, classLoader);
+                Class<?> unsentRepository = Class.forName(KnownMappings3970.className("s55"), false, classLoader);
+                Class<?> postRepository = Class.forName(KnownMappings3970.className("z4e"), false, classLoader);
+                Class<?> createContinuation = Class.forName(KnownMappings3970.className("t4e"), false, classLoader);
                 Field pendingCore = createContinuation.getDeclaredField("r");
                 pendingCore.setAccessible(true);
                 for (Method method : postRepository.getDeclaredMethods()) {
@@ -1143,7 +1147,7 @@ public final class BeRealModule extends XposedModule {
                                 return result;
                             });
                 }
-                Class<?> unsentPost = Class.forName("tin", false, classLoader);
+                Class<?> unsentPost = Class.forName(KnownMappings3970.className("tin"), false, classLoader);
                 for (Method method : unsentRepository.getDeclaredMethods()) {
                     if (!"p".equals(method.getName()) || method.getParameterCount() != 2 ||
                             method.getParameterTypes()[0] != unsentPost) continue;
@@ -1386,7 +1390,7 @@ public final class BeRealModule extends XposedModule {
         if (gridMedia != null) {
             try {
                 Class<?> composerType = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-                Class<?> functionType = Class.forName("ns8", false, classLoader);
+                Class<?> functionType = Class.forName(KnownMappings3970.className("ns8"), false, classLoader);
                 Class<?> disposableType = Class.forName("androidx.compose.runtime.DisposableEffectResult", false, classLoader);
                 Map<String, Method> runtimeMethods = KnownMappings3970.composeRuntimeMethods(classLoader, symbols.getVersionName());
                 if (!composeInjectionReady || runtimeMethods.isEmpty()) throw new NoSuchMethodException("Compose restart-scope methods");
@@ -1464,9 +1468,9 @@ public final class BeRealModule extends XposedModule {
             return;
         }
         try {
-            Class<?> tileClass = Class.forName("f3i", false, classLoader);
-            Class<?> imageDataClass = Class.forName("zxl", false, classLoader);
-            Class<?> badgeClass = Class.forName("u2i", false, classLoader);
+            Class<?> tileClass = Class.forName(KnownMappings3970.className("f3i"), false, classLoader);
+            Class<?> imageDataClass = Class.forName(KnownMappings3970.className("zxl"), false, classLoader);
+            Class<?> badgeClass = Class.forName(KnownMappings3970.className("u2i"), false, classLoader);
             Field postIdField = tileClass.getDeclaredField("a");
             Field imageDataField = tileClass.getDeclaredField("b");
             Field nameField = tileClass.getDeclaredField("c");
@@ -1517,10 +1521,10 @@ public final class BeRealModule extends XposedModule {
 
     private void installHomeGridDetailsClickHook(ClassLoader classLoader) {
         try {
-            Class<?> clickLambdaClass = Class.forName("d42", false, classLoader);
-            Class<?> tileContainerClass = Class.forName("b99", false, classLoader);
-            Class<?> tileModelClass = Class.forName("f3i", false, classLoader);
-            Class<?> callbackClass = Class.forName("ps8", false, classLoader);
+            Class<?> clickLambdaClass = Class.forName(KnownMappings3970.className("d42"), false, classLoader);
+            Class<?> tileContainerClass = Class.forName(KnownMappings3970.className("b99"), false, classLoader);
+            Class<?> tileModelClass = Class.forName(KnownMappings3970.className("f3i"), false, classLoader);
+            Class<?> callbackClass = Class.forName(KnownMappings3970.className("ps8"), false, classLoader);
             Field branchField = clickLambdaClass.getDeclaredField("a");
             Field callbackField = clickLambdaClass.getDeclaredField("b");
             Field tileContainerField = clickLambdaClass.getDeclaredField("c");
@@ -1582,7 +1586,7 @@ public final class BeRealModule extends XposedModule {
             return;
         }
         try {
-            Class<?> optionsClass = Class.forName("wl7", false, classLoader);
+            Class<?> optionsClass = Class.forName(KnownMappings3970.className("wl7"), false, classLoader);
             FeedBlurModelRewriter blurModelRewriter = resolveFeedBlurModelRewriter(classLoader);
             Field[] optionFields = new Field[8];
             Class<?>[] booleanParameters = new Class<?>[8];
@@ -1617,7 +1621,7 @@ public final class BeRealModule extends XposedModule {
             }
 
             try {
-                Class<?> reactionsClass = Class.forName("lkg", false, classLoader);
+                Class<?> reactionsClass = Class.forName(KnownMappings3970.className("lkg"), false, classLoader);
                 for (Constructor<?> c : reactionsClass.getDeclaredConstructors()) {
                     c.setAccessible(true);
                     hook(c)
@@ -1728,7 +1732,7 @@ public final class BeRealModule extends XposedModule {
                         if (changed) return chain.proceed(args);
                         return chain.proceed();
                     });
-            info("Hooked the 3.97.0 HomeFeed and FriendsOfFriends mappers for local canBlur=false and blurred-state normalization");
+            info("Hooked version-mapped HomeFeed and FriendsOfFriends mappers for local canBlur=false and blurred-state normalization");
         } catch (Throwable error) {
             error("Could not install the local feed canBlur model hooks", error);
         }
@@ -1812,12 +1816,12 @@ public final class BeRealModule extends XposedModule {
 
     private FeedBlurModelRewriter resolveFeedBlurModelRewriter(ClassLoader classLoader) {
         try {
-            Class<?> postClass = Class.forName("rm7", false, classLoader);
-            Class<?> blurredStateClass = Class.forName("om7", false, classLoader);
-            Class<?> regularStateClass = Class.forName("pm7", false, classLoader);
-            Class<?> myRealmojisClass = Class.forName("c8e", false, classLoader);
-            Class<?> realmojisClass = Class.forName("jpg", false, classLoader);
-            Class<?> emptyListClass = Class.forName("ax6", false, classLoader);
+            Class<?> postClass = Class.forName(KnownMappings3970.className("rm7"), false, classLoader);
+            Class<?> blurredStateClass = Class.forName(KnownMappings3970.className("om7"), false, classLoader);
+            Class<?> regularStateClass = Class.forName(KnownMappings3970.className("pm7"), false, classLoader);
+            Class<?> myRealmojisClass = Class.forName(KnownMappings3970.className("c8e"), false, classLoader);
+            Class<?> realmojisClass = Class.forName(KnownMappings3970.className("jpg"), false, classLoader);
+            Class<?> emptyListClass = Class.forName(KnownMappings3970.className("ax6"), false, classLoader);
             Field stateField = postClass.getDeclaredField("f");
             stateField.setAccessible(true);
             Field[] postFields = new Field[15];
@@ -1829,8 +1833,8 @@ public final class BeRealModule extends XposedModule {
             for (Constructor<?> candidate : postClass.getDeclaredConstructors()) {
                 Class<?>[] parameters = candidate.getParameterTypes();
                 if (parameters.length == 15 && parameters[0] == String.class &&
-                        parameters[1] == Boolean.TYPE && parameters[2].getName().equals("h45") &&
-                        parameters[5].getName().equals("qm7")) {
+                        parameters[1] == Boolean.TYPE && parameters[2].getName().equals(KnownMappings3970.className("h45")) &&
+                        parameters[5].getName().equals(KnownMappings3970.className("qm7"))) {
                     postConstructor = candidate;
                     break;
                 }
@@ -1841,7 +1845,7 @@ public final class BeRealModule extends XposedModule {
             Field emptyListField = emptyListClass.getDeclaredField("a");
             emptyListField.setAccessible(true);
             Object emptyList = emptyListField.get(null);
-            Constructor<?> myRealmojisConstructor = myRealmojisClass.getDeclaredConstructor(List.class, Class.forName("b8e", false, classLoader));
+            Constructor<?> myRealmojisConstructor = myRealmojisClass.getDeclaredConstructor(List.class, Class.forName(KnownMappings3970.className("b8e"), false, classLoader));
             Constructor<?> realmojisConstructor = realmojisClass.getDeclaredConstructor(Boolean.TYPE, Integer.TYPE, Integer.TYPE, List.class);
             Constructor<?> regularStateConstructor = regularStateClass.getDeclaredConstructor(myRealmojisClass, realmojisClass);
             myRealmojisConstructor.setAccessible(true);
@@ -1887,7 +1891,7 @@ public final class BeRealModule extends XposedModule {
         try {
             Class<?> modifierClass = Class.forName("androidx.compose.ui.Modifier", false, classLoader);
             Class<?> composerClass = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-            Class<?> function1Class = Class.forName("ns8", false, classLoader);
+            Class<?> function1Class = Class.forName(KnownMappings3970.className("ns8"), false, classLoader);
             Class<?> androidViewClass = Class.forName("androidx.compose.ui.viewinterop.AndroidView_androidKt", false, classLoader);
             Method androidViewComposable = null;
             for (Method method : androidViewClass.getDeclaredMethods()) {
@@ -1929,7 +1933,7 @@ public final class BeRealModule extends XposedModule {
             zIndex.setAccessible(true);
             Object fillMaxSizeTopmostModifier = zIndex.invoke(null, fillMaxSizeModifier, Float.MAX_VALUE);
 
-            Class<?> unitClass = Class.forName("bhn", false, classLoader);
+            Class<?> unitClass = Class.forName(KnownMappings3970.className("bhn"), false, classLoader);
             Field unitField = unitClass.getDeclaredField("a");
             unitField.setAccessible(true);
             Object kotlinUnit = unitField.get(null);
@@ -2026,13 +2030,13 @@ public final class BeRealModule extends XposedModule {
     private void installCurrentPostMediaOrientationHook(ClassLoader classLoader) {
         try {
             Class<?> composerClass = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-            Class<?> mediaRenderer = Class.forName("mi6", false, classLoader);
+            Class<?> mediaRenderer = Class.forName(KnownMappings3970.className("mi6"), false, classLoader);
             Method orientationMethod = null;
             for (Method method : mediaRenderer.getDeclaredMethods()) {
                 Class<?>[] parameters = method.getParameterTypes();
                 if (Modifier.isStatic(method.getModifiers()) && method.getName().equals("c") &&
                         method.getReturnType() == Void.TYPE && parameters.length == 34 &&
-                        parameters[0].getName().equals("zh6") && parameters[9] == Boolean.TYPE &&
+                        parameters[0].getName().equals(KnownMappings3970.className("zh6")) && parameters[9] == Boolean.TYPE &&
                         parameters[30] == composerClass && parameters[31] == Integer.TYPE &&
                         parameters[32] == Integer.TYPE && parameters[33] == Integer.TYPE) {
                     orientationMethod = method;
@@ -2057,7 +2061,7 @@ public final class BeRealModule extends XposedModule {
                         }
                     });
 
-            Class<?> flipLambda = Class.forName("eu", false, classLoader);
+            Class<?> flipLambda = Class.forName(KnownMappings3970.className("eu"), false, classLoader);
             Class<?> mutableStateClass = Class.forName("androidx.compose.runtime.MutableState", false, classLoader);
             Constructor<?> flipConstructor = null;
             for (Constructor<?> constructor : flipLambda.getDeclaredConstructors()) {
@@ -2109,7 +2113,7 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installAdViewSuppression() {
-        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
+        if (!KnownMappings3970.isSupportedVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
         try {
             hook(View.class.getDeclaredMethod("setVisibility", int.class))
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -2385,7 +2389,7 @@ public final class BeRealModule extends XposedModule {
                     false,
                     classLoader
             );
-            Class<?> unitClass = Class.forName("bhn", false, classLoader);
+            Class<?> unitClass = Class.forName(KnownMappings3970.className("bhn"), false, classLoader);
             Field unitField = unitClass.getDeclaredField("a");
             unitField.setAccessible(true);
             Object unit = unitField.get(null);
@@ -3773,6 +3777,8 @@ public final class BeRealModule extends XposedModule {
                         return null;
                     });
             info("Hooked VMRunner class initializer");
+        } catch (ClassNotFoundException absent) {
+            info("Host has no PairIP VMRunner; using its original initialization");
         } catch (Throwable error) {
             error("Could not hook VMRunner class initializer", error);
         }
@@ -3792,6 +3798,8 @@ public final class BeRealModule extends XposedModule {
                         return null;
                     });
             info("Hooked StartupLauncher.launch()");
+        } catch (ClassNotFoundException absent) {
+            info("Host has no PairIP launcher; using its original lifecycle");
         } catch (Throwable error) {
             error("Could not hook StartupLauncher.launch()", error);
         }
