@@ -1,6 +1,5 @@
 package dev.tqmane.befuck.runtime
 
-import dev.tqmane.befuck.symbols.KnownMappings3970
 import java.net.URI
 import java.util.Base64
 import java.util.TimeZone
@@ -11,6 +10,16 @@ import org.json.JSONObject
 
 /** Adapts only the two Vonage SMS calls; the host still verifies the user's code. */
 object SmsAuthCompatibility {
+    // SMS wire format confirmed in stayreal-android's BeRealHeaders/BeRealAuthApi.
+    // shortcut: fixed reference client identity, revisit when the SMS service changes its contract.
+    private const val SMS_CLIENT_HMAC_KEY = "56037f4af22fb6960f3cd014e2ec71b3"
+    private val SMS_CLIENT_HEADERS = mapOf(
+        "bereal-platform" to "iOS", "bereal-os-version" to "27.0",
+        "bereal-app-version" to "4.83.0", "bereal-app-version-code" to "22948",
+        "bereal-device-language" to "en", "bereal-app-language" to "en-US",
+        "user-agent" to "BeReal/4.83.0 (AlexisBarreyat.BeReal; build:22948; iOS 27.0.0)",
+    )
+
     @JvmStatic
     fun matches(method: String, url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
@@ -25,11 +34,11 @@ object SmsAuthCompatibility {
         require(deviceId.isNotBlank() && timezone.isNotBlank())
         val base64 = Base64.getEncoder()
         val mac = Mac.getInstance("HmacSHA256").apply {
-            init(SecretKeySpec(KnownMappings3970.SMS_CLIENT_HMAC_KEY.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+            init(SecretKeySpec(SMS_CLIENT_HMAC_KEY.toByteArray(Charsets.UTF_8), "HmacSHA256"))
         }
         val input = base64.encode("$deviceId$timezone$seconds".toByteArray(Charsets.UTF_8))
         val signature = base64.encodeToString("1:$seconds:".toByteArray(Charsets.UTF_8) + mac.doFinal(input))
-        return KnownMappings3970.SMS_CLIENT_HEADERS + mapOf(
+        return SMS_CLIENT_HEADERS + mapOf(
             "bereal-device-id" to deviceId, "bereal-timezone" to timezone, "bereal-signature" to signature)
     }
 

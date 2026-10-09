@@ -4,119 +4,183 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
-/** Canonical 3.97.0 signatures; shared hooks translate the reviewed 3.97.1 names explicitly. */
-internal object KnownMappings3970 {
-    const val VERSION_NAME = "3.97.0"
-    const val VERSION_CODE = 3597523L
-    @JvmStatic
-    @JvmOverloads
-    fun isKnownVersion(name: String?, code: Long = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionCode) =
-        name == VERSION_NAME && code == VERSION_CODE
+internal object KnownMappings3970 : HostMappings("3.97.0", 3597523L) {
+    override val classes = mapOf(
+        HostClass.RealMojiMenuItem to "a7i",
+        HostClass.DualViewImageSize to "ai6",
+        HostClass.HomeFeedItemEmitter to "an9",
+        HostClass.EmptyList to "ax6",
+        HostClass.MyRealMojiState to "b8e",
+        HostClass.HomeGridTileContainer to "b99",
+        HostClass.Unit to "bhn",
+        HostClass.BeRealImageLoader to "bi1",
+        HostClass.DualViewInteractions to "bi6",
+        HostClass.MyRealMojis to "c8e",
+        HostClass.HomeGridClick to "d42",
+        HostClass.RealMojiMenuAction to "ddi",
+        HostClass.RealMojiMenuEntry to "edi",
+        HostClass.SponsoredPostState to "eki",
+        HostClass.HomeFeedItem to "el7",
+        HostClass.MediaFlipState to "eu",
+        HostClass.HomeGridTile to "f3i",
+        HostClass.DualViewPlayers to "fj6",
+        HostClass.HomeFeed to "fk9",
+        HostClass.HomeFeedMapper to "fl7",
+        HostClass.PostUploadScheduler to "g34",
+        HostClass.BtsMedia to "gmg",
+        HostClass.PullDownGridCard to "gsh",
+        HostClass.CorePost to "h45",
+        HostClass.ResultSuccess to "hkm",
+        HostClass.GridCardIconAction to "huh",
+        HostClass.User to "hun",
+        HostClass.ImmutableListFactory to "ie5",
+        HostClass.PostSender to "isk",
+        HostClass.SponsoredPost to "jkg",
+        HostClass.RealMojis to "jpg",
+        HostClass.Function0 to "js8",
+        HostClass.KoinApplicationHolder to "kxa",
+        HostClass.CoroutineStart to "lia",
+        HostClass.PostReactions to "lkg",
+        HostClass.RealMojiViewerItem to "mdi",
+        HostClass.PublishedPost to "mfg",
+        HostClass.DualMediaRenderer to "mi6",
+        HostClass.CameraCountdown to "n57",
+        HostClass.RealMojiSelection to "ndi",
+        HostClass.Function1 to "ns8",
+        HostClass.DualViewConfig to "oh6",
+        HostClass.PostFeedState to "okg",
+        HostClass.BlurredPostState to "om7",
+        HostClass.RegularPostState to "pm7",
+        HostClass.MediaContainer to "po1",
+        HostClass.Function2 to "ps8",
+        HostClass.LocationRepository to "qfb",
+        HostClass.PostViewState to "qm7",
+        HostClass.FeedRefreshReason to "r0l",
+        HostClass.ImmutableList to "r1g",
+        HostClass.FriendsOfFriendsItemEmitter to "r68",
+        HostClass.TimelineBlurredCard to "ra7",
+        HostClass.CameraFacing to "re7",
+        HostClass.HomeFeedPost to "rm7",
+        HostClass.UnsentPostRepository to "s55",
+        HostClass.RealMojiViewModel to "sdi",
+        HostClass.Flow to "t28",
+        HostClass.CreatePostContinuation to "t4e",
+        HostClass.StableImageLoader to "tam",
+        HostClass.UnsentPost to "tin",
+        HostClass.HomeFeedContent to "tm7",
+        HostClass.HomeGridBadge to "u2i",
+        HostClass.PersistentList to "u4a",
+        HostClass.FlowOperators to "uak",
+        HostClass.CameraViewModel to "uo2",
+        HostClass.UploadFailure to "up4",
+        HostClass.Continuation to "vx4",
+        HostClass.CurrentUserProvider to "w19",
+        HostClass.BeRealMedia to "wi1",
+        HostClass.FeedBlurOptions to "wl7",
+        HostClass.GridCardAction to "wrh",
+        HostClass.ContinuationImpl to "wx4",
+        HostClass.HomeFeedStateHolder to "x3j",
+        HostClass.SecondaryCameraOriginParser to "x6n",
+        HostClass.PagerSnapLayoutInfo to "y2a",
+        HostClass.CameraOriginParser to "y6n",
+        HostClass.RealMojiRowState to "yci",
+        HostClass.PostRepository to "z4e",
+        HostClass.HomeGridTileRenderer to "z89",
+        HostClass.DualViewData to "zh6",
+        HostClass.ImageData to "zxl",
+    )
 
-    @JvmStatic
-    @JvmOverloads
-    fun isSupportedVersion(name: String?, code: Long = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionCode) =
-        isKnownVersion(name, code) || KnownMappings3971.isKnownVersion(name, code)
+    override val methods = mapOf(
+        HostMethod.ImmutableListCopy to "z",
+        HostMethod.KoinApplication to "A",
+        HostMethod.FlowFirst to "x",
+        HostMethod.SecondaryCameraOrigin to "N",
+        HostMethod.CameraOrigin to "S",
+        HostMethod.KoinResolve to "e",
+    )
 
-    @JvmStatic
-    @JvmOverloads
-    fun className(name: String, version: String? = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionName,
-                  code: Long = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionCode): String =
-        if (KnownMappings3971.isKnownVersion(version, code)) KnownMappings3971.className(name) else name
+    override val requiresRuntimeRecovery = true
 
-    @JvmStatic
-    @JvmOverloads
-    fun methodName(owner: String, name: String,
-                   version: String? = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionName,
-                   code: Long = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionCode): String =
-        if (KnownMappings3971.isKnownVersion(version, code)) KnownMappings3971.methodName(owner, name) else name
-    const val KOIN_RESOLVER_METHOD_NAME = "e"
-    const val MAPS_CAMERA_IDLE_DESCRIPTOR = "com.google.android.gms.maps.internal.IOnCameraIdleListener"
+    override val lifecycleDexAsset = "assets/pairip/anonymous.dex"
+    override val lifecycleBindings = listOf(
+        LifecycleBinding("androidx.lifecycle.viewmodel.savedstate.bJTm.Siorkv", "osFLetKzporkDk",
+            "bereal.app.BeRealApplication\$c2020060317", "onCreate", listOf("bereal.app.BeRealApplication")),
+        LifecycleBinding("android.net.http.XXN.LDboynjnJnbjK", "EPGBjnKOVGcR",
+            "bereal.app.MainActivity\$c2020060319", "onCreate", listOf("bereal.app.MainActivity", "android.os.Bundle")),
+        LifecycleBinding("android.net.http.XXN.LDboynjnJnbjK", "Clh",
+            "bereal.app.MainActivity\$c2020060318", "onDestroy", listOf("bereal.app.MainActivity")),
+        LifecycleBinding("com.moloco.sdk.acm.http.pg.JZLYrXU", "wdndhQOAVjwiG",
+            "bereal.app.MainActivity\$c2020060317", "onResume", listOf("bereal.app.MainActivity")),
+    )
+
+    private val bootstrapStringFields = listOf(
+        "androidx.compose.foundation.text.input.internal.ZDPh.NhqDXGO" to "nSRuyL",
+        "io.adn.sdk.internal.data.repository.player.zs.ueWceEmbmp" to "etoRAGaqfz",
+        "com.moloco.sdk.internal.client_metrics_data.dcLb.gvCIexqtCeo" to "JzYCqx",
+        "com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS" to "aURUwWhsGN",
+        "bereal.app.features.sharing.ui.VrJ.usGKIW" to "PjJIMWYD",
+        "com.google.firebase.crashlytics.yhxg.ZXgeV" to "idmeSbwqjtNmJat",
+        "androidx.credentials.gZ.MqonvtnPZU" to "krGLjoMJIyAqbMV",
+        "com.yalantis.ucrop.task.zsyC.uFMhyqS" to "UKeYkGMltUg",
+        "io.adn.sdk.internal.data.repository.player.zs.ueWceEmbmp" to "lzWf",
+        "io.adn.sdk.internal.data.repository.player.zs.ueWceEmbmp" to "PcmDyNHwOUmDKo",
+        "com.google.android.gms.ads.mediation.customevent.DL.dbGwTqUCgbZlbI" to "MkYePb",
+        "com.applovin.mediation.adapters.googleadmanager.gkls.musXWZnlt" to "rnrBfmTsvrx",
+        "com.moloco.sdk.xenoss.sdkdevkit.android.adrenderer.internal.ui.utils.UdT.vACnWl" to "KbRdYlMM",
+        "com.moloco.sdk.internal.client_metrics_data.dcLb.gvCIexqtCeo" to "MTWLxtc",
+        "com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS" to "kFIUlRtoLhCxv",
+        "com.moloco.sdk.xenoss.sdkdevkit.android.adrenderer.internal.ui.utils.UdT.vACnWl" to "nJwTuZXtvIyRt",
+        "com.bytedance.sdk.openadsdk.of.ykK.nmvDveFz" to "SmlWeNRBla",
+    )
+    override fun bootstrapStringRepairs(loader: ClassLoader) = stringRepairs(loader, bootstrapStringFields)
+
+    override fun uploadStringRepairs(loader: ClassLoader) = stringRepairs(loader, listOf(
+        "androidx.credentials.gZ.MqonvtnPZU" to "rjWJOvNnlBpCE",
+        "com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS" to "csWHdjHvbvur",
+        "com.yoti.mobile.android.yotisdkcore.stepTracker.di.CGh.TcjS" to "OPbZdoBRniyAS",
+        "androidx.media3.extractor.text.pgs.wtco.kKFOp" to "DJrrLBsuQ",
+        "com.pubmatic.sdk.webrendering.rVzC.QfYVeFFNcJ" to "XpQSiFrhKPuQAsg",
+    ))
+
+    private fun stringRepairs(loader: ClassLoader, fields: List<Pair<String, String>>): Map<Field, String> = buildMap {
+        for ((owner, name) in fields) {
+            val type = runCatching { Class.forName(owner, false, loader) }.getOrNull() ?: continue
+            mutableStringField(type, name)?.let { put(it, runtimeStringPools.getValue(owner).getValue(name)) }
+        }
+    }
+
+    override fun analyticsPropertyMethod(loader: ClassLoader): Method =
+        Class.forName("she", false, loader).getDeclaredMethod("K", Any::class.java, String::class.java).apply {
+            require(Modifier.isStatic(modifiers) && returnType == Class.forName("hc0", false, loader))
+        }
+
+    override fun analyticsIdentifyMethod(loader: ClassLoader): Method =
+        Class.forName("rb0", false, loader).getDeclaredMethod("g", Map::class.java).apply {
+            require(!Modifier.isStatic(modifiers) && returnType == Void.TYPE)
+        }
+
+    override fun protobufSchemaMethod(loader: ClassLoader): Method {
+        val messageInfo = Class.forName("rqh", false, loader)
+        return Class.forName("sxc", false, loader).declaredMethods.single {
+            it.name == "C" && it.parameterTypes.firstOrNull() == messageInfo
+        }
+    }
+
+    override fun protobufFieldLookupMethod(loader: ClassLoader): Method =
+        Class.forName("sxc", false, loader).getDeclaredMethod("O", Class::class.java, String::class.java).apply {
+            require(Modifier.isStatic(modifiers) && returnType == Field::class.java)
+        }
+
+    override fun recoveryProbe(loader: ClassLoader): Pair<Field, java.lang.reflect.Constructor<*>> =
+        requireNotNull(resolveStringField(loader, "poolrjWJOvNnlBpCE")) to
+            Class.forName("w6", false, loader).getDeclaredConstructor(String::class.java,
+                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+
     // SHA-256 of the signing certificate verified on the original Play base APK.
-    const val SIGNING_CERTIFICATE_SHA256 = "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q="
+    override val signingCertificateSha256 = "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q="
 
-    // SMS wire format confirmed in stayreal-android's BeRealHeaders/BeRealAuthApi.
-    // shortcut: fixed reference client identity, revisit when the SMS service changes its contract.
-    const val SMS_CLIENT_HMAC_KEY = "56037f4af22fb6960f3cd014e2ec71b3"
-    val SMS_CLIENT_HEADERS = mapOf(
-        "bereal-platform" to "iOS", "bereal-os-version" to "27.0",
-        "bereal-app-version" to "4.83.0", "bereal-app-version-code" to "22948",
-        "bereal-device-language" to "en", "bereal-app-language" to "en-US",
-        "user-agent" to "BeReal/4.83.0 (AlexisBarreyat.BeReal; build:22948; iOS 27.0.0)",
-    )
-
-    // Confirmed View roots in 3597523. Match superclasses too: e.g. Google's
-    // AdManagerAdView extends BaseAdView and vendor adapters subclass MediaView.
-    private val adViewClassNames = setOf(
-        "bereal.app.features.ads.ui.natives.view.MaxNativeAdViewContainer",
-        "com.applovin.adview.AppLovinAdView",
-        "com.applovin.mediation.ads.MaxAdView",
-        "com.applovin.mediation.nativeAds.MaxNativeAdView",
-        "com.applovin.impl.sdk.nativeAd.AppLovinMediaView",
-        "com.google.android.gms.ads.BaseAdView",
-        "com.google.android.gms.ads.nativead.NativeAdView",
-        "com.google.android.gms.ads.nativead.MediaView",
-        "com.google.android.gms.ads.formats.MediaView",
-        "com.bytedance.sdk.openadsdk.api.nativeAd.PAGMediaView",
-        "com.bytedance.sdk.openadsdk.adapter.MediaView",
-        "com.pubmatic.sdk.nativead.POBNativeAdView",
-        "com.pubmatic.sdk.nativead.views.POBNativeTemplateView",
-        "com.pubmatic.sdk.openwrap.banner.POBBannerView",
-        "com.pubmatic.sdk.appopenad.ui.POBAppOpenAdViewContainer",
-        "com.pubmatic.sdk.webrendering.ui.POBAdViewContainer",
-        "com.pubmatic.sdk.webrendering.ui.POBMraidViewContainer",
-        "com.pubmatic.sdk.video.player.POBVideoPlayerView",
-        "com.pubmatic.sdk.video.player.POBVastHTMLView",
-        "com.pubmatic.sdk.video.player.POBMraidEndCardView",
-        "com.pubmatic.sdk.common.view.POBWebView",
-        "com.vungle.ads.BannerView",
-        "com.vungle.ads.VungleBannerView",
-        "com.vungle.ads.internal.ui.view.MediaView",
-        "net.pubnative.lite.sdk.views.HyBidAdView",
-        "net.pubnative.lite.sdk.vpaid.VideoAdView",
-    )
-
-    @JvmStatic
-    fun isAdViewClass(type: Class<*>, name: String?, code: Long): Boolean {
-        if (!isSupportedVersion(name, code)) return false
-        return generateSequence(type) { it.superclass }.any { it.name in adViewClassNames }
-    }
-
-    @JvmStatic
-    fun sponsoredFeedFields(loader: ClassLoader, name: String?, code: Long): List<Field> {
-        if (!isSupportedVersion(name, code)) return emptyList()
-        val owner = Class.forName(className("okg", name, code), false, loader)
-        // e = sponsoredUiModel; h = realSponsoredPostUiState. The latter can be
-        // absent before the sponsored card finishes loading; e already marks it.
-        return listOf("e" to "jkg", "h" to "eki").map { (fieldName, typeName) ->
-            owner.getDeclaredField(fieldName).apply {
-                require(type == Class.forName(className(typeName, name, code), false, loader) && !Modifier.isStatic(modifiers))
-                isAccessible = true
-            }
-        }
-    }
-
-    class EmailAnalyticsGuard(
-        val constructors: Map<java.lang.reflect.Constructor<*>, List<Field>>,
-        val baseConstructor: java.lang.reflect.Constructor<*>,
-        val emit: Method,
-        val eventNames: Map<Class<*>, String>,
-        private val label: Field,
-        private val emailStep: Any,
-    ) {
-        fun hasMissingStep(step: Any?): Boolean = step === emailStep && label.get(emailStep) == null
-
-        fun shouldOmit(event: Any?): Boolean {
-            if (event == null) return false
-            val fields = constructors.entries.singleOrNull { it.key.declaringClass == event.javaClass }?.value
-                ?: return false
-            return hasMissingStep(fields.first().get(event))
-        }
-    }
-
-    @JvmStatic
-    fun emailAnalyticsGuard(loader: ClassLoader, name: String?, code: Long): EmailAnalyticsGuard? {
-        if (!isKnownVersion(name, code)) return null
+    override fun emailAnalyticsGuard(loader: ClassLoader): EmailAnalyticsGuard? {
         val step = Class.forName("a2", false, loader)
         val origin = Class.forName("w1", false, loader)
         val source = Class.forName("k2", false, loader)
@@ -146,9 +210,7 @@ internal object KnownMappings3970 {
             step.enumConstants.single { (it as Enum<*>).name == "EMAIL_ADDRESS" })
     }
 
-    @JvmStatic
-    fun authDiagnosticConstructors(loader: ClassLoader, name: String?, code: Long): Map<String, java.lang.reflect.Constructor<*>> {
-        if (!isKnownVersion(name, code)) return emptyMap()
+    override fun authDiagnosticConstructors(loader: ClassLoader): Map<String, java.lang.reflect.Constructor<*>> {
         return mapOf(
             "request_failure" to Class.forName("r3", false, loader)
                 .getDeclaredConstructor(String::class.java, String::class.java),
@@ -159,35 +221,7 @@ internal object KnownMappings3970 {
         )
     }
 
-    class TextFieldFocusGuard(
-        val notify: Method,
-        private val layoutInput: Field,
-        private val text: Field,
-        private val originalToTransformed: Method,
-    ) {
-        fun arguments(args: Array<Any?>): Array<Any?> {
-            if (args[5] != true) return args
-            val length = (text.get(layoutInput.get(args[2])) as CharSequence).length
-            return args.copyOf().apply {
-                this[6] = boundedFocusMapping(requireNotNull(args[6]), originalToTransformed, length)
-            }
-        }
-    }
-
-    @JvmStatic
-    fun boundedFocusMapping(original: Any, transform: Method, layoutLength: Int): Any {
-        require(layoutLength >= 0)
-        return java.lang.reflect.Proxy.newProxyInstance(transform.declaringClass.classLoader,
-            arrayOf(transform.declaringClass)) { _, method, args ->
-            val result = method.invoke(original, *(args ?: emptyArray()))
-            // The editing value can be newer than the layout during OTP focus changes.
-            if (method == transform) (result as Int).coerceIn(0, layoutLength) else result
-        }
-    }
-
-    @JvmStatic
-    fun textFieldFocusGuard(loader: ClassLoader, name: String?, code: Long): TextFieldFocusGuard? {
-        if (!isKnownVersion(name, code)) return null
+    override fun textFieldFocusGuard(loader: ClassLoader): TextFieldFocusGuard? {
         fun type(name: String) = Class.forName(name, false, loader)
         val layout = type("androidx.compose.ui.text.TextLayoutResult")
         val input = type("androidx.compose.ui.text.TextLayoutInput")
@@ -209,9 +243,7 @@ internal object KnownMappings3970 {
         return TextFieldFocusGuard(notify, field(layout, "a", input), field(input, "a", annotated), transform)
     }
 
-    @JvmStatic
-    fun smsRequestConstructor(loader: ClassLoader, name: String?, code: Long): java.lang.reflect.Constructor<*>? {
-        if (!isKnownVersion(name, code)) return null
+    override fun smsRequestConstructor(loader: ClassLoader): java.lang.reflect.Constructor<*>? {
         val request = Class.forName("mtj", false, loader)
         for ((fieldName, type) in mapOf(
             "deviceId" to String::class.java, "stableDeviceId" to String::class.java,
@@ -224,20 +256,8 @@ internal object KnownMappings3970 {
             String::class.java, ArrayList::class.java)
     }
 
-    // g01.invokeSuspend converts an empty token list to null before constructing mtj.
-    // Keep the JSON array shape used by the request-code endpoint's reference client.
-    // Never discard or replace an existing challenge token.
-    @JvmStatic
-    fun smsRequestArguments(args: Array<Any?>): Array<Any?> {
-        require(args.size == 4)
-        if (args[3] != null) return args
-        return args.copyOf().apply { this[3] = arrayListOf<Any>() }
-    }
-
     /** Only booleans and counts leave this method; never stringify request values. */
-    @JvmStatic
-    fun smsRequestShape(loader: ClassLoader, name: String?, code: Long, args: Array<Any?>): String {
-        if (!isKnownVersion(name, code)) return "unsupportedVersion=true"
+    override fun smsRequestShape(loader: ClassLoader, args: Array<Any?>): String {
         if (args.size != 4) return "unexpectedArguments=true"
         val tokens = args[3] as? List<*> ?: return "tokenListPresent=false"
         val tokenClass = Class.forName("hj0", false, loader)
@@ -271,26 +291,20 @@ internal object KnownMappings3970 {
             "; unknownIdentifiers=$unknown; missingTokens=$missingTokens; invalidEntries=$invalidEntries"
     }
 
-    @JvmStatic
-    fun preludeLibraryLoad(loader: ClassLoader, name: String?, code: Long): Method? {
-        if (!isKnownVersion(name, code)) return null
+    override fun preludeLibraryLoad(loader: ClassLoader): Method? {
         val library = Class.forName("com.sun.jna.Library", false, loader)
         return Class.forName("com.sun.jna.Native", false, loader)
             .getDeclaredMethod("load", String::class.java, Class::class.java)
             .apply { require(Modifier.isStatic(modifiers) && returnType == library) }
     }
 
-    @JvmStatic
-    fun preludeLibraryInterfaces(loader: ClassLoader, name: String?, code: Long): List<Class<*>> {
-        if (!isKnownVersion(name, code)) return emptyList()
+    override fun preludeLibraryInterfaces(loader: ClassLoader): List<Class<*>> {
         val library = Class.forName("com.sun.jna.Library", false, loader)
         return listOf("so.prelude.android.sdk.IntegrityCheckingUniffiLib", "so.prelude.android.sdk.UniffiLib")
             .map { Class.forName(it, false, loader).apply { require(isInterface && library.isAssignableFrom(this)) } }
     }
 
-    @JvmStatic
-    fun repackagedStartupChecks(loader: ClassLoader, name: String?, code: Long): List<Method> {
-        if (!isKnownVersion(name, code)) return emptyList()
+    override fun repackagedStartupChecks(loader: ClassLoader): List<Method> {
         return listOf(
             "com.pairip.licensecheck.LicenseClient" to "checkLicense",
         ).map { (owner, method) ->
@@ -298,31 +312,6 @@ internal object KnownMappings3970 {
                 .getDeclaredMethod(method, android.content.Context::class.java)
                 .apply { require(Modifier.isStatic(modifiers) && returnType == Void.TYPE) }
         }
-    }
-
-    @JvmStatic
-    fun composeRuntimeMethods(loader: ClassLoader, versionName: String?): Map<String, Method> {
-        if (!isSupportedVersion(versionName)) return emptyMap()
-        return runCatching {
-            val composer = Class.forName("androidx.compose.runtime.Composer", false, loader)
-            val implementation = Class.forName("androidx.compose.runtime.GapComposer", false, loader)
-            val scope = Class.forName("androidx.compose.runtime.ScopeUpdateScope", false, loader)
-            fun method(name: String, result: Class<*>, vararg parameters: Class<*>) =
-                implementation.getDeclaredMethod(name, *parameters).apply {
-                    require(returnType == result && !Modifier.isStatic(modifiers))
-                    isAccessible = true
-                }
-            mapOf(
-                "start" to method("A", composer, Int::class.javaPrimitiveType!!),
-                "execute" to method("H", Boolean::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, Boolean::class.javaPrimitiveType!!),
-                "end" to method("C", scope),
-                "replaceStart" to method("r", Void.TYPE, Int::class.javaPrimitiveType!!),
-                "replaceEnd" to method("o", Void.TYPE),
-                "effect" to Class.forName("androidx.compose.runtime.EffectsKt", false, loader)
-                    .getDeclaredMethod("a", Any::class.java, Class.forName(className("ns8"), false, loader), composer)
-                    .apply { require(returnType == Void.TYPE && Modifier.isStatic(modifiers)); isAccessible = true },
-            )
-        }.getOrDefault(emptyMap())
     }
 
     private val stringFieldMappings = mapOf(
@@ -2035,11 +2024,7 @@ internal object KnownMappings3970 {
         "zHMEXkLvtGbGRa" to "BY",
     )
 
-    @JvmStatic
-    @JvmOverloads
-    fun runtimeStringRepairs(classLoader: ClassLoader, versionName: String?,
-        versionCode: Long = dev.tqmane.befuck.runtime.RuntimeKnowledge.versionCode): Map<Field, String> {
-        if (!isKnownVersion(versionName, versionCode)) return emptyMap()
+    override fun runtimeStringRepairs(classLoader: ClassLoader): Map<Field, String> {
         return buildMap {
             for ((owner, values) in runtimeStringPools) {
                 val type = runCatching { Class.forName(owner, false, classLoader) }.getOrNull() ?: continue
@@ -2056,20 +2041,18 @@ internal object KnownMappings3970 {
             ?.apply { isAccessible = true }
     }.getOrNull()
 
-    fun missingStringRepairs(classLoader: ClassLoader, versionName: String?): Map<Field, String> =
-        resolveStringField(classLoader, versionName, "mapsCameraIdleDescriptor")?.let {
+    override fun missingStringRepairs(classLoader: ClassLoader): Map<Field, String> =
+        resolveStringField(classLoader, "mapsCameraIdleDescriptor")?.let {
             mapOf(it to MAPS_CAMERA_IDLE_DESCRIPTOR)
         } ?: emptyMap()
 
     /** Local Binder test fixture; never calls a map callback or a remote service. */
-    fun newCameraIdleCallback(classLoader: ClassLoader, versionName: String?): android.os.Binder {
-        require(isKnownVersion(versionName))
+    override fun newCameraIdleCallback(classLoader: ClassLoader): android.os.Binder {
         return Class.forName("com.google.android.gms.maps.w", false, classLoader)
             .getDeclaredConstructor(Class.forName("nvb", false, classLoader)).newInstance(null) as android.os.Binder
     }
 
-    fun resolveStringField(classLoader: ClassLoader, versionName: String?, symbol: String): Field? {
-        if (!isKnownVersion(versionName)) return null
+    override fun resolveStringField(classLoader: ClassLoader, symbol: String): Field? {
         val mapping = stringFieldMappings[symbol] ?: return null
         return try {
             mutableStringField(Class.forName(mapping.first, false, classLoader), mapping.second)
@@ -2078,324 +2061,4 @@ internal object KnownMappings3970 {
         }
     }
 
-    fun resolveCameraViewModel(classLoader: ClassLoader, versionName: String?): Class<*>? =
-        loadKnown(classLoader, versionName, className("uo2"))
-
-    fun resolveCameraFacingEnum(classLoader: ClassLoader, versionName: String?): Class<*>? =
-        loadKnown(classLoader, versionName, className("re7"))
-
-    fun resolveCameraCountdownComposable(classLoader: ClassLoader, versionName: String?): java.lang.reflect.Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            Class.forName(className("n57"), false, classLoader)
-                .getDeclaredMethod(
-                    "a",
-                    Float::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType,
-                    Long::class.javaPrimitiveType,
-                    Class.forName("androidx.compose.runtime.Composer", false, classLoader),
-                    Class.forName("androidx.compose.ui.Modifier", false, classLoader),
-                    String::class.java,
-                )
-                .apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveLocationRepository(classLoader: ClassLoader, versionName: String?): Class<*>? =
-        loadKnown(classLoader, versionName, className("qfb"))
-
-    fun resolveCurrentUserProvider(classLoader: ClassLoader, versionName: String?): Pair<Class<*>?, java.lang.reflect.Method?> {
-        if (!isSupportedVersion(versionName)) return null to null
-        return try {
-            val provider = Class.forName(className("w19"), false, classLoader)
-            val candidates = provider.declaredMethods.filter { method ->
-                method.returnType == Any::class.java && method.parameterCount == 1 &&
-                    isContinuationContract(method.parameterTypes[0])
-            }
-            if (candidates.size == 1) {
-                provider to candidates.single().apply { isAccessible = true }
-            } else {
-                provider to null
-            }
-        } catch (_: Throwable) {
-            null to null
-        }
-    }
-
-    fun resolveKoinApplication(classLoader: ClassLoader, versionName: String?): Any? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            Class.forName(className("kxa"), false, classLoader)
-                .getDeclaredMethod(methodName("kxa", "A"))
-                .apply { isAccessible = true }
-                .invoke(null)
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolvePostUploadSchedulerClass(classLoader: ClassLoader, versionName: String?): Class<*>? =
-        loadKnown(classLoader, versionName, className("g34"))
-
-    fun resolvePostUploadSchedulerMethod(
-        classLoader: ClassLoader,
-        versionName: String?,
-        schedulerClass: Class<*>?,
-    ): java.lang.reflect.Method? {
-        if (!isSupportedVersion(versionName) || schedulerClass == null) return null
-        return try {
-            val candidates = schedulerClass.declaredMethods.filter { method ->
-                method.returnType == Any::class.java && method.parameterCount == 1 &&
-                    isContinuationContract(method.parameterTypes[0])
-            }
-            candidates.singleOrNull()?.apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveCameraOriginParsers(classLoader: ClassLoader, versionName: String?): List<java.lang.reflect.Method> {
-        if (!isSupportedVersion(versionName)) return emptyList()
-        val mappings = listOf("y6n" to "S", "x6n" to "N")
-        return mappings.mapNotNull { (owner, member) ->
-            try {
-                Class.forName(className(owner), false, classLoader)
-                    .getDeclaredMethod(methodName(owner, member), android.os.Bundle::class.java)
-                    .apply { isAccessible = true }
-            } catch (_: Throwable) {
-                null
-            }
-        }
-    }
-
-    fun resolveCameraBindMethod(
-        classLoader: ClassLoader,
-        versionName: String?,
-        cameraViewModel: Class<*>?,
-        facingEnum: Class<*>?,
-    ): java.lang.reflect.Method? {
-        if (!isSupportedVersion(versionName) || cameraViewModel == null || facingEnum == null) return null
-        return try {
-            cameraViewModel.getDeclaredMethod(
-                "I",
-                Class.forName("androidx.lifecycle.LifecycleOwner", false, classLoader),
-                facingEnum,
-            ).apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveLocationRequestMethod(classLoader: ClassLoader, versionName: String?, repository: Class<*>?): java.lang.reflect.Method? {
-        if (!isSupportedVersion(versionName) || repository == null) return null
-        return try {
-            repository.getDeclaredMethod("b", Boolean::class.javaPrimitiveType!!, Class.forName(className("wx4"), false, classLoader))
-                .apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveLocationClientGetter(versionName: String?, repository: Class<*>?): java.lang.reflect.Method? {
-        if (!isSupportedVersion(versionName) || repository == null) return null
-        return try {
-            repository.getDeclaredMethod("a").apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveTimelineBlurredCardComposable(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            val composer = Class.forName("androidx.compose.runtime.Composer", false, classLoader)
-            val modifier = Class.forName("androidx.compose.ui.Modifier", false, classLoader)
-            val pager = Class.forName("androidx.compose.foundation.pager.PagerState", false, classLoader)
-            val lambda = Class.forName("androidx.compose.runtime.internal.ComposableLambdaImpl", false, classLoader)
-            val expected = arrayOf(
-                modifier,
-                Class.forName(className("y2a"), false, classLoader),
-                Class.forName(className("r1g"), false, classLoader),
-                pager,
-                lambda,
-                Boolean::class.javaPrimitiveType!!,
-                Class.forName(className("js8"), false, classLoader),
-                composer,
-                Int::class.javaPrimitiveType!!,
-            )
-            val candidates = Class.forName(className("ra7"), false, classLoader).declaredMethods.filter { method ->
-                Modifier.isStatic(method.modifiers) && method.name == "a" && method.returnType == Void.TYPE &&
-                    method.parameterTypes.contentEquals(expected)
-            }
-            candidates.singleOrNull()?.apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolvePullDownGridCardComposable(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            val expected = arrayOf(
-                Class.forName(className("bi1"), false, classLoader),
-                String::class.java,
-                String::class.java,
-                Class.forName(className("po1"), false, classLoader),
-                Class.forName(className("zh6"), false, classLoader),
-                Class.forName(className("y2a"), false, classLoader),
-                Boolean::class.javaPrimitiveType!!,
-                Class.forName(className("js8"), false, classLoader),
-                Class.forName(className("js8"), false, classLoader),
-                Class.forName(className("js8"), false, classLoader),
-                Class.forName(className("ps8"), false, classLoader),
-                Class.forName(className("ns8"), false, classLoader),
-                Class.forName(className("huh"), false, classLoader),
-                Class.forName(className("wrh"), false, classLoader),
-                Class.forName(className("yci"), false, classLoader),
-                Boolean::class.javaPrimitiveType!!,
-                Boolean::class.javaPrimitiveType!!,
-                Boolean::class.javaPrimitiveType!!,
-                Class.forName(className("js8"), false, classLoader),
-                Boolean::class.javaPrimitiveType!!,
-                Class.forName("androidx.compose.runtime.Composer", false, classLoader),
-                Int::class.javaPrimitiveType!!,
-            )
-            Class.forName(className("gsh"), false, classLoader).declaredMethods.singleOrNull { method ->
-                Modifier.isStatic(method.modifiers) && method.name == "a" && method.returnType == Void.TYPE &&
-                    method.parameterTypes.contentEquals(expected)
-            }?.apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolvePullDownGridMediaComposable(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            val modifier = Class.forName("androidx.compose.ui.Modifier", false, classLoader)
-            val state = Class.forName("androidx.compose.runtime.State", false, classLoader)
-            val function1 = Class.forName(className("ns8"), false, classLoader)
-            val function0 = Class.forName(className("js8"), false, classLoader)
-            val bitmapConfig = Class.forName("android.graphics.Bitmap\$Config", false, classLoader)
-            val expected = arrayOf(
-                Class.forName(className("zh6"), false, classLoader),
-                modifier,
-                state,
-                Boolean::class.javaPrimitiveType!!,
-                Class.forName(className("oh6"), false, classLoader),
-                Class.forName(className("fj6"), false, classLoader),
-                function1,
-                state,
-                state,
-                state,
-                state,
-                function0,
-                function1,
-                function0,
-                function1,
-                function0,
-                function1,
-                function1,
-                Boolean::class.javaPrimitiveType!!,
-                Class.forName(className("tam"), false, classLoader),
-                function1,
-                function1,
-                Class.forName(className("ai6"), false, classLoader),
-                Boolean::class.javaPrimitiveType!!,
-                bitmapConfig,
-                Class.forName(className("bi6"), false, classLoader),
-                function1,
-                function0,
-                Boolean::class.javaPrimitiveType!!,
-                Boolean::class.javaPrimitiveType!!,
-                Boolean::class.javaPrimitiveType!!,
-                function0,
-                Class.forName("androidx.compose.runtime.Composer", false, classLoader),
-                Int::class.javaPrimitiveType!!,
-                Int::class.javaPrimitiveType!!,
-                Int::class.javaPrimitiveType!!,
-                Int::class.javaPrimitiveType!!,
-                Int::class.javaPrimitiveType!!,
-            )
-            Class.forName(className("mi6"), false, classLoader).declaredMethods.singleOrNull { method ->
-                Modifier.isStatic(method.modifiers) && method.name == "a" && method.returnType == Void.TYPE &&
-                    method.parameterTypes.contentEquals(expected)
-            }?.apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveHomeGridPostTileComposable(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            val expected = arrayOf(
-                Class.forName(className("f3i"), false, classLoader),
-                Class.forName(className("js8"), false, classLoader),
-                Class.forName(className("tam"), false, classLoader),
-                Class.forName("androidx.compose.runtime.Composer", false, classLoader),
-                Int::class.javaPrimitiveType!!,
-            )
-            Class.forName(className("z89"), false, classLoader).declaredMethods.singleOrNull { method ->
-                Modifier.isStatic(method.modifiers) && method.name == "b" && method.returnType == Void.TYPE &&
-                    method.parameterTypes.contentEquals(expected)
-            }?.apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveHomeFeedCanBlurMapper(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            val candidates = Class.forName(className("fl7"), false, classLoader).declaredMethods.filter { method ->
-                val parameters = method.parameterTypes
-                Modifier.isStatic(method.modifiers) && method.name == "a" && method.returnType.name == className("el7") &&
-                    parameters.size == 19 && parameters[0].name == className("fl7") && parameters[1].name == className("tm7") &&
-                    parameters[9].name == className("wl7") && parameters[18] == Int::class.javaPrimitiveType
-            }
-            candidates.singleOrNull()?.apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveHomeFeedItemEmitter(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            Class.forName(className("an9"), false, classLoader)
-                .getDeclaredMethod("emit", Any::class.java, Class.forName(className("vx4"), false, classLoader))
-                .apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    fun resolveFriendsOfFriendsFeedItemEmitter(classLoader: ClassLoader, versionName: String?): Method? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            Class.forName(className("r68"), false, classLoader)
-                .getDeclaredMethod("emit", Any::class.java, Class.forName(className("vx4"), false, classLoader))
-                .apply { isAccessible = true }
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private fun loadKnown(classLoader: ClassLoader, versionName: String?, name: String): Class<*>? {
-        if (!isSupportedVersion(versionName)) return null
-        return try {
-            Class.forName(name, false, classLoader)
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private fun isContinuationContract(type: Class<*>): Boolean {
-        val methods = type.methods
-        return methods.any { it.name == "resumeWith" && it.parameterTypes.contentEquals(arrayOf(Any::class.java)) && it.returnType == Void.TYPE } &&
-            methods.any { it.name == "getContext" && it.parameterCount == 0 && it.returnType != Void.TYPE }
-    }
 }

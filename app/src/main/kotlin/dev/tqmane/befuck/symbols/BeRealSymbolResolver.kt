@@ -216,7 +216,7 @@ object BeRealSymbolResolver {
                 }
             }
 
-            val useKnownFallback = KnownMappings3970.isSupportedVersion(versionName)
+            val useKnownFallback = KnownMappings.isSupportedVersion(versionName)
             if (useKnownFallback) {
                 fallbackField(fields, classLoader, versionName, "recapSemantics", logger)
                 fallbackField(fields, classLoader, versionName, "cameraCountdownInitialText", logger)
@@ -230,83 +230,83 @@ object BeRealSymbolResolver {
                 cameraCountdownComposable = cameraCountdownComposable ?: fallbackMethod(
                     "cameraCountdownComposable",
                     versionName,
-                    KnownMappings3970.resolveCameraCountdownComposable(classLoader, versionName),
+                    KnownMappings.current().resolveCameraCountdownComposable(classLoader),
                     logger,
                 )
                 timelineBlurredCardComposable = fallbackMethod(
                     "timelineBlurredCardComposable",
                     versionName,
-                    KnownMappings3970.resolveTimelineBlurredCardComposable(classLoader, versionName),
+                    KnownMappings.current().resolveTimelineBlurredCardComposable(classLoader),
                     logger,
                 )
                 pullDownGridCardComposable = fallbackMethod(
                     "pullDownGridCardComposable",
                     versionName,
-                    KnownMappings3970.resolvePullDownGridCardComposable(classLoader, versionName),
+                    KnownMappings.current().resolvePullDownGridCardComposable(classLoader),
                     logger,
                 )
                 pullDownGridMediaComposable = fallbackMethod(
                     "pullDownGridMediaComposable",
                     versionName,
-                    KnownMappings3970.resolvePullDownGridMediaComposable(classLoader, versionName),
+                    KnownMappings.current().resolvePullDownGridMediaComposable(classLoader),
                     logger,
                 )
                 homeGridPostTileComposable = fallbackMethod(
                     "homeGridPostTileComposable",
                     versionName,
-                    KnownMappings3970.resolveHomeGridPostTileComposable(classLoader, versionName),
+                    KnownMappings.current().resolveHomeGridPostTileComposable(classLoader),
                     logger,
                 )
                 homeFeedCanBlurMapper = fallbackMethod(
                     "homeFeedCanBlurMapper",
                     versionName,
-                    KnownMappings3970.resolveHomeFeedCanBlurMapper(classLoader, versionName),
+                    KnownMappings.current().resolveHomeFeedCanBlurMapper(classLoader),
                     logger,
                 )
                 homeFeedItemEmitter = fallbackMethod(
                     "homeFeedItemEmitter",
                     versionName,
-                    KnownMappings3970.resolveHomeFeedItemEmitter(classLoader, versionName),
+                    KnownMappings.current().resolveHomeFeedItemEmitter(classLoader),
                     logger,
                 )
                 friendsOfFriendsFeedItemEmitter = fallbackMethod(
                     "friendsOfFriendsFeedItemEmitter",
                     versionName,
-                    KnownMappings3970.resolveFriendsOfFriendsFeedItemEmitter(classLoader, versionName),
+                    KnownMappings.current().resolveFriendsOfFriendsFeedItemEmitter(classLoader),
                     logger,
                 )
 
                 cameraFacing = cameraFacing ?: fallbackClass(
-                    "cameraFacing", versionName, KnownMappings3970.resolveCameraFacingEnum(classLoader, versionName), logger
+                    "cameraFacing", versionName, KnownMappings.current().resolveCameraFacingEnum(classLoader), logger
                 )
                 cameraViewModel = cameraViewModel ?: fallbackClass(
-                    "cameraViewModel", versionName, KnownMappings3970.resolveCameraViewModel(classLoader, versionName), logger
+                    "cameraViewModel", versionName, KnownMappings.current().resolveCameraViewModel(classLoader), logger
                 )
                 cameraBind = cameraBind ?: fallbackMethod(
                     "cameraBindConcurrent",
                     versionName,
-                    KnownMappings3970.resolveCameraBindMethod(classLoader, versionName, cameraViewModel, cameraFacing),
+                    KnownMappings.current().resolveCameraBindMethod(classLoader, cameraViewModel, cameraFacing),
                     logger,
                 )
                 if (cameraRouteParsers.isEmpty()) {
-                    cameraRouteParsers = KnownMappings3970.resolveCameraOriginParsers(classLoader, versionName)
+                    cameraRouteParsers = KnownMappings.current().resolveCameraOriginParsers(classLoader)
                     if (cameraRouteParsers.isNotEmpty()) {
-                        emit(logger, "[SymbolResolver] cameraOriginParsers resolved: ${cameraRouteParsers.map { it.declaringClass.name + "." + it.name }} confidence=version-mapped strategy=KnownMappings3970")
+                        emit(logger, "[SymbolResolver] cameraOriginParsers resolved: ${cameraRouteParsers.map { it.declaringClass.name + "." + it.name }} confidence=version-mapped strategy=version-mapping")
                     } else {
                         emit(logger, "[SymbolResolver] Failed to resolve cameraOriginParsers reason=no valid parser set")
                     }
                 }
                 locationRepository = locationRepository ?: fallbackClass(
                     "locationRepository", versionName,
-                    KnownMappings3970.resolveLocationRepository(classLoader, versionName), logger
+                    KnownMappings.current().resolveLocationRepository(classLoader), logger
                 )
                 locationRequest = locationRequest ?: fallbackMethod(
                     "locationRequest", versionName,
-                    KnownMappings3970.resolveLocationRequestMethod(classLoader, versionName, locationRepository), logger
+                    KnownMappings.current().resolveLocationRequestMethod(classLoader, locationRepository), logger
                 )
                 locationClientGetter = locationClientGetter ?: fallbackMethod(
                     "locationClientGetter", versionName,
-                    KnownMappings3970.resolveLocationClientGetter(versionName, locationRepository), logger
+                    KnownMappings.current().resolveLocationClientGetter(locationRepository), logger
                 )
             }
 
@@ -518,8 +518,8 @@ object BeRealSymbolResolver {
         logger: Consumer<String>,
     ): Class<*>? {
         if (candidate != null) {
-            emit(logger, "[SymbolResolver] $symbol resolved: class=${candidate.name} confidence=version-mapped strategy=KnownMappings3970")
-        } else if (KnownMappings3970.isSupportedVersion(versionName)) {
+            emit(logger, "[SymbolResolver] $symbol resolved: class=${candidate.name} confidence=version-mapped strategy=version-mapping")
+        } else if (KnownMappings.isSupportedVersion(versionName)) {
             emit(logger, "[SymbolResolver] Failed to resolve $symbol reason=known mapping unavailable")
         }
         return candidate
@@ -532,8 +532,8 @@ object BeRealSymbolResolver {
         logger: Consumer<String>,
     ): Method? {
         if (candidate != null) {
-            emit(logger, "[SymbolResolver] $symbol resolved: ${candidate.declaringClass.name}.${candidate.name} confidence=version-mapped strategy=KnownMappings3970")
-        } else if (KnownMappings3970.isSupportedVersion(versionName)) {
+            emit(logger, "[SymbolResolver] $symbol resolved: ${candidate.declaringClass.name}.${candidate.name} confidence=version-mapped strategy=version-mapping")
+        } else if (KnownMappings.isSupportedVersion(versionName)) {
             emit(logger, "[SymbolResolver] Failed to resolve $symbol reason=known mapping unavailable")
         }
         return candidate
@@ -1014,9 +1014,9 @@ object BeRealSymbolResolver {
             diagnostics,
         )
         val currentUserUidField = resolveCurrentUserUidField(bridge, classLoader, logger, diagnostics)
-        val currentUserProvider = KnownMappings3970.resolveCurrentUserProvider(classLoader, RuntimeKnowledge.versionName)
+        val currentUserProvider = KnownMappings.current().resolveCurrentUserProvider(classLoader)
         if (currentUserProvider.first != null && currentUserProvider.second != null) {
-            emit(logger, "[SymbolResolver] CurrentUser provider resolved: ${currentUserProvider.first!!.name}.${currentUserProvider.second!!.name} confidence=version-mapped strategy=KnownMappings3970")
+            emit(logger, "[SymbolResolver] CurrentUser provider resolved: ${currentUserProvider.first!!.name}.${currentUserProvider.second!!.name} confidence=version-mapped strategy=version-mapping")
         } else {
             emit(logger, "[SymbolResolver] Failed to resolve CurrentUser provider reason=known-version mapping unavailable")
         }
@@ -1378,10 +1378,10 @@ object BeRealSymbolResolver {
         logger: Consumer<String>,
     ) {
         if (fields.containsKey(symbol)) return
-        val field = KnownMappings3970.resolveStringField(classLoader, versionName, symbol)
+        val field = KnownMappings.current().resolveStringField(classLoader, symbol)
         if (field != null) {
             fields[symbol] = field
-            emit(logger, "[SymbolResolver] $symbol resolved: ${field.declaringClass.name}.${field.name} confidence=version-mapped strategy=KnownMappings3970")
+            emit(logger, "[SymbolResolver] $symbol resolved: ${field.declaringClass.name}.${field.name} confidence=version-mapped strategy=version-mapping")
         } else {
             emit(logger, "[SymbolResolver] Failed to resolve $symbol reason=no unique DexKit candidate and no applicable version mapping")
         }

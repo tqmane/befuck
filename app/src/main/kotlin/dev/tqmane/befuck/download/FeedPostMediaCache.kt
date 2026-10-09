@@ -1,6 +1,7 @@
 package dev.tqmane.befuck.download
 
-import dev.tqmane.befuck.symbols.KnownMappings3970
+import dev.tqmane.befuck.symbols.KnownMappings
+import dev.tqmane.befuck.symbols.HostClass
 import android.util.LruCache
 import android.content.Context
 import android.content.ContentValues
@@ -153,7 +154,7 @@ object FeedPostMediaCache {
                 media(primaryModel), media(field(model, "e")), null, System.currentTimeMillis(),
                 (field(owner, "userName") as? String)?.takeIf { it.isNotBlank() } ?: ownerUid?.let(currentUsernames::get),
                 field(model, "u")?.toString(),
-                if (primaryModel?.javaClass?.simpleName == KnownMappings3970.className("gmg")) media(primaryModel, bts = true) else null, ownerUid,
+                if (primaryModel?.javaClass?.simpleName == KnownMappings.current().className(HostClass.BtsMedia)) media(primaryModel, bts = true) else null, ownerUid,
                 moment?.let { field(it, "a") as? String }, field(model, "o") as? Boolean)
             if (captured.primary == null && captured.secondary == null) return
             synchronized(cache) {

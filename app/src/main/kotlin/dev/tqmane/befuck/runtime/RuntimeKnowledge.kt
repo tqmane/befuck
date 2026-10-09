@@ -4,7 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import dev.tqmane.befuck.symbols.BeRealSymbolResolver
-import dev.tqmane.befuck.symbols.KnownMappings3970
+import dev.tqmane.befuck.symbols.HostMappings
+import dev.tqmane.befuck.symbols.KnownMappings
 import org.json.JSONArray
 import org.json.JSONObject
 import org.luckypray.dexkit.query.FindMethod
@@ -58,9 +59,9 @@ object RuntimeKnowledge {
         // Refresh automatic rules before applying saved repairs: older releases stored
         // inferred values and topic sentinels for this same host version. Preserve edits
         // explicitly entered by the user, and persist the full pool in one transaction.
-        val known = KnownMappings3970.runtimeStringRepairs(classLoader, name, code)
+        val known = KnownMappings.current().runtimeStringRepairs(classLoader)
         val edit = settings.edit()
-        val info = repairInfo("preset:${KnownMappings3970.VERSION_CODE}", Instant.now().toString())
+        val info = repairInfo("preset:${KnownMappings.current().versionCode}", Instant.now().toString())
         var changed = false
         known.forEach { (field, value) ->
             val key = "${field.declaringClass.name}#${field.name}"
@@ -72,8 +73,8 @@ object RuntimeKnowledge {
         }
         if (changed) edit.commit()
         applySavedRepairs()
-        KnownMappings3970.missingStringRepairs(classLoader, name).forEach { (field, value) ->
-            rememberRepair(field, value, "preset:${KnownMappings3970.VERSION_CODE}")
+        KnownMappings.current().missingStringRepairs(classLoader).forEach { (field, value) ->
+            rememberRepair(field, value, "preset:${KnownMappings.current().versionCode}")
             if (field.get(null) == null) field.set(null, value)
         }
     }
@@ -272,22 +273,19 @@ object RuntimeKnowledge {
 
     /** A local constructor check only: nothing is posted or sent to analytics. */
     fun verifyRecovery(): Boolean {
-        require(KnownMappings3970.isKnownVersion(versionName) && enabled("auto_repair"))
-        val key = "androidx.credentials.gZ.MqonvtnPZU#rjWJOvNnlBpCE"
-        val field = field(key)
+        require(KnownMappings.current().requiresRuntimeRecovery && enabled("auto_repair"))
+        val (field, constructor) = requireNotNull(KnownMappings.current().recoveryProbe(requireNotNull(loader)))
+        val key = "${field.declaringClass.name}#${field.name}"
         val original = field.get(null)
         val saved = settings().getString(REPAIR + key, null)
         val savedInfo = settings().getString(INFO + key, null)
         val savedManual = settings().getBoolean(MANUAL + key, false)
         val nativeLoadedBefore = BeRealSymbolResolver.isDexKitLoaded()
-        val readersCached = settings().contains(READERS + "w6#<init>")
+        val readersCached = settings().contains(READERS + "${constructor.declaringClass.name}#<init>")
         settings().edit().remove(REPAIR + key).remove(INFO + key).remove(MANUAL + key).commit()
         try {
             field.set(null, null)
-            val eventType = Class.forName("w6", false, requireNotNull(loader))
-            eventType.getDeclaredConstructor(String::class.java, Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
-                .newInstance("befuck-recovery-check", 0, 0, 0, false)
+            constructor.newInstance("befuck-recovery-check", 0, 0, 0, false)
             val analyticsRepaired = field.get(null) == "recursionDepth" && settings().getString(REPAIR + key, null) == "recursionDepth"
             val binderPassed = verifyBinderRecovery()
             val repaired = analyticsRepaired && binderPassed
@@ -304,12 +302,12 @@ object RuntimeKnowledge {
     /** Exercise the null at Binder.attachInterface, while preserving Parcel's token enforcement. */
     private fun verifyBinderRecovery(): Boolean {
         val classLoader = requireNotNull(loader)
-        val descriptorField = requireNotNull(KnownMappings3970.resolveStringField(classLoader, versionName, "mapsCameraIdleDescriptor"))
+        val descriptorField = requireNotNull(KnownMappings.current().resolveStringField(classLoader, "mapsCameraIdleDescriptor"))
         val original = descriptorField.get(null)
         try {
             descriptorField.set(null, null)
-            val callback = KnownMappings3970.newCameraIdleCallback(classLoader, versionName)
-            val descriptor = KnownMappings3970.MAPS_CAMERA_IDLE_DESCRIPTOR
+            val callback = KnownMappings.current().newCameraIdleCallback(classLoader)
+            val descriptor = HostMappings.MAPS_CAMERA_IDLE_DESCRIPTOR
             check(callback.interfaceDescriptor == descriptor)
             val transact = callback.javaClass.getMethod("onTransact", Int::class.javaPrimitiveType,
                 android.os.Parcel::class.java, android.os.Parcel::class.java, Int::class.javaPrimitiveType)
