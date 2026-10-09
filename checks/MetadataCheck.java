@@ -147,6 +147,29 @@ public final class MetadataCheck {
         assert KnownMappings3970.smsRequestArguments(populated) == populated;
         assert populated[3] == tokens : "Existing challenge tokens must retain identity and contents";
         assert tokens.size() == 1;
+        var validTokens = new java.util.ArrayList<>(java.util.List.of(
+                new hj0("private-recaptcha-fixture", "RE"), new hj0("private-prelude-fixture", "PR")));
+        Object[] valid = {missing[0], missing[1], missing[2], validTokens};
+        String shape = KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L, valid);
+        assert shape.contains("recaptcha=1; prelude=1");
+        assert shape.contains("unknownIdentifiers=0; missingTokens=0; invalidEntries=0");
+        for (String secret : new String[]{"device-fixture", "stable-fixture", "phone-fixture",
+                "private-recaptcha-fixture", "private-prelude-fixture"}) assert !shape.contains(secret);
+        assert valid[3] == validTokens && validTokens.size() == 2 : "Diagnostics must not change tokens";
+        var malformed = new java.util.ArrayList<Object>();
+        malformed.add(new hj0(null, "RE"));
+        malformed.add(new hj0(" ", "private-unknown-provider"));
+        malformed.add(null);
+        malformed.add(new Object() { @Override public String toString() { throw new AssertionError("Must not stringify"); } });
+        shape = KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L,
+                new Object[]{null, "", null, malformed});
+        assert shape.contains("deviceIdPresent=false; stableDeviceIdPresent=false; phonePresent=false");
+        assert shape.contains("unknownIdentifiers=1; missingTokens=2; invalidEntries=2");
+        assert !shape.contains("private-unknown-provider");
+        assert KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597524L, valid).equals("unsupportedVersion=true");
+        assert KnownMappings3970.smsRequestShape(loader, "3.98.0", 3597523L, valid).equals("unsupportedVersion=true");
+        assert KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L, new Object[0]).equals("unexpectedArguments=true");
+        assert KnownMappings3970.smsRequestShape(loader, "3.97.0", 3597523L, missing).equals("tokenListPresent=false");
     }
 
     private static void checkKnownStrings() throws Exception {
@@ -203,6 +226,10 @@ class OrdinaryAdViewNamedFixture {}
 class okg { public jkg e; public eki h; }
 class jkg {}
 class eki {}
+class hj0 {
+    private final String token, identifier;
+    hj0(String token, String identifier) { this.token = token; this.identifier = identifier; }
+}
 
 // Native menu action is a marker interface; the download action must remain separate from delete/report.
 interface ddi {}

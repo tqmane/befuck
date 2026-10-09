@@ -362,6 +362,12 @@ public final class BeRealModule extends XposedModule {
                 // Log only payload shape, never phone numbers, device IDs, or tokens.
                 info("SMS request-code payload: tokenCount=" + ((List<?>) args[3]).size()
                         + "; normalizedNullTokens=" + (original != args));
+                try {
+                    info("SMS request-code shape: " + KnownMappings3970.smsRequestShape(loader, name, code, args));
+                } catch (Throwable failure) {
+                    // Diagnostic failures must not break authentication or expose request values.
+                    info("SMS request-code shape unavailable: " + failure.getClass().getSimpleName());
+                }
                 return chain.proceed(args);
             });
             info("Installed version-scoped SMS request-code payload repair");

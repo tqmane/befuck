@@ -156,6 +156,43 @@ internal object KnownMappings3970 {
         return args.copyOf().apply { this[3] = arrayListOf<Any>() }
     }
 
+    /** Only booleans and counts leave this method; never stringify request values. */
+    @JvmStatic
+    fun smsRequestShape(loader: ClassLoader, name: String?, code: Long, args: Array<Any?>): String {
+        if (!isKnownVersion(name, code)) return "unsupportedVersion=true"
+        if (args.size != 4) return "unexpectedArguments=true"
+        val tokens = args[3] as? List<*> ?: return "tokenListPresent=false"
+        val tokenClass = Class.forName("hj0", false, loader)
+        fun stringField(name: String) = tokenClass.getDeclaredField(name).apply {
+            require(type == String::class.java && !Modifier.isStatic(modifiers))
+            isAccessible = true
+        }
+        val tokenField = stringField("token")
+        val identifierField = stringField("identifier")
+        var recaptcha = 0
+        var prelude = 0
+        var unknown = 0
+        var missingTokens = 0
+        var invalidEntries = 0
+        for (entry in tokens) {
+            if (!tokenClass.isInstance(entry)) {
+                invalidEntries++
+                continue
+            }
+            if ((tokenField.get(entry) as? String).isNullOrBlank()) missingTokens++
+            when (identifierField.get(entry)) {
+                "RE" -> recaptcha++
+                "PR" -> prelude++
+                else -> unknown++
+            }
+        }
+        return "deviceIdPresent=${(args[0] as? String)?.isNotBlank() == true}" +
+            "; stableDeviceIdPresent=${(args[1] as? String)?.isNotBlank() == true}" +
+            "; phonePresent=${(args[2] as? String)?.isNotBlank() == true}" +
+            "; tokenCount=${tokens.size}; recaptcha=$recaptcha; prelude=$prelude" +
+            "; unknownIdentifiers=$unknown; missingTokens=$missingTokens; invalidEntries=$invalidEntries"
+    }
+
     @JvmStatic
     fun preludeLibraryLoad(loader: ClassLoader, name: String?, code: Long): Method? {
         if (!isKnownVersion(name, code)) return null
