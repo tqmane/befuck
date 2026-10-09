@@ -58,6 +58,8 @@ import dev.tqmane.befuck.posting.BeFakeUploadController
 import dev.tqmane.befuck.posting.GalleryPostController
 import dev.tqmane.befuck.posting.GalleryPostRequest
 import dev.tqmane.befuck.posting.Media3VideoCompressor
+import dev.tqmane.befuck.posting.VideoEdit
+import dev.tqmane.befuck.posting.CropRegion
 import dev.tqmane.befuck.symbols.ResolvedSymbols
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -129,6 +131,8 @@ object BeFuckGalleryUi {
         val mediaButtons: MutableMap<Int, Button> = linkedMapOf(),
         var frontPhotoSource: Uri? = null,
         var backPhotoSource: Uri? = null,
+        var videoEditor: VideoCropDialog? = null,
+        var videoSourcesInUse: Set<String> = emptySet(),
     )
 
     private data class InlineFeedDownloadTarget(val post: FeedPostMedia)
@@ -158,6 +162,7 @@ object BeFuckGalleryUi {
     @JvmStatic
     fun onActivityPause(activity: Activity) {
         BeFakeLocationDialog.onActivityPause(activity)
+        sessions[activity]?.videoEditor?.pausePreview()
         entryTrackers.remove(activity)?.let(mainThread::removeCallbacks)
         val root = activity.window?.decorView as? ViewGroup
         if (root != null) {
@@ -174,8 +179,8 @@ object BeFuckGalleryUi {
         runCatching { sessions[activity]?.dialog?.dismiss() }
         sessions.remove(activity)?.let { destroyed ->
             if (!destroyed.keepMediaUntilUpload) {
-                destroyed.front?.let { discardPreparedMedia(activity, it) }
-                destroyed.back?.let { discardPreparedMedia(activity, it) }
+                destroyed.front?.let { discardPreparedMedia(activity, it, destroyed.videoSourcesInUse) }
+                destroyed.back?.let { discardPreparedMedia(activity, it, destroyed.videoSourcesInUse) }
             }
         }
     }
@@ -580,17 +585,104 @@ object BeFuckGalleryUi {
             return true
         }
         if (video) {
-            session.isPreparing = true
-            updatePostAvailability(session)
-            session.status.text = session.resources.getString(R.string.befuck_preparing_image)
-            importer.execute {
-                val result = runCatching { prepareVideo(activity, uri, if (frontSlot) "front" else "back") }
-                mainThread.post { applySelectedMedia(activity, result, frontSlot, video = true, expectedSession = session) }
-            }
+            showVideoCrop(activity, session, uri, frontSlot)
         } else {
             showPhotoCrop(activity, session, uri, frontSlot)
         }
         return true
+    }
+
+    private fun showVideoCrop(activity: Activity, session: Session, uri: Uri?, frontSlot: Boolean) {
+        val previous = if (uri == null) (if (frontSlot) session.front else session.back) else null
+        val other = if (frontSlot) session.back else session.front
+        session.isPreparing = true
+        updatePostAvailability(session)
+        session.status.text = session.resources.getString(R.string.befuck_preparing_image)
+        importer.execute {
+            var source: File? = null
+            val result = runCatching {
+                val file = if (previous != null) File(previous.sourcePath ?: previous.path)
+                    else copyVideoSource(activity, requireNotNull(uri), if (frontSlot) "front" else "back")
+                source = file
+                val metadata = readVideoMetadata(file)
+                val otherAvailable = other?.let {
+                    readVideoMetadata(File(it.sourcePath ?: it.path)).third - (it.videoEdit?.startMs ?: 0L)
+                }
+                Triple(file, metadata, otherAvailable)
+            }
+            mainThread.post {
+                if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) {
+                    if (previous == null) source?.delete()
+                    return@post
+                }
+                result.onSuccess { (file, metadata, otherAvailable) ->
+                    session.videoSourcesInUse = setOf(file.absolutePath)
+                    val initial = previous?.videoEdit ?: VideoEdit.initial(metadata.third).let {
+                        it.withDuration(min(it.durationMs, other?.videoEdit?.durationMs ?: it.durationMs))
+                            .copy(crop = CropRegion.portrait(metadata.first, metadata.second))
+                    }
+                    runCatching {
+                        VideoCropDialog(activity, session.resources, file, metadata.first, metadata.second, metadata.third,
+                            initial, otherAvailable,
+                            onEdited = { edit ->
+                                session.videoEditor = null
+                                val leased = setOfNotNull(file.absolutePath, other?.sourcePath)
+                                session.videoSourcesInUse = leased
+                                session.status.text = session.resources.getString(R.string.befuck_video_exporting)
+                                importer.execute {
+                                    val created = arrayListOf<GalleryMediaFile>()
+                                    val prepared = runCatching {
+                                        val selected = prepareVideo(activity, file, edit, if (frontSlot) "front" else "back").also(created::add)
+                                        val counterpart = other?.takeIf { it.videoEdit?.durationMs != edit.durationMs }?.let {
+                                            prepareMatchingVideo(activity, it, edit.durationMs, if (frontSlot) "back" else "front").also(created::add)
+                                        }
+                                        selected to counterpart
+                                    }.onFailure { created.forEach { discardPreparedMedia(activity, it, leased) } }
+                                    mainThread.post {
+                                        session.videoSourcesInUse = emptySet()
+                                        if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) {
+                                            prepared.getOrNull()?.let { (selected, counterpart) ->
+                                                discardPreparedMedia(activity, selected)
+                                                counterpart?.let { discardPreparedMedia(activity, it) }
+                                            }
+                                            leased.forEach { path ->
+                                                val candidate = File(path).canonicalFile
+                                                if (candidate.parentFile == File(activity.filesDir, "befuck/gallery").canonicalFile) candidate.delete()
+                                            }
+                                            return@post
+                                        }
+                                        prepared.onSuccess { (selected, counterpart) ->
+                                            counterpart?.let { applySelectedMedia(activity, Result.success(it), !frontSlot, video = true, expectedSession = session) }
+                                            applySelectedMedia(activity, Result.success(selected), frontSlot, video = true, expectedSession = session)
+                                        }.onFailure {
+                                            if (previous == null) file.delete()
+                                            applySelectedMedia(activity, Result.failure(it), frontSlot, video = true, expectedSession = session)
+                                        }
+                                    }
+                                }
+                            },
+                            onCancelled = {
+                                session.videoEditor = null
+                                session.videoSourcesInUse = emptySet()
+                                if (previous == null || sessions[activity] !== session) file.delete()
+                                session.isPreparing = false
+                                if (sessions[activity] === session) {
+                                    updatePostAvailability(session)
+                                    session.status.text = session.resources.getString(R.string.befuck_selection_cancelled)
+                                }
+                            }).also { session.videoEditor = it; it.show() }
+                    }.onFailure { failure ->
+                        session.videoEditor = null
+                        session.videoSourcesInUse = emptySet()
+                        if (previous == null) file.delete()
+                        applySelectedMedia(activity, Result.failure(failure), frontSlot, video = true, expectedSession = session)
+                    }
+                }.onFailure { failure ->
+                    if (previous == null) source?.delete()
+                    applySelectedMedia(activity, Result.failure(failure), frontSlot, video = true, expectedSession = session)
+                }
+            }
+        }
     }
 
     private fun showPhotoCrop(activity: Activity, session: Session, uri: Uri, frontSlot: Boolean) {
@@ -651,21 +743,26 @@ object BeFuckGalleryUi {
             }
             val previewFile = File(selected.previewPath ?: selected.path)
             if (frontSlot) {
-                session.front?.let { discardPreparedMedia(activity, it) }
+                session.front?.let { discardPreparedMedia(activity, it, setOfNotNull(selected.sourcePath)) }
                 session.front = selected
                 session.frontPhotoSource = photoSource
                 session.frontPreview.setImageURI(Uri.fromFile(previewFile))
                 session.frontLabel.text = selectedMediaLabel(session.resources, selected, true)
             } else {
-                session.back?.let { discardPreparedMedia(activity, it) }
+                session.back?.let { discardPreparedMedia(activity, it, setOfNotNull(selected.sourcePath)) }
                 session.back = selected
                 session.backPhotoSource = photoSource
                 session.backPreview.setImageURI(Uri.fromFile(previewFile))
                 session.backLabel.text = selectedMediaLabel(session.resources, selected, false)
             }
+            (if (frontSlot) session.frontPreview else session.backPreview).scaleType =
+                if (selected.isVideo) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
             updatePostAvailability(session)
             session.status.text = if (mediaTypeMismatch(session)) {
                 session.resources.getString(R.string.befuck_media_type_mismatch)
+            } else if (session.front?.isVideo == true && session.back?.isVideo == true) {
+                val duration = min(requireNotNull(session.front?.videoEdit).durationMs, requireNotNull(session.back?.videoEdit).durationMs)
+                session.resources.getString(R.string.befuck_video_pair_duration, duration / 1000.0)
             } else if (session.front != null && session.back != null) {
                 session.resources.getString(R.string.befuck_media_ready,
                     session.resources.getString(if (selected.isVideo) R.string.befuck_pick_video else R.string.befuck_pick_photo))
@@ -692,7 +789,7 @@ object BeFuckGalleryUi {
         val ready = session.front != null && session.back != null && !mediaTypeMismatch(session) && !session.isSubmitting && !session.isPreparing
         session.postButton?.isEnabled = ready
         session.postButton?.alpha = if (ready) 1f else 0.45f
-        val busy = session.isSubmitting || session.isPreparing
+        val busy = session.isSubmitting || session.isPreparing || session.pendingOfficialPostId != null
         session.mediaButtons.forEach { (request, button) ->
             val front = request == REQUEST_FRONT || request == REQUEST_FRONT_VIDEO
             val video = request == REQUEST_FRONT_VIDEO || request == REQUEST_BACK_VIDEO
@@ -700,8 +797,8 @@ object BeFuckGalleryUi {
             button.isEnabled = !busy && mediaKindAllowed(session, front, video)
             button.alpha = if (button.isEnabled) 1f else 0.3f
         }
-        session.frontPreview.isEnabled = !busy && session.front?.isVideo == false
-        session.backPreview.isEnabled = !busy && session.back?.isVideo == false
+        session.frontPreview.isEnabled = !busy && session.front != null
+        session.backPreview.isEnabled = !busy && session.back != null
     }
 
     private fun prepareCroppedBitmap(activity: Activity, bitmap: Bitmap, slot: String): GalleryMediaFile {
@@ -822,11 +919,15 @@ object BeFuckGalleryUi {
             }
             image.scaleType = ImageView.ScaleType.CENTER_CROP
             image.background = null
-            image.contentDescription = "$title · ${resources.getString(R.string.befuck_crop_title)}"
+            image.contentDescription = "$title ﾂｷ ${resources.getString(R.string.befuck_crop_title)}"
             image.setOnClickListener {
                 val session = sessions[activity] ?: return@setOnClickListener
                 val media = (if (front) session.front else session.back) ?: return@setOnClickListener
-                if (media.isVideo || session.isPreparing || session.isSubmitting) return@setOnClickListener
+                if (session.isPreparing || session.isSubmitting || session.pendingOfficialPostId != null) return@setOnClickListener
+                if (media.isVideo) {
+                    showVideoCrop(activity, session, null, front)
+                    return@setOnClickListener
+                }
                 val source = (if (front) session.frontPhotoSource else session.backPhotoSource) ?: Uri.fromFile(File(media.path))
                 showPhotoCrop(activity, session, source, front)
             }
@@ -870,7 +971,7 @@ object BeFuckGalleryUi {
                 }.apply {
                     mediaButtons[request] = this
                     textSize = 12f
-                    contentDescription = "$title · $text"
+                    contentDescription = "$title ﾂｷ $text"
                     background = RippleDrawable(
                         android.content.res.ColorStateList.valueOf(0x33808080),
                         StateListDrawable().apply {
@@ -1098,6 +1199,14 @@ object BeFuckGalleryUi {
                         ).show()
                         session.dialog.dismiss()
                     } else {
+                        if (session.pendingOfficialPostId == null) {
+                            session.keepMediaUntilUpload = false
+                            if (sessions[activity] !== session) {
+                                session.front?.let { discardPreparedMedia(activity, it) }
+                                session.back?.let { discardPreparedMedia(activity, it) }
+                                return@post
+                            }
+                        }
                         session.isSubmitting = false
                         updatePostAvailability(session)
                         postButton.text = resources.getString(R.string.befuck_post_now)
@@ -1115,17 +1224,39 @@ object BeFuckGalleryUi {
                     postButton.isEnabled = true
                     return@primaryButton
                 }
-                GalleryPostController.postNow(
-                    activity,
-                    symbols,
-                    post,
-                    session.pendingOfficialPostId,
-                    Consumer { postId ->
-                        session.pendingOfficialPostId = postId
-                        session.keepMediaUntilUpload = true
-                    },
-                    completion,
-                )
+                fun send(prepared: GalleryPostRequest) {
+                    GalleryPostController.postNow(activity, symbols, prepared, session.pendingOfficialPostId,
+                        Consumer { postId ->
+                            session.pendingOfficialPostId = postId
+                            session.keepMediaUntilUpload = true
+                        }, completion)
+                }
+                if (front.isVideo && session.pendingOfficialPostId == null) {
+                    // Retain inputs if the dialog closes while the background export is reading them.
+                    session.keepMediaUntilUpload = true
+                    session.status.text = resources.getString(R.string.befuck_video_exporting)
+                    importer.execute {
+                        val aligned = runCatching { alignVideoPair(activity, post) }
+                        mainThread.post {
+                            if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) {
+                                aligned.getOrNull()?.selectedMedia?.forEach { discardPreparedMedia(activity, it) }
+                                post.selectedMedia.forEach { discardPreparedMedia(activity, it) }
+                                return@post
+                            }
+                            aligned.onSuccess { prepared ->
+                                val preserve = prepared.selectedMedia.flatMap { listOfNotNull(it.path, it.previewPath, it.sourcePath) }.toSet()
+                                post.selectedMedia.forEach { discardPreparedMedia(activity, it, preserve) }
+                                session.front = prepared.front
+                                session.back = prepared.back
+                                send(prepared)
+                            }.onFailure {
+                                android.util.Log.e("BeFuck/Video", "Could not align the selected video intervals", it)
+                                session.keepMediaUntilUpload = false
+                                completion.accept(false)
+                            }
+                        }
+                    }
+                } else send(post)
             } else {
                 BeFakeUploadController.postNow(activity, post, completion)
             }
@@ -1145,9 +1276,11 @@ object BeFuckGalleryUi {
         dialog.setContentView(content)
         dialog.setOnDismissListener {
             sessions.remove(activity)?.let { dismissed ->
-            if (!dismissed.keepMediaUntilUpload) {
-                dismissed.front?.let { discardPreparedMedia(activity, it) }
-                dismissed.back?.let { discardPreparedMedia(activity, it) }
+                dismissed.videoEditor?.dismiss()
+                if (!dismissed.keepMediaUntilUpload) {
+                    val preserve = dismissed.videoSourcesInUse
+                    dismissed.front?.let { discardPreparedMedia(activity, it, preserve) }
+                    dismissed.back?.let { discardPreparedMedia(activity, it, preserve) }
                 }
             }
         }
@@ -1388,7 +1521,7 @@ object BeFuckGalleryUi {
                     setPadding(0, dp(activity, 14), 0, dp(activity, 14))
                     background = RippleDrawable(android.content.res.ColorStateList.valueOf(0x33808080), null, ColorDrawable(Color.WHITE))
                 }
-                row.addView(label(activity, listOfNotNull(source, at).joinToString(" · ")).apply { textSize = 11f })
+                row.addView(label(activity, listOfNotNull(source, at).joinToString(" ﾂｷ ")).apply { textSize = 11f })
                 row.addView(label(activity, rule.key.replace("#", "\n")).apply {
                     typeface = Typeface.MONOSPACE; textSize = 12f; setTextColor(Color.WHITE)
                 }, gapParams(activity, 0, 6, 0, 4))
@@ -1704,18 +1837,36 @@ object BeFuckGalleryUi {
         }
     }
 
-    private fun prepareVideo(activity: Activity, uri: Uri, camera: String): GalleryMediaFile {
-        val mimeType = activity.contentResolver.getType(uri)?.lowercase(Locale.ROOT)
-        require(mimeType == null || mimeType == "video/mp4") {
-            "BeReal video upload currently accepts MP4 files only"
+    private fun prepareMatchingVideo(activity: Activity, media: GalleryMediaFile, duration: Long, slot: String): GalleryMediaFile =
+        prepareVideo(activity, File(requireNotNull(media.sourcePath)), requireNotNull(media.videoEdit).withDuration(duration), slot)
+
+    private fun alignVideoPair(activity: Activity, request: GalleryPostRequest): GalleryPostRequest {
+        val front = requireNotNull(request.front)
+        val back = requireNotNull(request.back)
+        val frontEdit = requireNotNull(front.videoEdit)
+        val backEdit = requireNotNull(back.videoEdit)
+        val duration = min(frontEdit.durationMs, backEdit.durationMs)
+        val created = arrayListOf<GalleryMediaFile>()
+        try {
+            fun align(media: GalleryMediaFile, edit: VideoEdit, slot: String): GalleryMediaFile {
+                if (edit.durationMs == duration) return media
+                return prepareMatchingVideo(activity, media, duration, slot)
+                    .also(created::add)
+            }
+            // BeReal's native trimmer keeps the tail. Equal-length exports preserve both chosen starts.
+            return request.copy(front = align(front, frontEdit, "front"), back = align(back, backEdit, "back"))
+        } catch (failure: Throwable) {
+            val preserve = request.selectedMedia.flatMap { listOfNotNull(it.path, it.previewPath, it.sourcePath) }.toSet()
+            created.forEach { discardPreparedMedia(activity, it, preserve) }
+            throw failure
         }
+    }
+
+    private fun copyVideoSource(activity: Activity, uri: Uri, camera: String): File {
+        val mimeType = activity.contentResolver.getType(uri)?.lowercase(Locale.ROOT)
+        require(mimeType == null || mimeType == "video/mp4") { "Choose an MP4 video" }
         val directory = File(activity.filesDir, "befuck/gallery").apply { mkdirs() }
-        val id = UUID.randomUUID().toString()
-        val sourceVideo = File(directory, "$camera-video-$id.source.mp4")
-        val compressedVideo = File(directory, "$camera-video-$id.mp4")
-        var video = sourceVideo
-        val thumbnail = File(directory, "$camera-video-$id-preview.webp")
-        var completed = false
+        val sourceVideo = File(directory, "$camera-video-${UUID.randomUUID()}.source.mp4")
         try {
             activity.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "Video provider returned no data" }
@@ -1732,11 +1883,26 @@ object BeFuckGalleryUi {
                 }
             }
             require(sourceVideo.length() > 0L) { "Selected video is empty" }
+            return sourceVideo
+        } catch (failure: Throwable) {
+            sourceVideo.delete()
+            throw failure
+        }
+    }
+
+    private fun prepareVideo(activity: Activity, sourceVideo: File, edit: VideoEdit, camera: String): GalleryMediaFile {
+        val directory = File(activity.filesDir, "befuck/gallery").apply { mkdirs() }
+        val id = UUID.randomUUID().toString()
+        val compressedVideo = File(directory, "$camera-video-$id.mp4")
+        var video = sourceVideo
+        val thumbnail = File(directory, "$camera-video-$id-preview.webp")
+        var completed = false
+        try {
             val originalMetadata = readVideoMetadata(sourceVideo)
-            video = Media3VideoCompressor.compressIfNeeded(activity, sourceVideo, compressedVideo, originalMetadata.third)
-            if (video !== sourceVideo) sourceVideo.delete()
+            video = Media3VideoCompressor.export(activity, sourceVideo, compressedVideo, originalMetadata.third,
+                originalMetadata.first, originalMetadata.second, edit)
             require(video.length() <= 512L * 1024L * 1024L) { "Prepared video exceeds the 512 MiB upload limit" }
-            // ponytail: BeReal 3.97 rejects otherwise valid videos <=100 KiB. A standard
+            // shortcut: BeReal 3.97 rejects otherwise valid videos <=100 KiB. A standard
             // MP4 free atom satisfies its container-size check without changing samples.
             if (video.length() <= 100L * 1024L) {
                 val padding = (101L * 1024L - video.length()).toInt()
@@ -1746,7 +1912,8 @@ object BeFuckGalleryUi {
                     it.write(ByteArray(padding - 8))
                 }
             }
-            val metadata = if (video === sourceVideo) originalMetadata else readVideoMetadata(video)
+            val metadata = readVideoMetadata(video)
+            require(metadata.third <= VideoEdit.MAX_DURATION_MS + 100L) { "Exported video exceeds the selected limit" }
 
             val previewRetriever = MediaMetadataRetriever()
             try {
@@ -1781,10 +1948,11 @@ object BeFuckGalleryUi {
                 previewPath = thumbnail.absolutePath,
                 previewWidth = previewBounds.outWidth,
                 previewHeight = previewBounds.outHeight,
+                sourcePath = sourceVideo.absolutePath,
+                videoEdit = edit,
             )
         } finally {
             if (!completed) {
-                sourceVideo.delete()
                 compressedVideo.delete()
                 thumbnail.delete()
             }
@@ -1802,7 +1970,7 @@ object BeFuckGalleryUi {
             val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                 ?: error("Video duration metadata is missing")
-            require(durationMs in 1L..30_000L) { "Video must be between 1 ms and 30 seconds" }
+            require(durationMs in 1L..Int.MAX_VALUE.toLong() && rawWidth > 0 && rawHeight > 0) { "Invalid video metadata" }
             val rotated = rotation == 90 || rotation == 270
             Triple(
                 if (rotated) rawHeight else rawWidth,
@@ -1844,9 +2012,9 @@ object BeFuckGalleryUi {
         }
     }
 
-    private fun discardPreparedMedia(activity: Activity, media: GalleryMediaFile) {
+    private fun discardPreparedMedia(activity: Activity, media: GalleryMediaFile, preserve: Set<String> = emptySet()) {
         val directory = File(activity.filesDir, "befuck/gallery").canonicalFile
-        listOfNotNull(media.path, media.previewPath).forEach { path ->
+        listOfNotNull(media.path, media.previewPath, media.sourcePath).distinct().filterNot { it in preserve }.forEach { path ->
             runCatching {
                 val file = File(path).canonicalFile
                 if (file.parentFile == directory) file.delete()
@@ -1940,6 +2108,10 @@ object BeFuckGalleryUi {
 
     private fun selectedMediaLabel(resources: Resources, media: GalleryMediaFile, front: Boolean): String {
         if (media.isVideo) {
+            media.videoEdit?.let { edit ->
+                return resources.getString(R.string.befuck_video_selected_range, media.width, media.height,
+                    edit.startMs / 1000.0, edit.endMs / 1000.0)
+            }
             return resources.getString(
                 R.string.befuck_regular_video_selected,
                 media.width,

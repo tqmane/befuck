@@ -4,6 +4,8 @@ import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.download.RealMojiDownloadAction;
 import dev.tqmane.befuck.download.FeedPostMedia;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
+import dev.tqmane.befuck.posting.CropRegion;
+import dev.tqmane.befuck.posting.VideoEdit;
 import dev.tqmane.befuck.symbols.KnownMappings;
 import dev.tqmane.befuck.symbols.HostMappings;
 import dev.tqmane.befuck.symbols.HostClass;
@@ -22,6 +24,7 @@ public final class MetadataCheck {
     private static final HostMappings CURRENT = KnownMappings.find("3.97.1", 3599414L);
     public static void main(String[] args) throws Exception {
         checkComposeScopes();
+        checkVideoEdits();
         assert LEGACY.isKnownVersion("3.97.0", 3597523L);
         assert !LEGACY.isKnownVersion("3.97.0", 3597524L);
         assert !LEGACY.isKnownVersion("3.98.0", 3597523L);
@@ -234,6 +237,39 @@ public final class MetadataCheck {
         assert "video/x-vnd.on2.vp9".equals(repairs.get(fixture.getDeclaredField("oiooMrpCpO")));
         assert okhttp3.internal.connection.udV.ewVWKVT.PLXlOOMCGp == null : "Resolution must not write fields";
         assert "already initialized".equals(okhttp3.internal.connection.udV.ewVWKVT.oiooMrpCpO);
+    }
+
+    private static void checkVideoEdits() {
+        var landscape = CropRegion.portrait(1920, 1080);
+        var size = landscape.outputSize(1920, 1080);
+        assert size.getFirst() == 540 && size.getSecond() == 720;
+        assert landscape.getLeft() > 0 && landscape.getRight() < 1;
+        var portrait = CropRegion.portrait(1080, 1920);
+        assert portrait.getTop() > 0 && portrait.getBottom() < 1;
+        var nativeVideo = CropRegion.portrait(1080, 1440);
+        assert nativeVideo.getLeft() == 0 && nativeVideo.getTop() == 0;
+        assert nativeVideo.getRight() == 1 && nativeVideo.getBottom() == 1;
+        var rotated = new CropRegion(.25f, .25f, .75f, .75f, 90).outputSize(1920, 1080);
+        assert rotated.getFirst() == 406 && rotated.getSecond() == 720;
+        var original = new VideoEdit(3954, 7954, landscape);
+        var aligned = original.withDuration(2000).validateSource(8000);
+        assert aligned.getStartMs() == 3954 && aligned.getEndMs() == 5954;
+        assert aligned.getCrop() == original.getCrop();
+        assert original.getEndMs() == 7954 : "Pair alignment must not mutate the selection snapshot";
+        assert VideoEdit.initial(120000).getDurationMs() == 30000 : "Long sources can select a short interval";
+        assert VideoEdit.initial(1).getDurationMs() == 1;
+        assert aligned.withDuration(4000).validateSource(8000).getEndMs() == 7954;
+        for (Runnable invalid : new Runnable[]{
+                () -> new VideoEdit(-1, 1000, landscape),
+                () -> new VideoEdit(1000, 1000, landscape),
+                () -> new VideoEdit(0, 30001, landscape),
+                () -> aligned.withDuration(5000).validateSource(8000),
+                () -> new CropRegion(Float.NaN, 0, 1, 1, 0),
+                () -> new CropRegion(1, 0, 0, 1, 0),
+                () -> new CropRegion(0, 0, 1, 1, 45)}) {
+            try { invalid.run(); throw new AssertionError("Invalid video edit was accepted"); }
+            catch (IllegalArgumentException expected) { }
+        }
     }
 
     private static void checkVersionMappings() throws Exception {

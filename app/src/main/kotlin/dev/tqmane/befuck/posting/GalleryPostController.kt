@@ -605,7 +605,7 @@ object GalleryPostController {
 
     private fun cleanupPreparedMedia(context: android.content.Context, media: GalleryMediaFile) {
         val directory = File(context.filesDir, "befuck/gallery").canonicalFile
-        listOfNotNull(media.path, media.previewPath).forEach { path ->
+        listOfNotNull(media.path, media.previewPath, media.sourcePath).distinct().forEach { path ->
             runCatching {
                 val file = File(path).canonicalFile
                 if (file.parentFile == directory) file.delete()

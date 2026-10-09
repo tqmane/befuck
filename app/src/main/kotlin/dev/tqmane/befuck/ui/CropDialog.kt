@@ -31,11 +31,12 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import dev.tqmane.befuck.R
+import dev.tqmane.befuck.posting.CropRegion
 import java.io.InputStream
 import kotlin.math.max
 import kotlin.math.min
 
-/** Interactive 3:4 aspect-ratio touch cropping view and dialog. */
+/** Shared touch crop geometry; photos default to 3:4, videos provide their own ratio. */
 class TouchCropView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -53,6 +54,11 @@ class TouchCropView @JvmOverloads constructor(
     private var rotationAngle = 0
     private var baseScale = 1.0f
     private var currentScale = 1.0f
+    private var aspectRatio = 3f / 4f
+    private var pendingRegion: CropRegion? = null
+    var drawImage = true
+    var onTransformChanged: (() -> Unit)? = null
+    val hasCropRegion: Boolean get() = originalBitmap != null && !cropRect.isEmpty
 
     private var lastTouchX = 0f
     private var lastTouchY = 0f
@@ -76,14 +82,12 @@ class TouchCropView @JvmOverloads constructor(
 
     private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            val factor = detector.scaleFactor
-            val newScale = currentScale * factor
-            if (newScale in 0.8f..6.0f) {
-                currentScale = newScale
-                currentMatrix.postScale(factor, factor, detector.focusX, detector.focusY)
-                clampMatrix()
-                invalidate()
-            }
+            if (!detector.scaleFactor.isFinite() || detector.scaleFactor <= 0) return true
+            val newScale = (currentScale * detector.scaleFactor).coerceIn(baseScale, baseScale * 6f)
+            currentMatrix.postScale(newScale / currentScale, newScale / currentScale, detector.focusX, detector.focusY)
+            currentScale = newScale
+            clampMatrix()
+            invalidate()
             return true
         }
     })
@@ -96,19 +100,72 @@ class TouchCropView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setAspectRatio(ratio: Float) {
+        require(ratio.isFinite() && ratio > 0)
+        aspectRatio = ratio
+        calculateCropRect(width, height)
+        setupInitialMatrix()
+        invalidate()
+    }
+
+    fun setCropRegion(region: CropRegion) {
+        pendingRegion = region
+        if (!cropRect.isEmpty) applyRegion(region)
+    }
+
+    fun cropRegion(): CropRegion {
+        if (cropRect.isEmpty) pendingRegion?.let { return it }
+        check(!cropRect.isEmpty && originalBitmap != null)
+        val bounds = RectF(bitmapRect).also(currentMatrix::mapRect)
+        return CropRegion(
+            ((cropRect.left - bounds.left) / bounds.width()).coerceIn(0f, 1f),
+            ((cropRect.top - bounds.top) / bounds.height()).coerceIn(0f, 1f),
+            ((cropRect.right - bounds.left) / bounds.width()).coerceIn(0f, 1f),
+            ((cropRect.bottom - bounds.top) / bounds.height()).coerceIn(0f, 1f), rotationAngle,
+        )
+    }
+
+    fun videoMatrix(viewWidth: Int, viewHeight: Int): Matrix = Matrix(currentMatrix).apply {
+        if (viewWidth > 0 && viewHeight > 0) preScale(bitmapRect.width() / viewWidth, bitmapRect.height() / viewHeight)
+    }
+
+    private fun applyRegion(region: CropRegion) {
+        if (originalBitmap == null) return
+        if (cropRect.isEmpty) return
+        rotationAngle = region.rotationDegrees
+        setupInitialMatrix()
+        currentMatrix.mapRect(transformedBitmapRect, bitmapRect)
+        val scale = cropRect.width() / (transformedBitmapRect.width() * (region.right - region.left))
+        currentMatrix.postScale(scale, scale)
+        currentScale *= scale
+        currentMatrix.mapRect(transformedBitmapRect, bitmapRect)
+        currentMatrix.postTranslate(
+            cropRect.left - transformedBitmapRect.left - region.left * transformedBitmapRect.width(),
+            cropRect.top - transformedBitmapRect.top - region.top * transformedBitmapRect.height(),
+        )
+        clampMatrix()
+        pendingRegion = null
+        invalidate()
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        val region = pendingRegion ?: if (!cropRect.isEmpty && originalBitmap != null) cropRegion() else null
+        pendingRegion = region
         calculateCropRect(w, h)
         setupInitialMatrix()
+        region?.let(::applyRegion)
+        onTransformChanged?.invoke()
     }
 
     private fun calculateCropRect(w: Int, h: Int) {
-        if (w <= 0 || h <= 0) return
+        if (w <= 0 || h <= 0) { cropRect.setEmpty(); return }
         val padding = dp(20f)
         val availableWidth = w - padding * 2
         val availableHeight = h - padding * 2
+        if (availableWidth <= 0 || availableHeight <= 0) { cropRect.setEmpty(); return }
 
-        val targetRatio = 3f / 4f
+        val targetRatio = aspectRatio
         var cropW = availableWidth
         var cropH = cropW / targetRatio
 
@@ -159,12 +216,14 @@ class TouchCropView @JvmOverloads constructor(
     }
 
     fun rotate90() {
+        pendingRegion = null
         rotationAngle = (rotationAngle + 90) % 360
         setupInitialMatrix()
         invalidate()
     }
 
     fun reset() {
+        pendingRegion = null
         rotationAngle = 0
         setupInitialMatrix()
         invalidate()
@@ -203,6 +262,9 @@ class TouchCropView @JvmOverloads constructor(
         }
 
         currentMatrix.postTranslate(deltaX, deltaY)
+        currentMatrix.getValues(matrixValues)
+        currentScale = kotlin.math.hypot(matrixValues[Matrix.MSCALE_X], matrixValues[Matrix.MSKEW_Y])
+        onTransformChanged?.invoke()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -230,6 +292,11 @@ class TouchCropView @JvmOverloads constructor(
                 performClick()
             }
             MotionEvent.ACTION_CANCEL -> isDragging = false
+            MotionEvent.ACTION_POINTER_UP -> {
+                val remaining = if (event.actionIndex == 0) 1 else 0
+                lastTouchX = event.getX(remaining)
+                lastTouchY = event.getY(remaining)
+            }
         }
         return true
     }
@@ -245,7 +312,7 @@ class TouchCropView @JvmOverloads constructor(
         if (cropRect.isEmpty) return
 
         canvas.save()
-        canvas.drawBitmap(bitmap, currentMatrix, null)
+        if (drawImage) canvas.drawBitmap(bitmap, currentMatrix, null)
         canvas.restore()
 
         // Mask outside cropRect
