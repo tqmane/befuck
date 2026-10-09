@@ -53,6 +53,7 @@ import io.github.libxposed.api.XposedModuleInterface;
 import dev.tqmane.befuck.symbols.BeRealSymbolResolver;
 import dev.tqmane.befuck.symbols.ResolvedSymbols;
 import dev.tqmane.befuck.symbols.KnownMappings3970;
+import dev.tqmane.befuck.symbols.KnownMappings3971;
 import dev.tqmane.befuck.runtime.RuntimeKnowledge;
 import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
@@ -157,7 +158,7 @@ public final class BeRealModule extends XposedModule {
         final ClassLoader classLoader = param.getDefaultClassLoader();
         targetClassLoader = classLoader;
         targetApplicationInfo = param.getApplicationInfo();
-        info("Loaded for " + param.getPackageName() + "; installing PairIP bypass before deferred BeFuck resolution");
+        info("Loaded for " + param.getPackageName() + "; installing version-checked BeFuck runtime compatibility");
 
         installApplicationContextHook(classLoader);
         installNullTraceSectionGuard();
@@ -243,9 +244,13 @@ public final class BeRealModule extends XposedModule {
                     TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
             if (installed.metaData == null || (!installed.metaData.containsKey("npatch")
                     && !installed.metaData.containsKey("lspatch"))) return;
-            if (!KnownMappings3970.isKnownVersion(name, code)) return;
+            if (!KnownMappings3970.isKnownVersion(name, code)
+                    && !KnownMappings3971.isKnownVersion(name, code)) return;
             installRepackagedSigningInfoCompatibility(host, installed.metaData);
-            for (Method check : KnownMappings3970.repackagedStartupChecks(loader, name, code)) {
+            List<Method> checks = KnownMappings3971.isKnownVersion(name, code)
+                    ? KnownMappings3971.repackagedStartupChecks(loader, name, code)
+                    : KnownMappings3970.repackagedStartupChecks(loader, name, code);
+            for (Method check : checks) {
                 hook(check).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
                     Object context = chain.getArg(0);
                     if (context instanceof Context && TARGET_PACKAGE.equals(((Context) context).getPackageName())) {
@@ -357,7 +362,9 @@ public final class BeRealModule extends XposedModule {
 
     private void installTextFieldFocusGuard(ClassLoader loader, String name, long code) {
         try {
-            KnownMappings3970.TextFieldFocusGuard guard = KnownMappings3970.textFieldFocusGuard(loader, name, code);
+            KnownMappings3970.TextFieldFocusGuard guard = KnownMappings3971.isKnownVersion(name, code)
+                    ? KnownMappings3971.textFieldFocusGuard(loader, name, code)
+                    : KnownMappings3970.textFieldFocusGuard(loader, name, code);
             if (guard == null) return;
             hook(guard.getNotify()).intercept(chain -> chain.proceed(guard.arguments(chain.getArgs().toArray())));
             info("Installed version-scoped text-field focus layout guard");
@@ -368,7 +375,9 @@ public final class BeRealModule extends XposedModule {
 
     private void installSmsRequestPayloadRepair(ClassLoader loader, String name, long code) {
         try {
-            Constructor<?> constructor = KnownMappings3970.smsRequestConstructor(loader, name, code);
+            Constructor<?> constructor = KnownMappings3971.isKnownVersion(name, code)
+                    ? KnownMappings3971.smsRequestConstructor(loader, name, code)
+                    : KnownMappings3970.smsRequestConstructor(loader, name, code);
             if (constructor == null) return;
             hook(constructor).intercept(chain -> {
                 Object[] original = chain.getArgs().toArray();
@@ -377,7 +386,9 @@ public final class BeRealModule extends XposedModule {
                 info("SMS request-code payload: tokenCount=" + ((List<?>) args[3]).size()
                         + "; normalizedNullTokens=" + (original != args));
                 try {
-                    info("SMS request-code shape: " + KnownMappings3970.smsRequestShape(loader, name, code, args));
+                    if (KnownMappings3970.isKnownVersion(name, code)) {
+                        info("SMS request-code shape: " + KnownMappings3970.smsRequestShape(loader, name, code, args));
+                    }
                 } catch (Throwable failure) {
                     // Diagnostic failures must not break authentication or expose request values.
                     info("SMS request-code shape unavailable: " + failure.getClass().getSimpleName());
@@ -2109,7 +2120,8 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installAdViewSuppression() {
-        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
+        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())
+                && !KnownMappings3971.isKnownVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
         try {
             hook(View.class.getDeclaredMethod("setVisibility", int.class))
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -2156,8 +2168,9 @@ public final class BeRealModule extends XposedModule {
     }
 
     private boolean isAdSdkView(View view) {
-        return adViewClasses.computeIfAbsent(view.getClass(), type -> KnownMappings3970.isAdViewClass(
-                type, RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode()));
+        return adViewClasses.computeIfAbsent(view.getClass(), type ->
+                KnownMappings3970.isAdViewClass(type, RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())
+                        || KnownMappings3971.isAdViewClass(type, RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode()));
     }
 
     private Object createZeroSizeComposeModifier(ClassLoader classLoader) throws Exception {
