@@ -17,6 +17,16 @@ internal object KnownMappings3970 {
     // SHA-256 of the signing certificate verified on the original Play base APK.
     const val SIGNING_CERTIFICATE_SHA256 = "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q="
 
+    // SMS wire format confirmed in stayreal-android's BeRealHeaders/BeRealAuthApi.
+    // shortcut: fixed reference client identity, revisit when the SMS service changes its contract.
+    const val SMS_CLIENT_HMAC_KEY = "56037f4af22fb6960f3cd014e2ec71b3"
+    val SMS_CLIENT_HEADERS = mapOf(
+        "bereal-platform" to "iOS", "bereal-os-version" to "27.0",
+        "bereal-app-version" to "4.83.0", "bereal-app-version-code" to "22948",
+        "bereal-device-language" to "en", "bereal-app-language" to "en-US",
+        "user-agent" to "BeReal/4.83.0 (AlexisBarreyat.BeReal; build:22948; iOS 27.0.0)",
+    )
+
     // Confirmed View roots in 3597523. Match superclasses too: e.g. Google's
     // AdManagerAdView extends BaseAdView and vendor adapters subclass MediaView.
     private val adViewClassNames = setOf(
@@ -129,6 +139,56 @@ internal object KnownMappings3970 {
             "recaptcha_initialization" to Class.forName("c0", false, loader)
                 .getDeclaredConstructor(Integer::class.java, String::class.java),
         )
+    }
+
+    class TextFieldFocusGuard(
+        val notify: Method,
+        private val layoutInput: Field,
+        private val text: Field,
+        private val originalToTransformed: Method,
+    ) {
+        fun arguments(args: Array<Any?>): Array<Any?> {
+            if (args[5] != true) return args
+            val length = (text.get(layoutInput.get(args[2])) as CharSequence).length
+            return args.copyOf().apply {
+                this[6] = boundedFocusMapping(requireNotNull(args[6]), originalToTransformed, length)
+            }
+        }
+    }
+
+    @JvmStatic
+    fun boundedFocusMapping(original: Any, transform: Method, layoutLength: Int): Any {
+        require(layoutLength >= 0)
+        return java.lang.reflect.Proxy.newProxyInstance(transform.declaringClass.classLoader,
+            arrayOf(transform.declaringClass)) { _, method, args ->
+            val result = method.invoke(original, *(args ?: emptyArray()))
+            // The editing value can be newer than the layout during OTP focus changes.
+            if (method == transform) (result as Int).coerceIn(0, layoutLength) else result
+        }
+    }
+
+    @JvmStatic
+    fun textFieldFocusGuard(loader: ClassLoader, name: String?, code: Long): TextFieldFocusGuard? {
+        if (!isKnownVersion(name, code)) return null
+        fun type(name: String) = Class.forName(name, false, loader)
+        val layout = type("androidx.compose.ui.text.TextLayoutResult")
+        val input = type("androidx.compose.ui.text.TextLayoutInput")
+        val annotated = type("androidx.compose.ui.text.AnnotatedString")
+        val mapping = type("androidx.compose.ui.text.input.OffsetMapping")
+        require(mapping.isInterface && CharSequence::class.java.isAssignableFrom(annotated))
+        val notify = type("androidx.compose.foundation.text.TextFieldDelegate\$Companion").getDeclaredMethod("b",
+            type("androidx.compose.ui.text.input.TextFieldValue"), type("androidx.compose.foundation.text.TextDelegate"),
+            layout, type("androidx.compose.ui.layout.LayoutCoordinates"),
+            type("androidx.compose.ui.text.input.TextInputSession"), Boolean::class.javaPrimitiveType, mapping)
+        require(Modifier.isStatic(notify.modifiers) && notify.returnType == Void.TYPE)
+        fun field(owner: Class<*>, name: String, expected: Class<*>) = owner.getDeclaredField(name).apply {
+            require(type == expected && !Modifier.isStatic(modifiers))
+            isAccessible = true
+        }
+        val transform = mapping.getDeclaredMethod("d", Int::class.javaPrimitiveType).apply {
+            require(returnType == Int::class.javaPrimitiveType && !Modifier.isStatic(modifiers))
+        }
+        return TextFieldFocusGuard(notify, field(layout, "a", input), field(input, "a", annotated), transform)
     }
 
     @JvmStatic

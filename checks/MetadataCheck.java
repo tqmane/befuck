@@ -22,6 +22,8 @@ public final class MetadataCheck {
         assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
         assert !KnownMappings3970.isKnownVersion(null, 3597523L);
         checkSmsRequestPayload();
+        checkSmsCompatibility();
+        checkTextFieldFocusMapping();
         checkAdClassification();
         checkKnownStrings();
         BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
@@ -82,7 +84,7 @@ public final class MetadataCheck {
             try { write.invoke(metadata, file.toFile(), millis); throw new AssertionError("Accepted invalid atom size"); }
             catch (InvocationTargetException expected) { assert expected.getCause() instanceof IllegalArgumentException; }
         } finally { Files.deleteIfExists(file); }
-        System.out.println("PASS: paused/nested Compose scopes, version guards, authentication host boundaries, timestamps, MP4 sample preservation, malformed atoms, repair inference, selected RealMoji snapshot");
+        System.out.println("PASS: SMS host boundaries/signatures, stale text-field focus mapping, paused/nested Compose scopes, version guards, authentication host boundaries, timestamps, MP4 sample preservation, malformed atoms, repair inference, selected RealMoji snapshot");
     }
 
     private static void checkComposeScopes() {
@@ -128,6 +130,58 @@ public final class MetadataCheck {
         finally { ComposeHookScope.pop(failed); }
         ComposeHookScope.ending(composer);
         assert emissions.size() == 2 : "Failed composition left an active frame";
+    }
+
+    public interface FocusOffsetFixture {
+        int d(int offset);
+        int a(int offset);
+    }
+
+    private static void checkTextFieldFocusMapping() throws Exception {
+        var loader = MetadataCheck.class.getClassLoader();
+        assert KnownMappings3970.textFieldFocusGuard(loader, "3.98.0", 3597523L) == null;
+        assert KnownMappings3970.textFieldFocusGuard(loader, "3.97.0", 3597524L) == null;
+        var transform = FocusOffsetFixture.class.getMethod("d", int.class);
+        FocusOffsetFixture original = new FocusOffsetFixture() {
+            public int d(int offset) { return offset * 2; }
+            public int a(int offset) { return offset / 2; }
+        };
+        var bounded = (FocusOffsetFixture) KnownMappings3970.boundedFocusMapping(original, transform, 5);
+        assert bounded.d(3) == 5 : "Stale layout must bound the transformed cursor";
+        assert bounded.d(2) == 4 : "Valid transformed positions must stay unchanged";
+        assert bounded.d(-1) == 0;
+        assert bounded.a(12) == 6 : "Reverse mapping must stay unchanged";
+        assert original.d(3) == 6 : "Do not change the text field's own mapping";
+        var empty = (FocusOffsetFixture) KnownMappings3970.boundedFocusMapping(original, transform, 0);
+        assert empty.d(3) == 0 : "Empty layout must use the host's empty-field rectangle";
+    }
+
+    private static void checkSmsCompatibility() {
+        String endpoint = "https://auth-l7.bereal.com/api/vonage/request-code";
+        assert dev.tqmane.befuck.runtime.SmsAuthCompatibility.matches("POST", endpoint);
+        assert dev.tqmane.befuck.runtime.SmsAuthCompatibility.matches("POST", endpoint.replace("request-code", "check-code"));
+        for (String rejected : new String[]{
+                endpoint.replace("https:", "http:"), endpoint.replace("auth-l7", "mobile-l7"),
+                endpoint.replace("bereal.com", "bereal.com.example.org"), endpoint + "?redirect=1",
+                endpoint + "/extra", endpoint + "#fragment", endpoint.replace("/api/", "/%61pi/"),
+                endpoint.replace("auth-l7", "user@auth-l7"), "not a URL",
+                endpoint.replace("bereal.com", "bereal.com:8080"),
+                "https://ogma-l7.bereal.com/public.auth.v2.PhoneVerificationService/IssueTokenByPhoneNumber"}) {
+            assert !dev.tqmane.befuck.runtime.SmsAuthCompatibility.matches("POST", rejected) : rejected;
+        }
+        assert !dev.tqmane.befuck.runtime.SmsAuthCompatibility.matches("GET", endpoint);
+        var headers = dev.tqmane.befuck.runtime.SmsAuthCompatibility.headers("fixture-device", 1700000000L, "Asia/Tokyo");
+        assert headers.get("bereal-signature").equals("MToxNzAwMDAwMDAwOq2F32QIrrv4OyvC8d8Ptu5ulUWkBOQnJvjI4a1QKQfr");
+        assert headers.get("bereal-device-id").equals("fixture-device");
+        assert headers.get("bereal-timezone").equals("Asia/Tokyo");
+        assert headers.get("bereal-platform").equals("iOS");
+        assert !headers.containsKey("authorization");
+        assert !headers.get("bereal-signature").equals(
+                dev.tqmane.befuck.runtime.SmsAuthCompatibility.headers("fixture-device", 1700000001L, "Asia/Tokyo").get("bereal-signature"));
+        try {
+            dev.tqmane.befuck.runtime.SmsAuthCompatibility.headers("", 1700000000L, "Asia/Tokyo");
+            throw new AssertionError("Missing device identity accepted");
+        } catch (IllegalArgumentException expected) { }
     }
 
     private static void checkSmsRequestPayload() throws Exception {

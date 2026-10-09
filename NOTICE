@@ -14,3 +14,8 @@ The APK includes unmodified native libraries from so.prelude.android:core-sdk:0.
 (Prelude Android Core SDK), licensed under Apache License 2.0.
 Source and notices: https://github.com/prelude-so/android-sdk
 License: https://www.apache.org/licenses/LICENSE-2.0
+
+SMS protocol references: StayReal Android's BeRealAuthApi and BeRealHeaders,
+and Ogma's public/auth/v2.proto phone-verification schema.
+https://code.vexcited.com/stayreal/android
+https://code.vexcited.com/stayreal/ogma

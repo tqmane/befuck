@@ -80,6 +80,7 @@ public final class BeRealModule extends XposedModule {
     private ApplicationInfo targetApplicationInfo;
     private volatile Context applicationContext;
     private volatile Resources moduleResources;
+    private boolean smsAuthCompatibility;
     private final AtomicBoolean runtimeInitializationStarted = new AtomicBoolean();
     private final AtomicBoolean authHeaderCaptureInstalled = new AtomicBoolean();
     private final AtomicBoolean authUrlCaptureInstalled = new AtomicBoolean();
@@ -210,11 +211,13 @@ public final class BeRealModule extends XposedModule {
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
             moduleResources = loadModuleResources(context);
+            smsAuthCompatibility = KnownMappings3970.isKnownVersion(versionName, versionCode);
             installPreludeNativeCompatibility(context, classLoader, versionName, versionCode);
             installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
             installAuthFailureDiagnostics(classLoader, versionName, versionCode);
             installSmsRequestPayloadRepair(classLoader, versionName, versionCode);
+            installTextFieldFocusGuard(classLoader, versionName, versionCode);
             installEmailAnalyticsGuard(classLoader, versionName, versionCode);
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
             installRuntimeRecoveryGuards(classLoader);
@@ -349,6 +352,17 @@ public final class BeRealModule extends XposedModule {
             info("Installed version-scoped email screen analytics guard");
         } catch (Throwable failure) {
             error("Could not install email screen analytics guard", failure);
+        }
+    }
+
+    private void installTextFieldFocusGuard(ClassLoader loader, String name, long code) {
+        try {
+            KnownMappings3970.TextFieldFocusGuard guard = KnownMappings3970.textFieldFocusGuard(loader, name, code);
+            if (guard == null) return;
+            hook(guard.getNotify()).intercept(chain -> chain.proceed(guard.arguments(chain.getArgs().toArray())));
+            info("Installed version-scoped text-field focus layout guard");
+        } catch (Throwable failure) {
+            error("Could not install text-field focus layout guard", failure);
         }
     }
 
@@ -633,6 +647,18 @@ public final class BeRealModule extends XposedModule {
                             .intercept(chain -> {
                                 Object request = chain.proceed();
                                 if (request != null) {
+                                    if (smsAuthCompatibility) {
+                                        try {
+                                            Object replacement = dev.tqmane.befuck.runtime.SmsAuthCompatibility.replacementBuilder(request);
+                                            if (replacement != null) {
+                                                Object compatible = getInvoker(method).setType(XposedInterface.Invoker.Type.ORIGIN).invoke(replacement);
+                                                captureFromBuiltOkHttpRequest(request);
+                                                return compatible;
+                                            }
+                                        } catch (Throwable failure) {
+                                            info("SMS compatibility unavailable: " + failure.getClass().getSimpleName());
+                                        }
+                                    }
                                     captureFromBuiltOkHttpRequest(request);
                                 }
                                 return request;
@@ -659,6 +685,9 @@ public final class BeRealModule extends XposedModule {
             if (host == null || !host.toLowerCase(java.util.Locale.ROOT).endsWith("bereal.com")) return;
 
             String fullUrl = httpUrl.toString();
+            // SMS uses a separate client identity; keep it out of gallery/upload headers.
+            if (smsAuthCompatibility && dev.tqmane.befuck.runtime.SmsAuthCompatibility.matches(
+                    (String) request.getClass().getMethod("method").invoke(request), fullUrl)) return;
             if (fullUrl.contains("/api/")) {
                 BeFakeAuthHeaders.setApiHost(host);
             }
