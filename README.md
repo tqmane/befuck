@@ -30,11 +30,13 @@ Supported BeReal version: **3.97.0 (3597523)** (`com.bereal.ft`).
 2. Open BeReal.
 3. Tap the **+** button beside the Home feed title to access gallery posting, saved posts, and settings. You can also save directly from post menus.
 
-> [!WARNING]
-> **Login Notice**:
-> - Phone number verification (SMS login) fails if the module is hooked before logging in (email login works normally).
-> - If you want to log in via SMS, please complete the login first with the module disabled, then enable (hook) the module.
-> - In embedded environments like NPatch (where hooking cannot be toggled after launch), only **email login** is supported.
+> [!NOTE]
+> **Login**:
+> - **v0.3.0+**: Fixed to support phone number verification (SMS login).
+> - **Workaround for v0.2.0 and earlier, or if login fails**:
+>   - Phone number verification (SMS login) may fail if the module is hooked before logging in (email login works normally).
+>   - If you want to log in via SMS, please complete the login first with the module disabled, then enable (hook) the module.
+>   - In embedded environments like NPatch where login fails, please use **email login**.
 
 Saved files location: `Pictures/BeFuck` or `Movies/BeFuck`.
 
