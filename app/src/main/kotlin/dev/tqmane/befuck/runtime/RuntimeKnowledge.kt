@@ -55,6 +55,22 @@ object RuntimeKnowledge {
             event("version_changed", JSONObject().put("previous", previous).put("current", code))
         }
         backfillRepairInfo()
+        // Refresh automatic rules before applying saved repairs: older releases stored
+        // inferred values and topic sentinels for this same host version. Preserve edits
+        // explicitly entered by the user, and persist the full pool in one transaction.
+        val known = KnownMappings3970.runtimeStringRepairs(classLoader, name, code)
+        val edit = settings.edit()
+        val info = repairInfo("preset:${KnownMappings3970.VERSION_CODE}", Instant.now().toString())
+        var changed = false
+        known.forEach { (field, value) ->
+            val key = "${field.declaringClass.name}#${field.name}"
+            if (!settings.getBoolean(MANUAL + key, false) &&
+                (settings.getString(REPAIR + key, null) != value || !settings.contains(INFO + key))) {
+                edit.putString(REPAIR + key, value).putString(INFO + key, info)
+                changed = true
+            }
+        }
+        if (changed) edit.commit()
         applySavedRepairs()
         KnownMappings3970.missingStringRepairs(classLoader, name).forEach { (field, value) ->
             rememberRepair(field, value, "preset:${KnownMappings3970.VERSION_CODE}")

@@ -5,17 +5,20 @@ from pathlib import Path
 import re
 import sqlite3
 import unittest
+from check_known_strings import read_pools
 
 
 class RoomCreationCheck(unittest.TestCase):
     def setUp(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/tqmane/"
                   "befuck/symbols/KnownMappings3970.kt").read_text(encoding="utf-8")
+        _, pools = read_pools()
         self.repairs = {}
         for symbol in ("roomCreateFollowFeedInfos", "roomCreateActivityCenterItem"):
-            match = re.search(r'"' + symbol + r'" to ("(?:[^"\\]|\\.)*")', source)
+            match = re.search(r'"' + symbol + r'" to Pair\("([^"]+)", "([^"]+)"\)', source)
             self.assertIsNotNone(match, f"Missing SQL repair: {symbol}")
-            self.repairs[symbol] = json.loads(match.group(1))
+            owner, field = match.groups()
+            self.repairs[symbol] = pools["L" + owner.replace(".", "/") + ";"][field]
         self.db = sqlite3.connect(":memory:")
         self.addCleanup(self.db.close)
         for sql in self.repairs.values():
