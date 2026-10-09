@@ -123,7 +123,15 @@ object BeRealSymbolResolver {
                 bridge = openDexKit(apk.absolutePath)
                 bridge.setThreadNum(2)
                 dexKitAvailable = true
-                emit(logger, "[SymbolResolver] Opened ${bridge.getDexNum()} dex files for version=$versionName")
+                val dexCount = bridge.getDexNum()
+                emit(logger, "[SymbolResolver] Opened $dexCount dex files for version=$versionName")
+                if (KnownMappings3971.isKnownVersion(versionName, versionCode) &&
+                    dexCount != KnownMappings3971.EXPECTED_DEX_COUNT
+                ) {
+                    val message = "3.97.1 DEX inventory mismatch: expected=${KnownMappings3971.EXPECTED_DEX_COUNT} actual=$dexCount; revalidate all symbol resolutions"
+                    diagnostics += message
+                    emit(logger, "[SymbolResolver] $message")
+                }
 
                 resolveRecapSemanticsField(bridge, classLoader, logger, diagnostics)
                     ?.let { fields["recapSemantics"] = it }
