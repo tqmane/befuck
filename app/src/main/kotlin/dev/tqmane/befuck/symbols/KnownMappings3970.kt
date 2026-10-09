@@ -17,6 +17,46 @@ internal object KnownMappings3970 {
     // SHA-256 of the signing certificate verified on the original Play base APK.
     const val SIGNING_CERTIFICATE_SHA256 = "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q="
 
+    // Confirmed View roots in 3597523. Match superclasses too: e.g. Google's
+    // AdManagerAdView extends BaseAdView and vendor adapters subclass MediaView.
+    private val adViewClassNames = setOf(
+        "bereal.app.features.ads.ui.natives.view.MaxNativeAdViewContainer",
+        "com.applovin.adview.AppLovinAdView",
+        "com.applovin.mediation.ads.MaxAdView",
+        "com.applovin.mediation.nativeAds.MaxNativeAdView",
+        "com.applovin.impl.sdk.nativeAd.AppLovinMediaView",
+        "com.google.android.gms.ads.BaseAdView",
+        "com.google.android.gms.ads.nativead.NativeAdView",
+        "com.google.android.gms.ads.nativead.MediaView",
+        "com.google.android.gms.ads.formats.MediaView",
+        "com.bytedance.sdk.openadsdk.api.nativeAd.PAGMediaView",
+        "com.bytedance.sdk.openadsdk.adapter.MediaView",
+        "com.pubmatic.sdk.nativead.POBNativeAdView",
+        "com.vungle.ads.internal.ui.view.MediaView",
+        "net.pubnative.lite.sdk.views.HyBidAdView",
+        "net.pubnative.lite.sdk.vpaid.VideoAdView",
+    )
+
+    @JvmStatic
+    fun isAdViewClass(type: Class<*>, name: String?, code: Long): Boolean {
+        if (!isKnownVersion(name, code)) return false
+        return generateSequence(type) { it.superclass }.any { it.name in adViewClassNames }
+    }
+
+    @JvmStatic
+    fun sponsoredFeedFields(loader: ClassLoader, name: String?, code: Long): List<Field> {
+        if (!isKnownVersion(name, code)) return emptyList()
+        val owner = Class.forName("okg", false, loader)
+        // e = sponsoredUiModel; h = realSponsoredPostUiState. The latter can be
+        // absent before the sponsored card finishes loading; e already marks it.
+        return listOf("e" to "jkg", "h" to "eki").map { (fieldName, typeName) ->
+            owner.getDeclaredField(fieldName).apply {
+                require(type == Class.forName(typeName, false, loader) && !Modifier.isStatic(modifiers))
+                isAccessible = true
+            }
+        }
+    }
+
     class EmailAnalyticsGuard(
         val constructors: Map<java.lang.reflect.Constructor<*>, List<Field>>,
         val baseConstructor: java.lang.reflect.Constructor<*>,

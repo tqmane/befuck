@@ -22,6 +22,7 @@ public final class MetadataCheck {
         assert !KnownMappings3970.isKnownVersion("3.98.0", 3597523L);
         assert !KnownMappings3970.isKnownVersion(null, 3597523L);
         checkSmsRequestPayload();
+        checkAdClassification();
         checkKnownStrings();
         BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
         assert !BeFakeAuthHeaders.hasAuthorization();
@@ -161,6 +162,29 @@ public final class MetadataCheck {
         assert "already initialized".equals(okhttp3.internal.connection.udV.ewVWKVT.oiooMrpCpO);
     }
 
+    private static void checkAdClassification() throws Exception {
+        assert KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.97.0", 3597523L)
+                : "SDK subclasses must remain hidden";
+        assert !KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.97.0", 3597524L);
+        assert !KnownMappings3970.isAdViewClass(AdManagerViewFixture.class, "3.98.0", 3597523L);
+        assert !KnownMappings3970.isAdViewClass(OrdinaryAdViewNamedFixture.class, "3.97.0", 3597523L)
+                : "An ad-like name is not evidence that a view is an advertisement";
+        assert !KnownMappings3970.isAdViewClass(Object.class, "3.97.0", 3597523L);
+        var loader = MetadataCheck.class.getClassLoader();
+        assert KnownMappings3970.sponsoredFeedFields(loader, "3.97.0", 3597524L).isEmpty();
+        var fields = KnownMappings3970.sponsoredFeedFields(loader, "3.97.0", 3597523L);
+        assert fields.size() == 2;
+        var ordinary = new okg();
+        for (var field : fields) assert field.get(ordinary) == null;
+        var loading = new okg();
+        loading.e = new jkg();
+        assert fields.get(0).get(loading) == loading.e : "Catch a sponsored card before its loaded state exists";
+        assert fields.get(1).get(loading) == null;
+        var loaded = new okg();
+        loaded.h = new eki();
+        assert fields.get(1).get(loaded) == loaded.h;
+    }
+
     public static final class RealMojiFixture {
         public String a = "reaction-id", b = "owner-id", c = "⚡", e = "https://cdn.bereal.network/first.jpg", f = "owner";
         public long h = 1_759_655_091_573L;
@@ -173,6 +197,12 @@ public final class MetadataCheck {
         return output.toByteArray();
     }
 }
+
+class AdManagerViewFixture extends com.google.android.gms.ads.BaseAdView {}
+class OrdinaryAdViewNamedFixture {}
+class okg { public jkg e; public eki h; }
+class jkg {}
+class eki {}
 
 // Native menu action is a marker interface; the download action must remain separate from delete/report.
 interface ddi {}

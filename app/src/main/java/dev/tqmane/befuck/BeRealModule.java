@@ -121,6 +121,7 @@ public final class BeRealModule extends XposedModule {
     private final AtomicBoolean detailGridComposerBoundLogged = new AtomicBoolean();
     private final AtomicBoolean detailMediaOverlayComposedLogged = new AtomicBoolean();
     private final AtomicBoolean adViewSuppressionLogged = new AtomicBoolean();
+    private final Map<Class<?>, Boolean> adViewClasses = new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicBoolean videoUploadDiagnosticsInstalled = new AtomicBoolean();
     private volatile ResolvedSymbols resolvedSymbols;
     private boolean composeInjectionReady;
@@ -209,6 +210,7 @@ public final class BeRealModule extends XposedModule {
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
             moduleResources = loadModuleResources(context);
+            installPreludeNativeCompatibility(context, classLoader, versionName, versionCode);
             installRepackagedStartupCompatibility(context, classLoader, versionName, versionCode);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
             installAuthFailureDiagnostics(classLoader, versionName, versionCode);
@@ -251,20 +253,30 @@ public final class BeRealModule extends XposedModule {
                 });
                 info("Installed repackaged application compatibility: " + check.getName());
             }
-            Method load = KnownMappings3970.preludeLibraryLoad(loader, name, code);
-            List<Class<?>> interfaces = KnownMappings3970.preludeLibraryInterfaces(loader, name, code);
-            if (load != null && moduleResources != null) {
-                hook(load).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
-                    if (!interfaces.contains(chain.getArg(1))) return chain.proceed();
-                    Object[] args = chain.getArgs().toArray();
-                    args[0] = dev.tqmane.befuck.runtime.PreludeNativeLibrary.extract(host, moduleResources);
-                    Object result = chain.proceed(args);
-                    info("Loaded upstream Prelude 0.4.1 native implementation with host ABI checks retained");
-                    return result;
-                });
-            }
         } catch (Throwable failure) {
             error("Could not install repackaged application startup compatibility", failure);
+        }
+    }
+
+    private void installPreludeNativeCompatibility(Context host, ClassLoader loader, String name, long code) {
+        // The protected 3597523 library traps in ffi_prelude_uniffi_contract_version
+        // after VMRunner is replaced, including on unmodified APKs using root Xposed.
+        // This must not depend on repackaging metadata or certificate-hook success.
+        try {
+            Method load = KnownMappings3970.preludeLibraryLoad(loader, name, code);
+            List<Class<?>> interfaces = KnownMappings3970.preludeLibraryInterfaces(loader, name, code);
+            if (load == null || moduleResources == null) return;
+            hook(load).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                if (!interfaces.contains(chain.getArg(1))) return chain.proceed();
+                Object[] args = chain.getArgs().toArray();
+                args[0] = dev.tqmane.befuck.runtime.PreludeNativeLibrary.extract(host, moduleResources);
+                Object result = chain.proceed(args);
+                info("Loaded upstream Prelude 0.4.1 native implementation with host ABI checks retained");
+                return result;
+            });
+            info("Installed version-scoped Prelude native compatibility for root and embedded loaders");
+        } catch (Throwable failure) {
+            error("Could not install Prelude native compatibility", failure);
         }
     }
 
@@ -1115,6 +1127,18 @@ public final class BeRealModule extends XposedModule {
         try { sponsoredModifier = createZeroSizeComposeModifier(classLoader); }
         catch (Throwable failure) { error("Could not resolve sponsored-card size modifier", failure); }
         final Object hiddenSponsoredModifier = sponsoredModifier;
+        final List<Field> sponsoredFields = new ArrayList<>();
+        if (media.getViewStateRealSponsoredPostUiStateField() != null) {
+            sponsoredFields.add(media.getViewStateRealSponsoredPostUiStateField());
+        }
+        try {
+            for (Field field : KnownMappings3970.sponsoredFeedFields(classLoader,
+                    RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) {
+                if (!sponsoredFields.contains(field)) sponsoredFields.add(field);
+            }
+        } catch (Throwable failure) {
+            error("Could not resolve the sponsored feed model fields", failure);
+        }
         Method feedCardMethod = media.getPostFeedCardComposableMethod();
         if (feedCardMethod != null) {
             try {
@@ -1123,10 +1147,16 @@ public final class BeRealModule extends XposedModule {
                         .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                         .intercept(chain -> {
                             Object[] args = chain.getArgs().toArray();
-                            if (args.length > 1 && media.getViewStateRealSponsoredPostUiStateField() != null) {
+                            if (args.length > 1 && args[1] != null && hiddenSponsoredModifier != null) {
                                 try {
-                                    Object sponsoredState = media.getViewStateRealSponsoredPostUiStateField().get(args[1]);
-                                    if (sponsoredState != null && hiddenSponsoredModifier != null &&
+                                    boolean sponsored = false;
+                                    for (Field field : sponsoredFields) {
+                                        if (field.getDeclaringClass().isInstance(args[1]) && field.get(args[1]) != null) {
+                                            sponsored = true;
+                                            break;
+                                        }
+                                    }
+                                    if (sponsored &&
                                             feedCardMethod.getParameterTypes()[0].isInstance(hiddenSponsoredModifier)) {
                                         if (sponsoredFeedPostSuppressionLogged.compareAndSet(false, true)) {
                                             info("Hid the sponsored feed card with a zero-size modifier while preserving its composition");
@@ -2044,26 +2074,42 @@ public final class BeRealModule extends XposedModule {
     }
 
     private void installAdViewSuppression() {
+        if (!KnownMappings3970.isKnownVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
+        try {
+            hook(View.class.getDeclaredMethod("setVisibility", int.class))
+                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> {
+                        if ((Integer) chain.getArg(0) != View.GONE && isAdSdkView((View) chain.getThisObject())) {
+                            Object[] args = chain.getArgs().toArray();
+                            args[0] = View.GONE;
+                            return chain.proceed(args);
+                        }
+                        return chain.proceed();
+                    });
+            info("Hooked ad visibility changes to keep recycled and asynchronously loaded ads hidden");
+        } catch (Throwable error) {
+            error("Could not install persistent ad visibility suppression", error);
+        }
         try {
             int hooked = 0;
             for (Method method : ViewGroup.class.getDeclaredMethods()) {
                 Class<?>[] parameters = method.getParameterTypes();
-                if (!"addView".equals(method.getName()) || parameters.length == 0 || parameters[0] != View.class) {
+                if (!("addView".equals(method.getName()) || "addViewInLayout".equals(method.getName()))
+                        || parameters.length == 0 || parameters[0] != View.class) {
                     continue;
                 }
                 hook(method)
                         .setPriority(XposedInterface.PRIORITY_LOWEST)
                         .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                         .intercept(chain -> {
-                            Object result = chain.proceed();
                             Object child = chain.getArg(0);
                             if (child instanceof View && isAdSdkView((View) child)) {
                                 ((View) child).setVisibility(View.GONE);
                                 if (adViewSuppressionLogged.compareAndSet(false, true)) {
-                                    info("Suppressed an embedded ad view after it entered the Android view hierarchy");
+                                    info("Suppressed an embedded ad view before it entered the Android view hierarchy");
                                 }
                             }
-                            return result;
+                            return chain.proceed();
                         });
                 hooked++;
             }
@@ -2075,22 +2121,8 @@ public final class BeRealModule extends XposedModule {
     }
 
     private boolean isAdSdkView(View view) {
-        String name = view.getClass().getName().toLowerCase(java.util.Locale.ROOT);
-        if (name.contains("advertsdata") || name.contains("sparkads") || name.contains("adsglobalpackage")) {
-            return true;
-        }
-        return name.contains("com.applovin.mediation.ads.maxadview")
-                || name.contains("com.applovin.mediation.nativeads.maxnativeadview")
-                || name.contains("com.google.android.gms.ads.adview")
-                || name.contains("com.google.android.gms.ads.nativead.nativeadview")
-                || name.contains("com.google.android.gms.ads.nativead.mediaview")
-                || name.contains("com.bytedance.sdk.openadsdk") && name.contains("adview")
-                || name.contains("com.pangle") && name.contains("adview")
-                || name.contains("io.adn.sdk") && (name.contains("nativead") || name.contains("adview"))
-                || name.contains("net.pubnative.lite.sdk.views.hybidadview")
-                || name.contains("com.vungle.ads") && name.contains("view")
-                || name.contains("com.pubmatic.sdk") && name.contains("view")
-                || name.contains("com.appharbr.sdk") && name.contains("view");
+        return adViewClasses.computeIfAbsent(view.getClass(), type -> KnownMappings3970.isAdViewClass(
+                type, RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode()));
     }
 
     private Object createZeroSizeComposeModifier(ClassLoader classLoader) throws Exception {
