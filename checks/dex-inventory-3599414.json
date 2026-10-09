@@ -1,0 +1,80 @@
+{
+  "package": "com.bereal.ft",
+  "version_name": "3.97.1",
+  "version_code": 3599414,
+  "signature_certificate_sha256_base64": "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q=",
+  "dex": [
+    {
+      "name": "classes.dex",
+      "bytes": 9447380,
+      "class_defs": 7936,
+      "sha256": "d43008797fc429a08090903af72bdf1eb34227553b7865e3e0a052e71b089511"
+    },
+    {
+      "name": "classes2.dex",
+      "bytes": 37452,
+      "class_defs": 38,
+      "sha256": "c3c39fb153bd7b90f3c2c51484147e8724655904ae4f3f485b47a0b4073338b4"
+    },
+    {
+      "name": "classes3.dex",
+      "bytes": 10201656,
+      "class_defs": 11305,
+      "sha256": "8c70fde90d82c768ec69c7494a3811b317abd80f897e51e3a7bc2776b9583a44"
+    },
+    {
+      "name": "classes4.dex",
+      "bytes": 9798072,
+      "class_defs": 11804,
+      "sha256": "e262712aab0606756f40edd2c6f39749ea98c15919bcc5dfb037eb21cbad9c96"
+    },
+    {
+      "name": "classes5.dex",
+      "bytes": 4606428,
+      "class_defs": 5487,
+      "sha256": "a3de876e2e340bfad211090a1b8c2f98748451ea6277a4ae38784a1ee04da684"
+    },
+    {
+      "name": "classes6.dex",
+      "bytes": 78100,
+      "class_defs": 34,
+      "sha256": "7a51586908605d45c519cacc2794663899a398ba51dd51bca74ff083afe2dc22"
+    },
+    {
+      "name": "classes7.dex",
+      "bytes": 10173120,
+      "class_defs": 8752,
+      "sha256": "3ff018e60c776a83afdabcae69db282ee1027f8af11852669911bbf0409624b7"
+    },
+    {
+      "name": "classes8.dex",
+      "bytes": 9597480,
+      "class_defs": 8937,
+      "sha256": "561d641312a1e42e46fec661aec1a0cd917af07fa0e1b9898c931b8a0bb22705"
+    },
+    {
+      "name": "classes9.dex",
+      "bytes": 9500640,
+      "class_defs": 9507,
+      "sha256": "a40465dd03d65c76f962687bf4b6be6b8589676b4adce19375f0bdc14837b512"
+    },
+    {
+      "name": "classes10.dex",
+      "bytes": 9735312,
+      "class_defs": 10227,
+      "sha256": "022d7d6d73ac212ad131f80b942dcf4f894466c3a610a4a7c458745b5fb7ab4d"
+    },
+    {
+      "name": "classes11.dex",
+      "bytes": 9709204,
+      "class_defs": 10928,
+      "sha256": "486579ec30075b874c91f406451697a281bd8e6ddbcaa03609ede42b56edc18c"
+    },
+    {
+      "name": "classes12.dex",
+      "bytes": 9660772,
+      "class_defs": 10902,
+      "sha256": "096fd952c6f2664137e7206d5364e3c81d41c42e6ac3c105357fbea5b0f96ea4"
+    }
+  ]
+}
