@@ -39,7 +39,7 @@ import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.SeekBar
-import android.widget.Switch
+import com.google.android.material.materialswitch.MaterialSwitch
 import android.text.TextPaint
 import android.widget.TextView
 import android.widget.Toast
@@ -119,7 +119,7 @@ object BeFuckGalleryUi {
         val backLabel: TextView,
         val caption: EditText,
         val retakes: SeekBar,
-        val late: Switch,
+        val late: MaterialSwitch,
         val status: TextView,
         var keepMediaUntilUpload: Boolean = false,
         var pendingOfficialPostId: String? = null,
@@ -842,7 +842,7 @@ object BeFuckGalleryUi {
         val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar)
         val content = FrameLayout(activity).apply { setBackgroundColor(BG) }
         val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(panel, FrameLayout.LayoutParams(if (activity.resources.configuration.screenWidthDp > 600) dp(activity, 560) else -1, -1, Gravity.CENTER))
+        content.addView(panel, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
         val header = LinearLayout(activity).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(activity, 20), dp(activity, 12), dp(activity, 12), dp(activity, 12))
@@ -993,9 +993,9 @@ object BeFuckGalleryUi {
             })
         }
         options.addView(retakes, LinearLayout.LayoutParams(-1, -2))
-        val late = Switch(activity).apply {
+        val late = MaterialControls.switch(activity, resources).apply {
             text = resources.getString(R.string.befuck_post_late); textSize = 16f; setTextColor(Color.WHITE)
-            minHeight = dp(activity, 56); switchPadding = dp(activity, 16); monochromeSwitch(this)
+            minHeight = dp(activity, 56); switchPadding = dp(activity, 16)
         }
         options.addView(late)
         val status = label(activity, resources.getString(R.string.befuck_media_local_status)).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
@@ -1020,7 +1020,7 @@ object BeFuckGalleryUi {
             orientation = LinearLayout.VERTICAL; setPadding(dp(activity, 16), dp(activity, 10), dp(activity, 16), dp(activity, 12))
         }
         footer.addView(status, gapParams(activity, 4, 0, 4, 8))
-        val post = ExpressiveUi.button(activity, resources.getString(R.string.befuck_post_now), true, TablerIcon.UPLOAD) {
+        val post = MaterialControls.button(activity, resources, resources.getString(R.string.befuck_post_now), true, TablerIcon.UPLOAD) {
             submitPost(activity, session, symbols, when (selectedAudience) { 1 -> "friend-of-friends"; 2 -> "public"; else -> "friends" })
         }
         session.postButton = post
@@ -1038,7 +1038,7 @@ object BeFuckGalleryUi {
                 session.back?.let { discardPreparedMedia(activity, it, session.videoSourcesInUse) }
             }
         }
-        ExpressiveUi.showFullScreen(dialog, content)
+        BoundedScreen.show(activity, dialog, content, 720)
     }
 
     private fun submitPost(activity: Activity, session: Session, symbols: ResolvedSymbols?, audience: String) {
@@ -1120,151 +1120,97 @@ object BeFuckGalleryUi {
     }
 
 
-    private fun openSettings(activity: Activity, resources: Resources) {
-        val dialog = Dialog(activity)
-        val root = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BG)
-        }
-        val topBar = LinearLayout(activity).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(activity, 20), dp(activity, 12), dp(activity, 12), dp(activity, 12))
-        }
-        topBar.addView(TextView(activity).apply {
-            text = resources.getString(R.string.befuck_settings_title)
-            textSize = 22f
-            letterSpacing = -0.02f
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        topBar.addView(
-            iconButton(activity, GLYPH_CLOSE, resources.getString(R.string.befuck_close)) { dialog.dismiss() },
-            LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48)),
-        )
-        root.addView(topBar)
-        root.addHairline(activity)
+    internal fun openSettings(activity: Activity, resources: Resources) {
+        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar)
+        val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
+        val top = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(activity,20),dp(activity,12),dp(activity,12),dp(activity,12)) }
+        top.addView(ExpressiveUi.text(activity,resources.getString(R.string.befuck_settings_title),26f,bold=true),LinearLayout.LayoutParams(0,-2,1f))
+        top.addView(ExpressiveUi.iconButton(activity,TablerIcon.X,resources.getString(R.string.befuck_close)) { dialog.dismiss() },LinearLayout.LayoutParams(dp(activity,48),dp(activity,48)))
+        root.addView(top)
         val scroll = ScrollView(activity)
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(activity, 20), dp(activity, 20), dp(activity, 20), dp(activity, 28))
+        val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(activity,16),dp(activity,8),dp(activity,16),dp(activity,28)) }
+        scroll.addView(column); root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        val summary = ExpressiveUi.text(activity,"",14f,ExpressiveUi.SECONDARY).apply {
+            background = ExpressiveUi.shape(activity)
+            setPadding(dp(activity,20),dp(activity,18),dp(activity,20),dp(activity,18))
+            setLineSpacing(dp(activity,4).toFloat(),1f)
         }
-        scroll.addView(column)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        val summary = TextView(activity).apply {
-            textSize = 11.5f
-            typeface = Typeface.MONOSPACE
-            setLineSpacing(0f, 1.3f)
-            setTextColor(MUTED)
-        }
-        val toggles = linkedMapOf<String, Switch>()
-        var refreshingToggles = false
-        column.addView(summary, gapParams(activity, 0, 0, 0, 28))
+        column.addView(summary,gapParams(activity,0,0,0,24))
+        val toggles = linkedMapOf<String, MaterialSwitch>()
+        var refreshing = false
         fun refresh() {
             summary.text = resources.getString(R.string.befuck_settings_summary,
-                RuntimeKnowledge.versionName.orEmpty(), RuntimeKnowledge.versionCode,
-                if (RuntimeKnowledge.loadSymbols() != null) resources.getString(R.string.befuck_settings_saved)
-                else resources.getString(R.string.befuck_settings_empty), RuntimeKnowledge.repairs().size)
-            refreshingToggles = true
-            try { toggles.forEach { (key, view) -> view.isChecked = RuntimeKnowledge.enabled(key) } } finally { refreshingToggles = false }
+                RuntimeKnowledge.versionName.orEmpty(),RuntimeKnowledge.versionCode,
+                resources.getString(if (RuntimeKnowledge.loadSymbols() != null) R.string.befuck_settings_saved else R.string.befuck_settings_empty),RuntimeKnowledge.repairs().size)
+            refreshing = true
+            try { toggles.forEach { (key, view) -> view.isChecked = RuntimeKnowledge.enabled(key) } } finally { refreshing = false }
         }
-        fun toggle(key: String, title: Int) {
-            column.addView(Switch(activity).apply {
-                text = resources.getString(title)
-                textSize = 14f
-                setTextColor(Color.WHITE)
-                minHeight = dp(activity, 64)
-                switchPadding = dp(activity, 16)
-                background = ExpressiveUi.shape(activity, SURFACE, 20f)
-                setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12))
-                isChecked = RuntimeKnowledge.enabled(key)
-                monochromeSwitch(this)
-                setOnCheckedChangeListener { _, checked -> if (!refreshingToggles) RuntimeKnowledge.setEnabled(key, checked) }
-                toggles[key] = this
-            }, gapParams(activity, 0, 0, 0, 0))
-            column.addHairline(activity)
-        }
-        column.addView(sectionLabel(activity, resources.getString(R.string.befuck_settings_title), 1), gapParams(activity, 0, 0, 0, 4))
-        column.addHairline(activity)
-        toggle("prefer_preset", R.string.befuck_settings_prefer_preset)
-        toggle("auto_repair", R.string.befuck_settings_auto_repair)
-        toggle("diagnostics", R.string.befuck_settings_diagnostics)
-        column.addView(label(activity, resources.getString(R.string.befuck_settings_recovery_hint)).apply { textSize = 12f },
-            gapParams(activity, 0, 12, 0, 32))
-
-        fun rowItem(text: String, danger: Boolean = false, action: () -> Unit) {
-            column.addView(rowAction(activity, text, danger, action), gapParams(activity, 0, 0, 0, 0))
-            column.addHairline(activity)
-        }
-        fun clearAction(title: Int, action: () -> Unit) = rowItem(resources.getString(title), danger = true) {
-            ExpressiveDialogs.confirm(activity, resources.getString(title), resources.getString(R.string.befuck_settings_clear_hint),
-                resources.getString(R.string.befuck_settings_clear), resources.getString(R.string.befuck_close)) { action(); refresh() }
-        }
-        column.addView(sectionLabel(activity, resources.getString(R.string.befuck_settings_add_rule), 2), gapParams(activity, 0, 0, 0, 4))
-        column.addHairline(activity)
-        rowItem(resources.getString(R.string.befuck_settings_add_rule)) { editRepair(activity, resources) { refresh() } }
-        rowItem(resources.getString(R.string.befuck_settings_rules)) { openRepairRules(activity, resources) { refresh() } }
-        rowItem(resources.getString(R.string.befuck_settings_test_recovery)) {
-            runCatching { RuntimeKnowledge.verifyRecovery() }.onSuccess { passed ->
-                refresh()
-                Toast.makeText(activity, resources.getString(if (passed) R.string.befuck_settings_test_passed else R.string.befuck_settings_test_failed), Toast.LENGTH_LONG).show()
-            }.onFailure {
-                RuntimeKnowledge.recordFailure(it)
-                Toast.makeText(activity, resources.getString(R.string.befuck_settings_test_failed), Toast.LENGTH_LONG).show()
+        fun section(title: Int) { column.addView(sectionLabel(activity,resources.getString(title)),gapParams(activity,4,0,0,12)) }
+        fun grouped(view: View, index: Int, count: Int): FrameLayout {
+            val inner = dp(activity,6).toFloat(); val outer = dp(activity,24).toFloat()
+            return FrameLayout(activity).apply {
+                background = GradientDrawable().apply {
+                    setColor(SURFACE)
+                    val topRadius = if (index == 0) outer else inner
+                    val bottomRadius = if (index == count - 1) outer else inner
+                    cornerRadii = floatArrayOf(topRadius,topRadius,topRadius,topRadius,bottomRadius,bottomRadius,bottomRadius,bottomRadius)
+                }
+                addView(view,FrameLayout.LayoutParams(-1,-2))
             }
         }
-        rowItem(resources.getString(R.string.befuck_settings_view_log)) {
-            val text = RuntimeKnowledge.logFile()?.takeIf { it.isFile }?.readLines()?.takeLast(40)?.joinToString("\n")
-                ?: resources.getString(R.string.befuck_settings_no_log)
-            val logScroll = ScrollView(activity)
-            logScroll.addView(TextView(activity).apply {
-                this.text = text
-                textSize = 11f
-                typeface = Typeface.MONOSPACE
-                setTextIsSelectable(true)
-                setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12))
-            })
-            android.app.AlertDialog.Builder(activity).setTitle(resources.getString(R.string.befuck_settings_view_log))
-                .setView(logScroll).setPositiveButton(android.R.string.ok, null).show()
+        section(R.string.befuck_settings_title)
+        listOf("prefer_preset" to R.string.befuck_settings_prefer_preset,"auto_repair" to R.string.befuck_settings_auto_repair,"diagnostics" to R.string.befuck_settings_diagnostics)
+            .forEachIndexed { index, (key, label) ->
+                val control = MaterialControls.switch(activity,resources).apply {
+                    tag = "setting-$key"
+                    text = resources.getString(label)
+                    minHeight = dp(activity,72)
+                    setPadding(dp(activity,20),dp(activity,16),dp(activity,20),dp(activity,16))
+                    isChecked = RuntimeKnowledge.enabled(key)
+                    setOnCheckedChangeListener { _, checked -> if (!refreshing) RuntimeKnowledge.setEnabled(key,checked) }
+                }
+                toggles[key] = control
+                column.addView(grouped(control,index,3),gapParams(activity,0,0,0,4))
+            }
+        column.addView(label(activity,resources.getString(R.string.befuck_settings_recovery_hint)),gapParams(activity,4,10,4,28))
+        section(R.string.befuck_settings_recovery_section)
+        fun item(label: Int, icon: TablerIcon, index: Int, count: Int, action: () -> Unit) {
+            val row = ExpressiveUi.row(activity,resources.getString(label),icon,action=action).apply { background = ExpressiveUi.ripple(activity,Color.TRANSPARENT,6f) }
+            column.addView(grouped(row,index,count),gapParams(activity,0,0,0,4))
         }
-        column.addView(label(activity, resources.getString(R.string.befuck_settings_log_path,
-            RuntimeKnowledge.logFile()?.absolutePath.orEmpty())).apply {
-            textSize = 10.5f
-            typeface = Typeface.MONOSPACE
-            setTextColor(0xFF5E5E5E.toInt())
-        }, gapParams(activity, 0, 12, 0, 32))
-
-        column.addView(sectionLabel(activity, resources.getString(R.string.befuck_settings_clear), 3), gapParams(activity, 0, 0, 0, 4))
-        column.addHairline(activity)
-        clearAction(R.string.befuck_settings_clear_symbols) { RuntimeKnowledge.clearSymbols() }
-        clearAction(R.string.befuck_settings_clear_repairs) { RuntimeKnowledge.clearRepairs() }
-        clearAction(R.string.befuck_settings_clear_all) { RuntimeKnowledge.clearPreferences() }
+        item(R.string.befuck_settings_add_rule,TablerIcon.PLUS,0,4) { editRepair(activity,resources) { refresh() } }
+        item(R.string.befuck_settings_rules,TablerIcon.LIST_SEARCH,1,4) { openRepairRules(activity,resources) { refresh() } }
+        item(R.string.befuck_settings_test_recovery,TablerIcon.SHIELD_CHECK,2,4) {
+            runCatching { RuntimeKnowledge.verifyRecovery() }.onSuccess { passed ->
+                refresh(); Toast.makeText(activity,resources.getString(if (passed) R.string.befuck_settings_test_passed else R.string.befuck_settings_test_failed),Toast.LENGTH_LONG).show()
+            }.onFailure { RuntimeKnowledge.recordFailure(it); Toast.makeText(activity,resources.getString(R.string.befuck_settings_test_failed),Toast.LENGTH_LONG).show() }
+        }
+        item(R.string.befuck_settings_view_log,TablerIcon.FILE_TEXT,3,4) {
+            val text = runCatching { RuntimeKnowledge.logFile()?.takeIf(File::isFile)?.useLines { lines ->
+                val tail = java.util.ArrayDeque<String>()
+                lines.forEach { line -> if (tail.size == 40) tail.removeFirst(); tail.addLast(line.take(4096)) }
+                tail.joinToString("\n")
+            } }.getOrNull() ?: resources.getString(R.string.befuck_settings_no_log)
+            val log = ExpressiveUi.text(activity,text,12f).apply { typeface = Typeface.MONOSPACE; setTextIsSelectable(true) }
+            ExpressiveDialogs.form(activity,resources.getString(R.string.befuck_settings_view_log),null,log,
+                resources.getString(R.string.befuck_close),null) { true }
+        }
+        column.addView(label(activity,resources.getString(R.string.befuck_settings_log_path,RuntimeKnowledge.logFile()?.absolutePath.orEmpty())).apply { textSize = 12f },gapParams(activity,4,12,4,28))
+        section(R.string.befuck_settings_storage_section)
+        listOf(
+            R.string.befuck_settings_clear_symbols to { RuntimeKnowledge.clearSymbols() },
+            R.string.befuck_settings_clear_repairs to { RuntimeKnowledge.clearRepairs() },
+            R.string.befuck_settings_clear_all to { RuntimeKnowledge.clearPreferences() },
+        ).forEachIndexed { index, (label, clear) ->
+            item(label,TablerIcon.TRASH,index,3) {
+                ExpressiveDialogs.confirm(activity,resources.getString(label),resources.getString(R.string.befuck_settings_clear_hint),
+                    resources.getString(R.string.befuck_settings_clear),resources.getString(R.string.befuck_close)) { clear(); refresh() }
+            }
+        }
         refresh()
-        ExpressiveUi.showFullScreen(dialog, root)
+        BoundedScreen.show(activity,dialog,root,720)
     }
 
-    /** Gray thumb stays visible against the white checked track and the black host background. */
-    private fun monochromeSwitch(view: Switch) {
-        val d = view.resources.displayMetrics.density
-        fun px(v: Int) = (v * d + 0.5f).toInt()
-        fun pill(fill: Int, stroke: Int, w: Int, h: Int) = GradientDrawable().apply {
-            setColor(fill); cornerRadius = px(h).toFloat(); setSize(px(w), px(h)); setStroke(px(1), stroke)
-        }
-        fun knob(color: Int) = InsetDrawable(GradientDrawable().apply {
-            shape = GradientDrawable.OVAL; setColor(color); setSize(px(24), px(24))
-        }, px(4))
-        view.showText = false
-        view.trackDrawable = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_checked), pill(Color.WHITE, Color.WHITE, 52, 32))
-            addState(intArrayOf(), pill(BG, MUTED, 52, 32))
-        }
-        view.thumbDrawable = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_checked), knob(0xFF808080.toInt()))
-            addState(intArrayOf(), knob(MUTED))
-        }
-        view.thumbTintList = null
-        view.trackTintList = null
-    }
     private fun openRepairRules(activity: Activity, resources: Resources, changed: () -> Unit) {
         val dialog = Dialog(activity)
         val root = LinearLayout(activity).apply {
@@ -1331,22 +1277,7 @@ object BeFuckGalleryUi {
             override fun afterTextChanged(s: android.text.Editable?) = Unit
         })
         render()
-        dialog.setContentView(root)
-        DialogOwners.show(activity, dialog)
-        dialog.window?.let { window ->
-            window.setLayout(-1, -1)
-            if (Build.VERSION.SDK_INT >= 30) {
-                window.setDecorFitsSystemWindows(false)
-                root.setOnApplyWindowInsetsListener { view, insets ->
-                    val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                    val ime = insets.getInsets(WindowInsets.Type.ime())
-                    view.setPadding(dp(activity, 20) + bars.left, dp(activity, 12) + bars.top,
-                        dp(activity, 20) + bars.right, dp(activity, 20) + max(bars.bottom, ime.bottom))
-                    insets
-                }
-                root.requestApplyInsets()
-            }
-        }
+        BoundedScreen.show(activity, dialog, root, 720)
     }
 
     private fun editRepair(activity: Activity, resources: Resources, ruleKey: String? = null, saved: () -> Unit) {

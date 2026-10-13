@@ -11,9 +11,9 @@ import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.ScrollView
 
-/** Natural-height decision/form cards; long content and large fonts scroll instead of clipping. */
+/** Natural-height cards; read-only dialogs have one close action, forms have confirm/cancel. */
 internal object ExpressiveDialogs {
-    fun form(activity: Activity, title: String, message: String?, body: View?, confirm: String, cancel: String,
+    fun form(activity: Activity, title: String, message: String?, body: View?, confirm: String, cancel: String?,
              onConfirm: () -> Boolean): Dialog {
         val dialog = Dialog(activity)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -29,8 +29,10 @@ internal object ExpressiveDialogs {
         body?.let { column.addView(it, LinearLayout.LayoutParams(-1, -2)) }
         column.addView(ExpressiveUi.button(activity, confirm, true) { if (onConfirm()) dialog.dismiss() },
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 20) })
-        column.addView(ExpressiveUi.button(activity, cancel) { dialog.dismiss() },
-            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 8) })
+        cancel?.let { label ->
+            column.addView(ExpressiveUi.button(activity, label) { dialog.dismiss() },
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 8) })
+        }
         val scroll = object : ScrollView(activity) {
             override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                 val displayLimit = (activity.resources.displayMetrics.heightPixels * .8f).toInt()
@@ -38,11 +40,7 @@ internal object ExpressiveDialogs {
                     else minOf(displayLimit, MeasureSpec.getSize(heightMeasureSpec))
                 super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(parentLimit, MeasureSpec.AT_MOST))
             }
-        }.apply {
-            background = ExpressiveUi.shape(activity)
-            clipToOutline = true
-            addView(column)
-        }
+        }.apply { background = ExpressiveUi.shape(activity); clipToOutline = true; addView(column) }
         dialog.setContentView(scroll)
         if (DialogOwners.show(activity, dialog)) dialog.window?.let { window ->
             window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
@@ -53,9 +51,7 @@ internal object ExpressiveDialogs {
         }
         return dialog
     }
-
     fun confirm(activity: Activity, title: String, message: String, confirm: String, cancel: String,
                 action: () -> Unit): Dialog = form(activity, title, message, null, confirm, cancel) { action(); true }
-
     private fun dp(activity: Activity, value: Int) = ExpressiveUi.dp(activity, value)
 }

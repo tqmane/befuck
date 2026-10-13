@@ -26,3 +26,7 @@ Pinned commit: bbed884d15354b5cebf2493371f20dc2d5e83eaf
 Original SVGs and license are retained in third_party/tabler/.
 The APK includes the full license in META-INF/befuck/licenses/Tabler-Icons-MIT.txt.
 Kotlin and Android VectorDrawable paths are mechanically derived from those SVGs.
+
+Material Components for Android 1.14.0 (Apache License 2.0).
+Source: https://github.com/material-components/material-components-android/tree/1.14.0
+Official MaterialSwitch and MaterialButton are used with an isolated Material3Expressive theme.

@@ -8,7 +8,7 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 PIN = 'bbed884d15354b5cebf2493371f20dc2d5e83eaf'  # Tabler 3.49.0
-NAMES = 'x settings-2 adjustments-horizontal arrow-up-right chevron-right chevron-left map-pin photo video download search current-location trash check refresh rotate-clockwise crop player-play player-pause upload users globe shield-check info-circle alert-triangle plus camera camera-rotate list-search circle-check folder bolt file-text arrows-exchange circle-dashed'.split()
+NAMES = 'x settings-2 adjustments-horizontal arrow-up-right chevron-right chevron-left map-pin photo video download search current-location trash check refresh rotate-clockwise crop player-play player-pause upload users globe shield-check info-circle alert-triangle plus camera camera-rotate list-search circle-check folder bolt file-text arrows-exchange circle-dashed calendar'.split()
 
 def paths(svg):
     result = []

@@ -56,6 +56,7 @@ tasks.named("preBuild") { dependsOn(preparePreludeNative) }
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
     implementation("androidx.core:core:1.17.0")
+    implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
     implementation("org.luckypray:dexkit:2.3.0")
     implementation("org.maplibre.gl:android-sdk:13.3.1")
