@@ -105,7 +105,7 @@ internal object SavedPostsScreen {
         }
         controls.addView(legacyNotice)
         root.addView(controls)
-        val scroll = ScrollView(activity).apply { tag = "saved-post-scroll" }
+        val scroll = ScrollView(activity).apply { tag = "saved-media-scroll" }
         val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(activity, 16), dp(activity, 4), dp(activity, 16), dp(activity, 24)) }
         scroll.addView(column)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))

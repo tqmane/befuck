@@ -8,13 +8,13 @@ class FeedDownloadScopeTest {
     private fun post(url: String) = FeedPostMedia("post",null,null,FeedMediaItem(url,"image/jpeg",null,null),null,capturedAtMillis=100)
     @Test fun differentUrlSnapshotsAndAccountsCannotCoalesce() {
         ArchiveAccounts.invalidate();val one=FeedDownloadScope()
-        val post=post("https://example.invalid/first")
-        val key=one.key(post,FeedMediaSelection.PRIMARY,false)
+        val snapshot=post("https://example.invalid/first")
+        val key=one.key(snapshot,FeedMediaSelection.PRIMARY,false)
         assertNotEquals(key,one.key(post("https://example.invalid/second"),FeedMediaSelection.PRIMARY,false))
-        assertNotEquals(key,one.key(post,FeedMediaSelection.ALL,false))
+        assertNotEquals(key,one.key(snapshot,FeedMediaSelection.ALL,false))
         assertFalse(key.contains("example"))
         ArchiveAccounts.invalidate();val two=FeedDownloadScope()
-        assertNotEquals(key,two.key(post,FeedMediaSelection.PRIMARY,false))
+        assertNotEquals(key,two.key(snapshot,FeedMediaSelection.PRIMARY,false))
         assertThrows(java.io.IOException::class.java) { one.check() }
         two.check()
     }

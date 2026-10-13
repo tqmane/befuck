@@ -37,7 +37,7 @@ internal class SavedPostViewer(private val activity: Activity, private val label
     private val pages = PostMediaPages(post, initial)
     private val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK); tag = "post-viewer" }
     private val main = Handler(Looper.getMainLooper())
-    private val photo = PreviewPhotoView(activity).apply { tag = "viewer-photo" }
+    private val photo = PreviewPhotoView(ModuleUiContext(activity, labels)).apply { tag = "viewer-photo" }
     private val texture = TextureView(activity).apply { visibility = View.GONE }
     private val stage = CameraSwipeFrame(activity, { pages.pages.size > 1 && !photo.isZoomed }) { left -> if (pages.swipe(left)) bindPage() }.apply { tag = "viewer-swipe" }
     private val state = ExpressiveUi.text(activity, "", 14f, ExpressiveUi.SECONDARY).apply { gravity = Gravity.CENTER; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
@@ -113,7 +113,15 @@ internal class SavedPostViewer(private val activity: Activity, private val label
         footer.addView(save, LinearLayout.LayoutParams(-1, -2))
         footer.addView(saveAll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         footer.addView(saveState, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-        root.addView(footer)
+        val footerScroll = object : android.widget.ScrollView(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val available = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) activity.resources.displayMetrics.heightPixels else MeasureSpec.getSize(heightMeasureSpec)
+                val limit = (available * .60f).toInt().coerceAtLeast(dp(96))
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST))
+            }
+        }.apply { tag = "viewer-footer-scroll"; addView(footer) }
+        val boundedFooter = WidthLimitedFrame(activity, 720).apply { addView(footerScroll, FrameLayout.LayoutParams(-1, -2)) }
+        root.addView(boundedFooter, LinearLayout.LayoutParams(-1, -2).apply { gravity = Gravity.CENTER_HORIZONTAL })
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) = Unit
             override fun onStartTrackingTouch(bar: SeekBar?) { dragging = true }

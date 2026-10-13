@@ -59,7 +59,7 @@ class SavedPreviewUiTest {
         assertTrue(view(screen,"preview-save-fixture-PRIMARY").performClick())
         assertSame(screen,ShadowDialog.getLatestDialog());assertEquals(listOf(FeedMediaSelection.PRIMARY),saved)
         views(root(screen)).filterIsInstance<InlinePostPreview>().forEach { it.visible(true) }
-        (view(screen,"saved-post-scroll") as ScrollView).scrollTo(0,430)
+        (view(screen,"saved-media-scroll") as ScrollView).scrollTo(0,430)
         screenshot(root(screen),"saved-camera-previews",400,1000)
         view(screen,"preview-open-fixture-PRIMARY").performClick()
         val viewer=ShadowDialog.getLatestDialog()
@@ -143,7 +143,7 @@ class SavedPreviewUiTest {
         send(MotionEvent.ACTION_DOWN,300f,100f);send(MotionEvent.ACTION_MOVE,50f,100f);send(MotionEvent.ACTION_CANCEL,50f,100f,false);send(MotionEvent.ACTION_UP,50f,100f,false)
         assertEquals(0,moved)
     }
-    @Test fun imageDecoderBoundsOutputAndHonorsJpegExifRotation() {
+    @Test @Config(sdk=[29,33]) fun imageDecoderBoundsOutputAndHonorsJpegExifRotation() {
         val app=RuntimeEnvironment.getApplication();val image=Bitmap.createBitmap(100,50,Bitmap.Config.ARGB_8888)
         val file=File(app.cacheDir,"synthetic-preview-exif.jpg")
         try {
@@ -152,5 +152,23 @@ class SavedPreviewUiTest {
             val decoded=NetworkPreviewSource.decodeImage(file,40)
             assertTrue(decoded.width<=40 && decoded.height<=40);assertTrue(decoded.height>decoded.width);decoded.recycle()
         } finally { file.delete() }
+    }
+    @Test fun smallLandscapeAndLargeTypeLeaveAnImageAreaAndScrollableActions() {
+        for ((width,height,scale) in listOf(Triple(800,360,1f),Triple(320,800,1.8f),Triple(1440,1000,1f))) {
+            RuntimeEnvironment.setQualifiers("ja-rJP-w${width}dp-h${height}dp-mdpi")
+            RuntimeEnvironment.setFontScale(scale)
+            val owner=Robolectric.buildActivity(Activity::class.java).setup();val activity=owner.get()
+            val source=FixturePreviewSource();val actions=PostMediaActions({ true }) { _,_,_ -> }
+            val viewer=SavedPostViewer(activity,activity.resources,post(true),FeedMediaSelection.PRIMARY,source,actions,{ true }) {}
+            viewer.showViewer();layout(root(viewer),width,height)
+            assertTrue("No media area at $width x $height",view(viewer,"viewer-swipe").height>0)
+            val footer=view(viewer,"viewer-footer-scroll") as ScrollView
+            assertTrue(footer.width<=720)
+            assertTrue(view(viewer,"viewer-save-current").isEnabled)
+            footer.fullScroll(View.FOCUS_DOWN)
+            assertTrue(view(viewer,"viewer-save-all").height>=48)
+            viewer.dismiss();source.close();owner.pause().stop().destroy()
+        }
+        RuntimeEnvironment.setFontScale(1f)
     }
 }

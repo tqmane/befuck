@@ -8,7 +8,7 @@ A white circle identifies the selected date, an outline identifies an unselected
 
 Dates are derived from `PostMediaMetadata.timestamp`: valid `postedAt` first, then `takenAt`, converted through the device's local time zone. Cache capture time is not substituted as the posting date. Unknown timestamps are not silently assigned to today. Month browsing does not change the selected date until a day is selected. Leap days, six-row months, year boundaries and navigation bounds are explicitly tested.
 
-This is a browser for the existing local post index, not an API for discovering uncached historical BeReal posts. Browsing it does not fetch remote image previews. Existing back/front/all-media saving is retained, with more explicit labels, partial-save feedback and disabled actions while the selected download is pending.
+This is a browser for the existing local post index, not an API for discovering uncached historical BeReal posts. Visible front/back previews now load on demand from the saved URLs; see [media previews](saved-media-preview.md). The backup remains URL/metadata-only. Existing back/front/all-media saving is retained, with more explicit labels, partial-save feedback and disabled actions while the selected download is pending.
 
 ## Official Material widgets, not painted imitations
 

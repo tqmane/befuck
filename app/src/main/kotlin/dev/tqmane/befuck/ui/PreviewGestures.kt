@@ -44,7 +44,7 @@ internal class CameraSwipeFrame(context: Context, private val canSwipe: () -> Bo
 }
 
 /** Fit-center by default. Zoom/pan stays within the photo and never leaks a pinch into paging. */
-internal class PreviewPhotoView(context: Context) : ImageView(context) {
+internal class PreviewPhotoView(context: Context) : androidx.appcompat.widget.AppCompatImageView(context) {
     private val transform = Matrix()
     private var bitmap: Bitmap? = null
     private var zoom = 1f
@@ -67,7 +67,7 @@ internal class PreviewPhotoView(context: Context) : ImageView(context) {
         }
     })
     init { scaleType = ScaleType.MATRIX; isClickable = true }
-    fun display(value: Bitmap?) { bitmap = value; setImageBitmap(value); fit() }
+    fun display(value: Bitmap?) { bitmap = value; if (value == null) setImageDrawable(null) else setImageBitmap(value); fit() }
     private fun fit() {
         zoom = 1f; transform.reset()
         bitmap?.let {

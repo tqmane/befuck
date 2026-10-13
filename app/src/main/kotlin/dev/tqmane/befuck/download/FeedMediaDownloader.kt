@@ -34,7 +34,7 @@ object FeedMediaDownloader {
     private val executor = Executors.newFixedThreadPool(2)
     private val jobs = DownloadJobs()
 
-    private class UnauthorizedTrustedHost(val host: String) : IOException("Media server returned HTTP 401")
+    private class UnauthorizedTrustedHost(val host: String, val origin: String) : IOException("Media server returned HTTP 401")
     private data class DownloadedMedia(val bytes: Long, val responseMimeType: String?)
 
     @JvmStatic
@@ -51,23 +51,26 @@ object FeedMediaDownloader {
 
     private fun enqueue(context: Context, post: FeedPostMedia, selection: FeedMediaSelection,
                         completion: Consumer<FeedMediaDownloadResult>, realMoji: Boolean) {
-        val key = "${post.postId}:$selection:$realMoji"
+        val scope = FeedDownloadScope()
+        val key = scope.key(post, selection, realMoji)
         if (!jobs.join(key, completion)) return
         val application = context.applicationContext ?: context
         runCatching { executor.execute {
             var completed = 0
             var totalBytes = 0L
             val result = try {
+                scope.check()
                 val selected = selectMedia(post, selection)
                 require(selected.isNotEmpty()) { "This post has no media for that selection" }
                 for ((kind, item) in selected) {
+                    scope.check()
                     val metadata = if (realMoji) post else FeedPostMediaCache.get(post.postId) ?: post
-                    totalBytes += downloadOne(application, metadata, if (realMoji) "realmoji" else kind, item)
+                    totalBytes += downloadOne(application, metadata, if (realMoji) "realmoji" else kind, item, scope)
                     completed++
                 }
                 FeedMediaDownloadResult(true, completed, totalBytes)
             } catch (failure: Throwable) {
-                Log.e(TAG, "Media download failed after $completed item(s)", failure)
+                Log.e(TAG, "Media download failed after $completed item(s): ${failure.javaClass.simpleName}")
                 FeedMediaDownloadResult(false, completed, totalBytes, failure)
             }
             jobs.complete(key, result)
@@ -87,7 +90,8 @@ object FeedMediaDownloader {
         }
     }
 
-    private fun downloadOne(context: Context, post: FeedPostMedia, kind: String, media: FeedMediaItem): Long {
+    private fun downloadOne(context: Context, post: FeedPostMedia, kind: String, media: FeedMediaItem, scope: FeedDownloadScope): Long {
+        scope.check()
         val parsed = URI(media.url)
         require(parsed.scheme.equals("https", ignoreCase = true) && !parsed.host.isNullOrBlank()) {
             "Media URL is not a valid HTTPS URL"
@@ -119,7 +123,7 @@ object FeedMediaDownloader {
             throw failure
         }
         try {
-            val copied = copyUrlToOutput(media.url) { FileOutputStream(temporary) }
+            val copied = copyUrlToOutput(media.url, scope) { FileOutputStream(temporary) }
             if (copied.responseMimeType?.let { it.startsWith("image/") || it.startsWith("video/") } == true) {
                 require(copied.responseMimeType.startsWith(if (isVideo) "video/" else "image/")) { "Media kind does not match its response" }
             }
@@ -141,6 +145,7 @@ object FeedMediaDownloader {
                     put(MediaStore.MediaColumns.DATE_MODIFIED, it / 1000L)
                 }
             }
+            scope.check()
             val updated = context.contentResolver.update(outputUri, ready, null, null)
             check(updated == 1) { "MediaStore could not finalize the downloaded item" }
             return copied.bytes
@@ -152,26 +157,29 @@ object FeedMediaDownloader {
         }
     }
 
-    private fun copyUrlToOutput(mediaUrl: String, openOutput: () -> OutputStream): DownloadedMedia {
+    private fun copyUrlToOutput(mediaUrl: String, scope: FeedDownloadScope, openOutput: () -> OutputStream): DownloadedMedia {
         return try {
-            copyWithRedirects(mediaUrl, openOutput, authorization = null)
+            copyWithRedirects(mediaUrl, openOutput, scope, authorization = null, authOrigin = null)
         } catch (unauthorized: UnauthorizedTrustedHost) {
-            val authorization = BeFakeAuthHeaders.snapshot()["Authorization"]
+            val authorization = scope.authorization
                 ?.takeIf { it.isNotBlank() }
                 ?: throw IOException("BeReal authorization is unavailable for this media; refresh the feed and retry")
             if (!isTrustedBeRealHost(unauthorized.host)) throw unauthorized
-            copyWithRedirects(mediaUrl, openOutput, authorization)
+            copyWithRedirects(mediaUrl, openOutput, scope, authorization, unauthorized.origin)
         }
     }
 
     private fun copyWithRedirects(
         mediaUrl: String,
         openOutput: () -> OutputStream,
+        scope: FeedDownloadScope,
         authorization: String?,
+        authOrigin: String?,
     ): DownloadedMedia {
         var current = URL(mediaUrl)
         var redirects = 0
         while (true) {
+            scope.check()
             val currentUri = runCatching { URI(current.toString()) }.getOrElse {
                 throw IOException("Media redirect URL is malformed", it)
             }
@@ -186,13 +194,13 @@ object FeedMediaDownloader {
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("Accept", "image/*, video/mp4, */*")
                 connection.setRequestProperty("Accept-Encoding", "identity")
-                if (authorization != null && isTrustedBeRealHost(current.host)) {
+                if (authorization != null && isTrustedBeRealHost(current.host) && "https://${current.host.lowercase(Locale.ROOT)}:${if (current.port == -1) 443 else current.port}" == authOrigin) {
                     connection.setRequestProperty("Authorization", authorization)
                 }
 
                 val status = connection.responseCode
                 if (status == HttpURLConnection.HTTP_UNAUTHORIZED && authorization == null && isTrustedBeRealHost(current.host)) {
-                    throw UnauthorizedTrustedHost(current.host)
+                    throw UnauthorizedTrustedHost(current.host, "https://${current.host.lowercase(Locale.ROOT)}:${if (current.port == -1) 443 else current.port}")
                 }
                 if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
                     if (redirects >= MAX_REDIRECTS) throw IOException("Media server exceeded the redirect limit")
@@ -203,7 +211,14 @@ object FeedMediaDownloader {
                     continue
                 }
                 if (status != HttpURLConnection.HTTP_OK) throw IOException("Media server returned HTTP $status")
-                val copied = MediaResponseCopy.copy(connection, MAX_MEDIA_BYTES, openOutput)
+                val copied = MediaResponseCopy.copy(connection, MAX_MEDIA_BYTES) {
+                    scope.check()
+                    object : java.io.FilterOutputStream(openOutput()) {
+                        override fun write(bytes: ByteArray, offset: Int, length: Int) { scope.check(); out.write(bytes, offset, length) }
+                        override fun write(value: Int) { scope.check(); out.write(value) }
+                    }
+                }
+                scope.check()
                 return DownloadedMedia(copied.bytes, copied.mimeType)
             } finally {
                 connection.disconnect()

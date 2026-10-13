@@ -31,6 +31,13 @@ internal class InlinePostPreview(activity: Activity, labels: Resources, private 
         orientation = VERTICAL
         tag = "preview-tile-${post.postId}-$side"
         val frame = object : FrameLayout(activity) {
+            private val clip = android.graphics.Path()
+            override fun dispatchDraw(canvas: android.graphics.Canvas) {
+                clip.reset()
+                val radius = ExpressiveUi.dp(context, 20).toFloat()
+                clip.addRoundRect(android.graphics.RectF(0f, 0f, width.toFloat(), height.toFloat()), radius, radius, android.graphics.Path.Direction.CW)
+                val save = canvas.save(); canvas.clipPath(clip); super.dispatchDraw(canvas); canvas.restoreToCount(save)
+            }
             override fun onMeasure(w: Int, h: Int) {
                 val width = MeasureSpec.getSize(w)
                 val height = (width * 1.1f).toInt().coerceIn(ExpressiveUi.dp(context, 112), ExpressiveUi.dp(context, 192))
