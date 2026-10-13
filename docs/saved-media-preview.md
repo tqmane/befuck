@@ -16,9 +16,16 @@ Videos do **not** autoplay in the list or on opening the viewer. Press Play to s
 
 Temporary preview media is deleted on normal success/failure/close paths. Previewing necessarily contacts the media URL's server and uses data; it is no longer a zero-media-network URL-index screen. SQLite continues to contain URLs and metadata only. Previewing does not repair expired URLs or search for uncached posts.
 
-## Compatibility correction from the previous PR review
+## Media type classification
 
-A host media-kind value such as `VIDEO`, paired with a URL lacking an extension, now retains video classification when normalized into the archive (`video/mp4` fallback). Proper MIME subtypes remain preferred. A regression test covers this formerly uncommitted fix. This does not alter post/account keys or merge semantics.
+A host media-kind value such as `VIDEO`, paired with a URL lacking an extension, retains video classification when normalized into the archive (`video/mp4` fallback). Proper MIME subtypes remain preferred. `PreviewModelTest` covers the archive round trip. Post/account keys and merge semantics are unchanged.
+
+## Reviewed synthetic snapshots
+
+- [Saved camera previews](ui/saved-camera-previews.png)
+- [Full-screen camera viewer](ui/saved-camera-fullscreen.png)
+
+These draw the actual View hierarchy with synthetic local fixtures. Tests generate fresh renders under `app/build/reports/ui/`; documentation snapshots are updated manually after review.
 
 ## Verification
 
@@ -26,8 +33,8 @@ A host media-kind value such as `VIDEO`, paired with a URL lacking an extension,
 ./gradlew --no-daemon --continue :app:assembleDebug :app:checkModule :app:testDebugUnitTest :app:lintDebug
 ```
 
-New tests exercise camera paging boundaries and initial side, inline/full-screen save routing, overlapping save suppression, stale completion/account handling, actual View swipes, no-load-before-visible behavior, late image/video cleanup, missing/failed previews, worker decode dimensions and EXIF rotation, HTTPS/authentication redirect rules, range correctness/cache/limits, invalid response rejection and original download account snapshots. Tests use synthetic data and fake connections instead of downloading real users' media. The UI test renderer uses the actual card/viewer hierarchy, not an independently drawn mock-up.
+Tests exercise camera paging boundaries and initial side, inline/full-screen save routing, overlapping save suppression, stale completion/account handling, actual View swipes, no-load-before-visible behavior, late image/video cleanup, missing/failed previews, worker decode dimensions and EXIF rotation, HTTPS/authentication redirect rules, range correctness/cache/limits, invalid response rejection and original download account snapshots. Tests use synthetic data and fake connections instead of downloading real users' media. The UI test renderer uses the actual card/viewer hierarchy, not an independently drawn mock-up.
 
-Native video codecs, hardware TextureView playback, audio-focus behavior between real apps, gesture feel, live CDN Range support and injection in BeReal 3.97.1 still need device qualification. No physical device, emulator, real account, real media or existing saved SQLite database was modified. Successful compilation and Robolectric tests do not establish that every host-dependent path works. The PR's CI/test-summary and render artifacts record what was actually executed.
+Native video codecs, hardware TextureView playback, audio-focus behavior between real apps, gesture feel, live CDN Range support and injection in BeReal 3.97.1 still need device qualification. Successful compilation and Robolectric tests do not establish that every host-dependent path works. The regular CI report artifact contains the executed tests' JUnit XML, HTML reports and renders; see [development and verification](development.md).
 
 Primary platform contracts: [ImageDecoder](https://developer.android.com/reference/android/graphics/ImageDecoder), [MediaMetadataRetriever](https://developer.android.com/reference/android/media/MediaMetadataRetriever), [MediaDataSource](https://developer.android.com/reference/android/media/MediaDataSource), [MediaPlayer](https://developer.android.com/reference/android/media/MediaPlayer).

@@ -26,8 +26,9 @@
 ## Validation
 
 - Use the checked-in Gradle wrapper with JDK 17+ and Android SDK Platform 37.
-- Windows: `./gradlew.bat :app:assembleDebug :app:checkModule :app:lintDebug`
-- Linux/macOS: `./gradlew :app:assembleDebug :app:checkModule :app:lintDebug`
+- Windows: `./gradlew.bat :app:assembleDebug :app:checkModule :app:testDebugUnitTest :app:lintDebug`
+- Linux/macOS: `./gradlew :app:assembleDebug :app:checkModule :app:testDebugUnitTest :app:lintDebug`
 - Keep small, runnable regression checks in `checks/`; build output belongs under `build/`.
+- CI verifies checked-in source and uploads reports from `app/build/`. See `docs/development.md` for commands and artifact locations.
 - Device testing: Do not start an emulator or install/run test apps on a device unless explicitly requested by the user. Rely on Gradle builds, `:app:checkModule`, and lint.
 - Report build, static, and device verification separately.
