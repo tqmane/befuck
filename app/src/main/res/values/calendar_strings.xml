@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_calendar_tab">Calendar</string>
+    <string name="befuck_calendar_today">Today</string>
+    <string name="befuck_calendar_previous_month">Previous month</string>
+    <string name="befuck_calendar_next_month">Next month</string>
+    <string name="befuck_calendar_previous_year">Previous year</string>
+    <string name="befuck_calendar_next_year">Next year</string>
+    <string name="befuck_calendar_choose_month">%1$s. Choose a month and year</string>
+    <string name="befuck_calendar_return_month">%1$s. Return to month calendar</string>
+    <string name="befuck_calendar_day_posts">%1$s · %2$d saved posts</string>
+    <string name="befuck_calendar_count">%1$d posts</string>
+    <string name="befuck_calendar_empty_day">No saved posts on this day</string>
+    <string name="befuck_calendar_cached_only">Only posts already saved in the local index appear here.</string>
+    <string name="befuck_calendar_legend">● Saved posts · outlined date: today</string>
+    <string name="befuck_saved_save_all">Save all media</string>
+    <string name="befuck_saved_save_camera">Save %1$s — %2$s</string>
+    <string name="befuck_saved_partial">Saved %1$d items. Some media could not be saved.</string>
+    <string name="befuck_settings_recovery_section">Recovery and diagnostics</string>
+    <string name="befuck_settings_storage_section">Reset and storage</string>
+</resources>

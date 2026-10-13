@@ -67,18 +67,24 @@ object FeedPostMediaCache {
     @JvmStatic
     @Synchronized
     fun initialize(context: Context) {
-        if (initializing) return
-        initializing = true
+        if (database != null || initializing) return
         val path = context.getDatabasePath("befuck-post-urls.db")
+        initializing = true
         storage.execute {
-            runCatching {
+            var opened: SQLiteDatabase? = null
+            try {
                 path.parentFile?.mkdirs()
                 val db = SQLiteDatabase.openOrCreateDatabase(path, null)
+                opened = db
                 db.execSQL("CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, captured INTEGER NOT NULL, data TEXT NOT NULL)")
                 database = db
                 synchronized(cache) { cache.snapshot().values.toList() }.forEach(::persist)
                 android.util.Log.i("BeFuck/Cache", "Persistent post URL index ready")
-            }.onFailure { android.util.Log.e("BeFuck/Cache", "Could not open post URL index", it) }
+            } catch (failure: Throwable) {
+                if (database === opened) database = null
+                runCatching { opened?.close() }
+                android.util.Log.e("BeFuck/Cache", "Could not open post URL index", failure)
+            } finally { synchronized(FeedPostMediaCache) { initializing = false } }
         }
     }
 
@@ -113,14 +119,14 @@ object FeedPostMediaCache {
         put("primary", media(post.primary)); put("secondary", media(post.secondary)); put("bts", media(post.bts))
     }
 
-    private fun fromJson(json: JSONObject): FeedPostMedia {
-        fun text(key: String) = json.optString(key).takeIf { it.isNotBlank() && it != "null" }
+    internal fun fromJson(json: JSONObject): FeedPostMedia {
+        fun text(key: String) = (json.opt(key) as? String)?.takeIf { it.isNotBlank() }
         fun media(key: String): FeedMediaItem? = json.optJSONObject(key)?.let {
             FeedMediaItem(it.getString("url"), it.optString("mime").takeIf(String::isNotBlank),
                 it.optInt("width").takeIf { n -> n > 0 }, it.optInt("height").takeIf { n -> n > 0 })
         }
         return FeedPostMedia(json.getString("id"), text("takenAt"), text("caption"), media("primary"), media("secondary"),
-            if (json.has("own")) json.getBoolean("own") else null, json.getLong("captured"), text("username"), text("postedAt"), media("bts"), text("ownerUid"), text("momentId"), if (json.has("main")) json.getBoolean("main") else null)
+            json.opt("own") as? Boolean, json.getLong("captured"), text("username"), text("postedAt"), media("bts"), text("ownerUid"), text("momentId"), json.opt("main") as? Boolean)
     }
 
     @JvmStatic

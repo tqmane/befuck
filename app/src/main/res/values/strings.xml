@@ -125,4 +125,27 @@
     <string name="befuck_video_pair_duration">Both video durations were aligned to %1$.2f seconds.</string>
     <string name="befuck_video_selected_range">Video · %1$d×%2$d · %3$.2f–%4$.2f s</string>
     <string name="befuck_video_exporting">Exporting selected video…</string>
+    <string name="befuck_location_provider">Search provider</string>
+    <string name="befuck_location_provider_hint">Place searches send the entered text to the configured HTTPS geocoding service. The default is the public OpenStreetMap Nominatim service. For regular or shared use, configure a compatible provider that permits your traffic.</string>
+    <string name="befuck_location_provider_invalid">Enter an HTTPS endpoint without a query, fragment or credentials.</string>
+    <string name="befuck_location_map_loading">Loading the map…</string>
+    <string name="befuck_location_search">Search</string>
+    <string name="befuck_location_selected_label">Selected location</string>
+    <string name="befuck_location_search_results">Choose a search result</string>
+    <string name="befuck_location_search_error">Search failed. Try again or select a point on the map.</string>
+    <string name="befuck_location_map_retry">Reload map</string>
+    <string name="befuck_location_coordinates">%1$.5f, %2$.5f</string>
+    <string name="befuck_location_confirm">Use this location</string>
+    <string name="befuck_location_map_hint">Tap to place your pin. Map and place searches use external services.</string>
+    <string name="befuck_location_unavailable">Current location is unavailable. Select a point on the map.</string>
+    <string name="befuck_location_locating">Finding your current location…</string>
+    <string name="befuck_location_permission_denied">Location permission was not granted. You can still select a point on the map.</string>
+    <string name="befuck_location_searching">Searching…</string>
+    <string name="befuck_crop_hint">Drag to position. Pinch to zoom.</string>
+    <string name="befuck_saved_refresh">Refresh saved posts</string>
+    <string name="befuck_saved_empty">No matching posts</string>
+    <string name="befuck_saved_more">Show more</string>
+    <string name="befuck_saved_loading">Loading saved posts…</string>
+    <string name="befuck_saved_load_failed">The saved index could not be read. Try refreshing.</string>
+    <string name="befuck_saved_date_invalid">Enter a date as YYYY-MM-DD.</string>
 </resources>

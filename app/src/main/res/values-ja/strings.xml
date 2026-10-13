@@ -125,4 +125,27 @@
     <string name="befuck_video_pair_duration">内カメと外カメの長さを%1$.2f秒に揃えました。</string>
     <string name="befuck_video_selected_range">動画 · %1$d×%2$d · %3$.2f～%4$.2f秒</string>
     <string name="befuck_video_exporting">動画を書き出し中…</string>
+    <string name="befuck_location_provider">検索サービス</string>
+    <string name="befuck_location_provider_hint">地名検索では入力した文字を設定したHTTPS検索サービスへ送信します。初期設定はOpenStreetMapの公開Nominatimです。継続利用・共有利用には利用量を許可する互換サービスを設定してください。</string>
+    <string name="befuck_location_provider_invalid">クエリ・フラグメント・認証情報を含まないHTTPS URLを入力してください。</string>
+    <string name="befuck_location_map_loading">地図を読み込み中…</string>
+    <string name="befuck_location_search">検索</string>
+    <string name="befuck_location_selected_label">選択中の位置</string>
+    <string name="befuck_location_search_results">検索結果を選択してください</string>
+    <string name="befuck_location_search_error">検索できませんでした。再試行するか地図上の位置を選択してください。</string>
+    <string name="befuck_location_map_retry">地図を再読み込み</string>
+    <string name="befuck_location_coordinates">%1$.5f, %2$.5f</string>
+    <string name="befuck_location_confirm">この位置を使う</string>
+    <string name="befuck_location_map_hint">タップでピンを置けます。地図の表示・場所の検索には外部サービスを利用します。</string>
+    <string name="befuck_location_unavailable">現在地を取得できませんでした。地図上から選択してください。</string>
+    <string name="befuck_location_locating">現在地を取得中…</string>
+    <string name="befuck_location_permission_denied">位置情報が許可されていません。地図上からの選択は利用できます。</string>
+    <string name="befuck_location_searching">検索中…</string>
+    <string name="befuck_crop_hint">ドラッグで位置を調整、ピンチで拡大できます。</string>
+    <string name="befuck_saved_refresh">保存一覧を更新</string>
+    <string name="befuck_saved_empty">一致する投稿がありません</string>
+    <string name="befuck_saved_more">さらに表示</string>
+    <string name="befuck_saved_loading">保存一覧を読み込み中…</string>
+    <string name="befuck_saved_load_failed">保存一覧を読み込めませんでした。更新をお試しください。</string>
+    <string name="befuck_saved_date_invalid">YYYY-MM-DDの形式で日付を入力してください。</string>
 </resources>

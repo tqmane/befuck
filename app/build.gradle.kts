@@ -30,11 +30,16 @@ android {
         resources.directories.add("build/generated/notices")
         assets.directories.add("build/generated/preludeAssets")
     }
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
 val prepareNotices = tasks.register<Copy>("prepareNotices") {
     from(rootProject.files("LICENSE", "NOTICE"))
     from(rootProject.file("licenses")) { into("licenses") }
+    from(rootProject.file("third_party/tabler/LICENSE")) {
+        into("licenses")
+        rename { "Tabler-Icons-MIT.txt" }
+    }
     into(layout.buildDirectory.dir("generated/notices/META-INF/befuck"))
 }
 tasks.named("preBuild") { dependsOn(prepareNotices) }
@@ -50,9 +55,13 @@ tasks.named("preBuild") { dependsOn(preparePreludeNative) }
 
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
+    implementation("androidx.core:core:1.17.0")
+    implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
     implementation("org.luckypray:dexkit:2.3.0")
     implementation("org.maplibre.gl:android-sdk:13.3.1")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
 }
 
 // Reuse the app's compiled classes and dependencies for the JVM checks.

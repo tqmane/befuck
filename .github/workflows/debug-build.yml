@@ -25,16 +25,29 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          # Match gradle/gradle-daemon-jvm.properties.
           java-version: '17'
-      - name: Set up Android SDK
+      - name: Check provisioned Android SDK
+        id: android_sdk
+        shell: bash
+        run: |
+          if compgen -G "${ANDROID_HOME:-}/platforms/android-37*/android.jar" > /dev/null; then
+            echo 'installed=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'installed=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install missing Android SDK
+        if: steps.android_sdk.outputs.installed != 'true'
+        timeout-minutes: 5
         uses: android-actions/setup-android@v4
         with:
-          # API 37 uses the major.minor package name in the SDK repository.
           packages: 'platform-tools platforms;android-37.0'
           log-accepted-android-sdk-licenses: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Verify reproducible vendored icons
+        run: |
+          python3 checks/export_tabler.py
+          git diff --exit-code -- app/src/main/kotlin/dev/tqmane/befuck/ui/TablerIcon.kt app/src/main/res/drawable
       - name: Build debug APK
         run: bash ./gradlew --no-daemon :app:assembleDebug
       - name: Upload debug APK
@@ -44,13 +57,75 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-      - name: Run module checks and Android lint
-        run: bash ./gradlew --no-daemon :app:checkModule :app:lintDebug
+      - name: Run module checks, Android behavior tests and lint
+        run: bash ./gradlew --no-daemon --continue :app:checkModule :app:testDebugUnitTest :app:lintDebug
+      - name: Summarize executed tests
+        if: always()
+        env:
+          HEAD_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, xml.etree.ElementTree as ET
+          from pathlib import Path
+          suites=[]
+          for path in sorted(Path('app/build/test-results').rglob('TEST-*.xml')):
+              root=ET.parse(path).getroot()
+              suites.append({'name':root.get('name'), **{key:int(root.get(key,0)) for key in ['tests','failures','errors','skipped']}})
+          report={'head_commit':os.environ['HEAD_COMMIT'], 'checkout_commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+                  **{key:sum(s[key] for s in suites) for key in ['tests','failures','errors','skipped']}, 'suites':suites}
+          path=Path('app/build/reports/test-summary.json');path.parent.mkdir(parents=True,exist_ok=True)
+          path.write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          if not suites:
+              raise SystemExit('No unit-test suite executed; do not infer behavior from assembly alone.')
+          PY
       - name: Upload verification reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: BeFuck-reports-${{ github.run_number }}
-          path: app/build/reports/
+          path: |
+            app/build/reports/
+            app/build/test-results/
           if-no-files-found: ignore
           retention-days: 14
+      - name: Upload machine-readable test summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/reports/test-summary.json
+          archive: false
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Upload calendar render
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/reports/ui/calendar-ja.png
+          archive: false
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Upload settings render
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/reports/ui/settings-material3expressive.png
+          archive: false
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Upload tablet calendar render
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/reports/ui/calendar-tablet.png
+          archive: false
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Upload large-text calendar render
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/reports/ui/calendar-large-type.png
+          archive: false
+          retention-days: 14
+          if-no-files-found: ignore

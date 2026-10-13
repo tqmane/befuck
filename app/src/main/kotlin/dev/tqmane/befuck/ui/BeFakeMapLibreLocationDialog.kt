@@ -7,33 +7,33 @@ import android.app.Dialog
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.drawable.GradientDrawable
-import android.location.Criteria
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
-import android.view.ViewGroup
+import android.view.View
 import android.view.Window
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import dev.tqmane.befuck.R
 import dev.tqmane.befuck.posting.LocationData
-import org.json.JSONArray
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -45,499 +45,290 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
 import java.util.Locale
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.Future
 
-/** Native location picker using MapLibre Native and OpenFreeMap's Liberty style. */
+/** A full-screen map workspace. Late search/GPS proposals never overwrite a newer manual selection. */
 object BeFakeLocationDialog {
-    private const val DEFAULT_LATITUDE = 35.681236
-    private const val DEFAULT_LONGITUDE = 139.767125
     private const val LOCATION_PERMISSION_REQUEST = 0x4B35
-    private const val OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
-    private const val SELECTED_LOCATION_SOURCE = "befake-selected-location"
-    private const val SELECTED_LOCATION_LAYER = "befake-selected-location-pin"
-    private const val SELECTED_LOCATION_ICON = "befake-destination-pin"
-    private const val LOCATION_TIMEOUT_MS = 15_000L
-
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+    private const val SOURCE = "befake-selected-location"
+    private const val ICON = "befake-destination-pin"
+    private const val TIMEOUT_MS = 15_000L
+    private val main = Handler(Looper.getMainLooper())
     private val searchExecutor = Executors.newSingleThreadExecutor()
     private val sessions = WeakHashMap<Activity, MapSession>()
-
-    private class MapSession(
-        val activity: Activity,
-        val dialog: Dialog,
-        val mapView: MapView,
-        val status: TextView,
-        val resources: android.content.res.Resources,
-        var selectedLocation: LocationData?,
-    ) {
+    private class MapSession(val activity: Activity, val resources: Resources, val dialog: Dialog, val mapView: MapView,
+        val coordinates: TextView, val status: TextView, val results: LinearLayout, val resultsScroll: ScrollView, initial: LocationData?) {
+        val state = LocationSelectionState(initial)
         var map: MapLibreMap? = null
-        var locationSource: GeoJsonSource? = null
-        var userInteracted = false
-        var started = false
-        var resumed = false
-        var destroyed = false
+        var source: GeoJsonSource? = null
+        var started = false; var resumed = false; var destroyed = false
         var locationListener: LocationListener? = null
+        var locationCancellation: CancellationSignal? = null
         var locationTimeout: Runnable? = null
+        var permissionTicket: Long? = null
+        var search: GeocodingRequest? = null
+        var searchFuture: Future<*>? = null
     }
-
-    @SuppressLint("MissingPermission")
     @JvmStatic
-    fun show(
-        activity: Activity,
-        resources: android.content.res.Resources,
-        currentLocation: LocationData?,
-        onConfirmed: (LocationData?) -> Unit,
-    ) {
+    fun show(activity: Activity, resources: Resources, currentLocation: LocationData?, onConfirmed: (LocationData?) -> Unit) {
         if (activity.isFinishing || activity.isDestroyed) return
-        val mapContext = object : ContextWrapper(activity) {
-            override fun getResources(): android.content.res.Resources = resources
+        sessions[activity]?.dialog?.dismiss()
+        // MapLibre retains applicationContext. It must not retain an Activity wrapper.
+        val applicationResources = object : ContextWrapper(activity.applicationContext) {
+            override fun getResources() = resources
+            override fun getAssets() = resources.assets
             override fun getApplicationContext(): Context = this
         }
-        runCatching { MapLibre.getInstance(mapContext) }
-            .onFailure {
-                Toast.makeText(activity, R.string.befuck_location_map_failed, Toast.LENGTH_LONG).show()
-                return
+        val mapContext = object : ContextWrapper(activity) {
+            override fun getResources() = resources
+            override fun getAssets() = resources.assets
+            override fun getApplicationContext(): Context = applicationResources
+        }
+        val mapView = runCatching {
+            MapLibre.getInstance(applicationResources)
+            MapView(mapContext).also { view ->
+                try { view.onCreate(null) } catch (error: Throwable) { runCatching { view.onDestroy() }; throw error }
             }
-
-        val initialLocation = currentLocation ?: lastKnownLocation(activity)
-        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        }.getOrElse {
+            Toast.makeText(activity, resources.getString(R.string.befuck_location_map_failed), Toast.LENGTH_LONG).show()
+            return
+        }
+        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        val root = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0F0F12.toInt())
-            layoutParams = ViewGroup.LayoutParams(-1, -1)
+        val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(ExpressiveUi.BACKGROUND) }
+        val header = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL; setPadding(dp(activity,16), dp(activity,10), dp(activity,16), dp(activity,10))
         }
-
-        val toolbar = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12))
-            setBackgroundColor(0xFF1B1B1F.toInt())
+        header.addView(ExpressiveUi.iconButton(activity, TablerIcon.X, resources.getString(R.string.befuck_close)) { dialog.dismiss() }, LinearLayout.LayoutParams(dp(activity,48), dp(activity,48)))
+        header.addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_location_title), 22f, bold=true), LinearLayout.LayoutParams(0,-2,1f).apply { marginStart=dp(activity,16) })
+        header.addView(ExpressiveUi.iconButton(activity, TablerIcon.SETTINGS_2, resources.getString(R.string.befuck_location_provider)) { showProviderSettings(activity, resources) }, LinearLayout.LayoutParams(dp(activity,48),dp(activity,48)))
+        root.addView(header)
+        val searchRow = LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(dp(activity,16),0,dp(activity,16),dp(activity,12)) }
+        val input = EditText(activity).apply {
+            hint=resources.getString(R.string.befuck_location_search_hint); contentDescription=hint
+            setTextColor(Color.WHITE); setHintTextColor(ExpressiveUi.SECONDARY); textSize=16f
+            setSingleLine(true); imeOptions=EditorInfo.IME_ACTION_SEARCH
+            background=ExpressiveUi.shape(activity,ExpressiveUi.CONTAINER); minimumHeight=dp(activity,52)
+            setPadding(dp(activity,20),dp(activity,12),dp(activity,12),dp(activity,12))
+            filters=arrayOf(android.text.InputFilter.LengthFilter(300))
         }
-        val cancel = TextView(activity).apply {
-            text = resources.getString(R.string.befuck_close)
-            setTextColor(0xFF8E8E93.toInt())
-            textSize = 16f
-            setPadding(dp(activity, 8), dp(activity, 8), dp(activity, 8), dp(activity, 8))
-            setOnClickListener { dialog.dismiss() }
+        searchRow.addView(input, LinearLayout.LayoutParams(0,-2,1f))
+        val searchButton = ExpressiveUi.iconButton(activity, TablerIcon.SEARCH, resources.getString(R.string.befuck_location_search)) {}
+        searchRow.addView(searchButton,LinearLayout.LayoutParams(dp(activity,52),dp(activity,52)).apply { marginStart=dp(activity,8) })
+        root.addView(searchRow)
+        val status=ExpressiveUi.text(activity,resources.getString(R.string.befuck_location_map_loading),13f,ExpressiveUi.SECONDARY).apply {
+            setPadding(dp(activity,20),0,dp(activity,20),dp(activity,10)); accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
-        toolbar.addView(cancel)
-        val title = TextView(activity).apply {
-            text = resources.getString(R.string.befuck_location_title)
-            setTextColor(Color.WHITE)
-            textSize = 17f
-            gravity = Gravity.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        root.addView(status)
+        val results=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(activity,16),0,dp(activity,16),dp(activity,8)) }
+        val resultsScroll=ScrollView(activity).apply { addView(results); visibility=View.GONE }
+        root.addView(resultsScroll,LinearLayout.LayoutParams(-1,dp(activity,176)))
+        val mapContainer=FrameLayout(activity).apply { background=ExpressiveUi.shape(activity); clipToOutline=true }
+        mapContainer.addView(mapView,FrameLayout.LayoutParams(-1,-1))
+        root.addView(mapContainer,LinearLayout.LayoutParams(-1,0,1f).apply { marginStart=dp(activity,8); marginEnd=dp(activity,8) })
+        val bottom=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(activity,16),dp(activity,12),dp(activity,16),dp(activity,12)) }
+        val selected=LinearLayout(activity).apply {
+            gravity=Gravity.CENTER_VERTICAL; background=ExpressiveUi.shape(activity); setPadding(dp(activity,16),dp(activity,12),dp(activity,8),dp(activity,12))
         }
-        toolbar.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
-        val done = TextView(activity).apply {
-            text = resources.getString(R.string.befuck_crop_done)
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(dp(activity, 8), dp(activity, 8), dp(activity, 8), dp(activity, 8))
-            setOnClickListener {
-                val location = sessions[activity]?.selectedLocation
-                dialog.dismiss()
-                onConfirmed(location)
+        val labels=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL }
+        labels.addView(ExpressiveUi.text(activity,resources.getString(R.string.befuck_location_selected_label),12f,ExpressiveUi.SECONDARY))
+        val coordinates=ExpressiveUi.text(activity,"",15f,bold=true).apply { setPadding(0,dp(activity,4),0,0) }
+        labels.addView(coordinates); selected.addView(labels,LinearLayout.LayoutParams(0,-2,1f))
+        val session=MapSession(activity,resources,dialog,mapView,coordinates,status,results,resultsScroll,currentLocation)
+        sessions[activity]=session
+        selected.addView(ExpressiveUi.iconButton(activity,TablerIcon.TRASH,resources.getString(R.string.befuck_location_clear)) {
+            cancelPending(session); session.state.select(null); renderSelection(session); status.text=resources.getString(R.string.befuck_location_map_hint)
+        },LinearLayout.LayoutParams(dp(activity,48),dp(activity,48)))
+        bottom.addView(selected)
+        bottom.addView(ExpressiveUi.button(activity,resources.getString(R.string.befuck_location_confirm),true,TablerIcon.CHECK) {
+            if (isCurrent(session)) { val location=session.state.selection; dialog.dismiss(); onConfirmed(location) }
+        },LinearLayout.LayoutParams(-1,-2).apply { topMargin=dp(activity,10) })
+        root.addView(bottom)
+        mapContainer.addView(ExpressiveUi.iconButton(activity,TablerIcon.CURRENT_LOCATION,resources.getString(R.string.befuck_location_current)) {
+            cancelPending(session); val ticket=session.state.begin()
+            if (hasLocationPermission(activity)) requestCurrentLocation(session,ticket)
+            else {
+                session.permissionTicket=ticket
+                runCatching { activity.requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION),LOCATION_PERMISSION_REQUEST) }
+                    .onFailure { session.permissionTicket=null; status.text=resources.getString(R.string.befuck_location_permission_denied) }
             }
+        },FrameLayout.LayoutParams(dp(activity,56),dp(activity,56),Gravity.END or Gravity.BOTTOM).apply { marginEnd=dp(activity,12); bottomMargin=dp(activity,42) })
+        mapContainer.addView(ExpressiveUi.text(activity,"© OpenStreetMap · OpenFreeMap",11f).apply {
+            background=ExpressiveUi.shape(activity,0xDD000000.toInt(),12f); setPadding(dp(activity,8),dp(activity,6),dp(activity,8),dp(activity,6))
+        },FrameLayout.LayoutParams(-2,-2,Gravity.START or Gravity.BOTTOM).apply { marginStart=dp(activity,8); bottomMargin=dp(activity,8) })
+        val retry=ExpressiveUi.button(activity,resources.getString(R.string.befuck_location_map_retry),icon=TablerIcon.REFRESH) { session.map?.let { loadStyle(session,it) } }.apply { visibility=View.GONE }
+        mapContainer.addView(retry,FrameLayout.LayoutParams(-2,-2,Gravity.CENTER))
+        mapView.addOnDidFailLoadingMapListener {
+            if (isCurrent(session)) { session.source=null; status.text=resources.getString(R.string.befuck_location_map_failed); retry.visibility=View.VISIBLE }
         }
-        toolbar.addView(done)
-        root.addView(toolbar, LinearLayout.LayoutParams(-1, -2))
-
-        val searchRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(activity, 16), dp(activity, 8), dp(activity, 16), dp(activity, 8))
-            setBackgroundColor(0xFF161619.toInt())
-        }
-        val searchInput = EditText(activity).apply {
-            hint = resources.getString(R.string.befuck_location_search_hint)
-            setHintTextColor(0xFF8E8E93.toInt())
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            background = rounded(activity, 0xFF242429.toInt(), 8f)
-            setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
-            maxLines = 1
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
-        }
-        searchRow.addView(searchInput, LinearLayout.LayoutParams(0, -2, 1f))
-        val searchButton = Button(activity).apply {
-            text = "Go"
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            background = rounded(activity, 0xFF3A3A40.toInt(), 8f)
-        }
-        searchRow.addView(searchButton, LinearLayout.LayoutParams(dp(activity, 56), dp(activity, 38)).apply {
-            marginStart = dp(activity, 8)
-        })
-        root.addView(searchRow, LinearLayout.LayoutParams(-1, -2))
-
-        val coordStatus = TextView(activity).apply {
-            setTextColor(0xFF8E8E93.toInt())
-            textSize = 12f
-            setPadding(dp(activity, 16), dp(activity, 4), dp(activity, 16), dp(activity, 4))
-            text = initialLocation?.let(::formatLocation) ?: resources.getString(R.string.befuck_location_none)
-        }
-        root.addView(coordStatus, LinearLayout.LayoutParams(-1, -2))
-
-        val mapView = MapView(mapContext)
-        mapView.onCreate(null)
-        val mapContainer = FrameLayout(activity).apply {
-            clipChildren = false
-            clipToPadding = false
-        }
-        mapContainer.addView(mapView, FrameLayout.LayoutParams(-1, -1))
-        val currentLocationButton = Button(activity).apply {
-            text = "◎"
-            textSize = 23f
-            setTextColor(Color.WHITE)
-            contentDescription = resources.getString(R.string.befuck_location_current)
-            background = rounded(activity, 0xE6222226.toInt(), 12f)
-            setOnClickListener {
-                val session = sessions[activity] ?: return@setOnClickListener
-                session.userInteracted = true
-                if (hasLocationPermission(activity)) requestCurrentLocation(activity, session, onlyIfUnchanged = false)
-                else requestLocationPermission(activity)
-            }
-        }
-        mapContainer.addView(currentLocationButton, FrameLayout.LayoutParams(dp(activity, 48), dp(activity, 48), Gravity.END or Gravity.BOTTOM).apply {
-            marginEnd = dp(activity, 14)
-            bottomMargin = dp(activity, 42)
-        })
-        val attribution = TextView(activity).apply {
-            text = "© OpenStreetMap contributors · OpenFreeMap"
-            textSize = 10f
-            setTextColor(0xFFE8E8EA.toInt())
-            setPadding(dp(activity, 6), dp(activity, 4), dp(activity, 6), dp(activity, 4))
-            background = rounded(activity, 0xB3000000.toInt(), 5f)
-        }
-        mapContainer.addView(attribution, FrameLayout.LayoutParams(-2, -2, Gravity.START or Gravity.BOTTOM).apply {
-            marginStart = dp(activity, 8)
-            bottomMargin = dp(activity, 8)
-        })
-        root.addView(mapContainer, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        val bottomBar = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12))
-            setBackgroundColor(0xFF1B1B1F.toInt())
-        }
-        val clearButton = Button(activity).apply {
-            text = resources.getString(R.string.befuck_location_clear)
-            setTextColor(0xFFFF453A.toInt())
-            textSize = 14f
-            background = rounded(activity, 0xFF29292E.toInt(), 10f)
-            setOnClickListener {
-                val session = sessions[activity] ?: return@setOnClickListener
-                session.userInteracted = true
-                session.selectedLocation = null
-                session.status.text = resources.getString(R.string.befuck_location_none)
-                session.locationSource?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
-            }
-        }
-        bottomBar.addView(clearButton, LinearLayout.LayoutParams(dp(activity, 160), dp(activity, 44)))
-        root.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
-
-        val session = MapSession(activity, dialog, mapView, coordStatus, resources, initialLocation)
-        sessions[activity] = session
-        searchButton.setOnClickListener {
-            search(activity, session, searchInput.text?.toString()?.trim().orEmpty())
-        }
-        searchInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                search(activity, session, searchInput.text?.toString()?.trim().orEmpty())
-                true
-            } else false
-        }
-
+        mapView.addOnDidFinishLoadingStyleListener { if (isCurrent(session)) retry.visibility=View.GONE }
         mapView.getMapAsync { map ->
-            if (sessions[activity] !== session || session.destroyed) return@getMapAsync
-            session.map = map
-            map.setStyle(OPENFREEMAP_STYLE) { style: Style ->
-                if (sessions[activity] !== session || session.destroyed) return@setStyle
-                map.uiSettings.isAttributionEnabled = true
-                map.uiSettings.isCompassEnabled = true
-                val locationSource = GeoJsonSource(
-                    SELECTED_LOCATION_SOURCE,
-                    FeatureCollection.fromFeatures(emptyArray()),
-                )
-                style.addSource(locationSource)
-                style.addImage(SELECTED_LOCATION_ICON, destinationPinBitmap())
-                style.addLayer(
-                    SymbolLayer(SELECTED_LOCATION_LAYER, SELECTED_LOCATION_SOURCE).withProperties(
-                        PropertyFactory.iconImage(SELECTED_LOCATION_ICON),
-                        PropertyFactory.iconAnchor("bottom"),
-                        PropertyFactory.iconAllowOverlap(true),
-                        PropertyFactory.iconIgnorePlacement(true),
-                        PropertyFactory.iconSize(0.8f),
-                    ),
-                )
-                session.locationSource = locationSource
-                map.cameraPosition = org.maplibre.android.camera.CameraPosition.Builder()
-                    .target(initialLocation?.let { LatLng(it.latitude, it.longitude) }
-                        ?: LatLng(DEFAULT_LATITUDE, DEFAULT_LONGITUDE))
-                    .zoom(14.0)
-                    .build()
-                map.addOnMapClickListener { point ->
-                    chooseLocation(session, LocationData(point.latitude, point.longitude), moveCamera = false)
-                    true
-                }
-                session.selectedLocation?.let { updateLocationFeature(session, it) }
+            if (!isCurrent(session)) return@getMapAsync
+            session.map=map
+            map.addOnMapClickListener { point ->
+                if (isCurrent(session)) {
+                    cancelPending(session)
+                    if (session.state.select(LocationData(point.latitude,point.longitude))) { renderSelection(session); status.text=resources.getString(R.string.befuck_location_map_hint) }
+                }; true
             }
+            loadStyle(session,map)
         }
-
-        dialog.setOnShowListener {
-            startMapLifecycle(session)
-            if (currentLocation == null) {
-                if (hasLocationPermission(activity)) requestCurrentLocation(activity, session, onlyIfUnchanged = true)
-                else requestLocationPermission(activity)
+        fun submitSearch() {
+            (activity.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.hideSoftInputFromWindow(input.windowToken,0)
+            input.clearFocus(); search(session,input.text.toString().trim())
+        }
+        searchButton.setOnClickListener { submitSearch() }
+        input.setOnEditorActionListener { _,action,_ -> if (action==EditorInfo.IME_ACTION_SEARCH) { submitSearch(); true } else false }
+        input.addTextChangedListener(object:TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { cancelPending(session); status.text=resources.getString(R.string.befuck_location_map_hint) }
+            override fun afterTextChanged(s:Editable?)=Unit
+        })
+        renderSelection(session)
+        dialog.setOnShowListener { startMapLifecycle(session) }
+        dialog.setOnDismissListener { if (sessions[activity]===session) sessions.remove(activity); destroy(session) }
+        runCatching { ExpressiveUi.showFullScreen(dialog,root) }.onFailure { if (sessions[activity]===session) sessions.remove(activity); destroy(session) }
+    }
+    private fun isCurrent(session:MapSession)=!session.destroyed && sessions[session.activity]===session && !session.activity.isFinishing && !session.activity.isDestroyed
+    private fun loadStyle(session:MapSession,map:MapLibreMap) {
+        session.source=null; session.status.text=session.resources.getString(R.string.befuck_location_map_loading)
+        map.setStyle(STYLE_URL) { style:Style ->
+            if (!isCurrent(session)) return@setStyle
+            map.uiSettings.isAttributionEnabled=true; map.uiSettings.isCompassEnabled=true
+            val source=GeoJsonSource(SOURCE,FeatureCollection.fromFeatures(emptyArray())); style.addSource(source)
+            val pin=Bitmap.createBitmap(64,72,Bitmap.Config.ARGB_8888)
+            Canvas(pin).also { canvas ->
+                canvas.drawCircle(32f,32f,30f,android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK })
+                TablerIconDrawable(TablerIcon.MAP_PIN,48,Color.WHITE).apply { setBounds(8,7,56,55); draw(canvas) }
             }
-        }
-        dialog.setOnDismissListener {
-            if (sessions[activity] === session) sessions.remove(activity)
-            destroyMapSession(session)
-        }
-        dialog.setContentView(root)
-        dialog.show()
-        dialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            window.setDimAmount(0f)
+            style.addImage(ICON,pin); pin.recycle()
+            style.addLayer(SymbolLayer("$SOURCE-layer",SOURCE).withProperties(PropertyFactory.iconImage(ICON),PropertyFactory.iconAnchor("bottom"),PropertyFactory.iconAllowOverlap(true),PropertyFactory.iconIgnorePlacement(true)))
+            session.source=source
+            val target=session.state.selection?:LocationData(35.681236,139.767125)
+            map.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(target.latitude,target.longitude),14.0))
+            renderSelection(session); session.status.text=session.resources.getString(R.string.befuck_location_map_hint)
         }
     }
-
-    @JvmStatic
-    fun onRequestPermissionsResult(activity: Activity, requestCode: Int, grantResults: IntArray): Boolean {
-        if (requestCode != LOCATION_PERMISSION_REQUEST) return false
-        val session = sessions[activity] ?: return true
-        if (hasLocationPermission(activity) || grantResults.any { it == PackageManager.PERMISSION_GRANTED }) {
-            requestCurrentLocation(activity, session, onlyIfUnchanged = true)
+    private fun renderSelection(session:MapSession) {
+        val location=session.state.selection
+        session.coordinates.text=location?.let { session.resources.getString(R.string.befuck_location_coordinates,it.latitude,it.longitude) }?:session.resources.getString(R.string.befuck_location_none)
+        if (location==null) session.source?.setGeoJson(FeatureCollection.fromFeatures(emptyArray()))
+        else session.source?.setGeoJson(Point.fromLngLat(location.longitude,location.latitude))
+    }
+    private fun choose(session:MapSession,location:LocationData) {
+        cancelPending(session); if (!session.state.select(location)) return
+        renderSelection(session); session.map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude,location.longitude),14.0))
+        session.status.text=session.resources.getString(R.string.befuck_location_map_hint)
+    }
+    private fun search(session:MapSession,query:String) {
+        cancelPending(session); if (query.isBlank()) return
+        val ticket=session.state.begin()
+        val language=session.resources.configuration.locales[0]?.toLanguageTag()?:Locale.getDefault().toLanguageTag()
+        val endpoint=session.activity.getSharedPreferences("befuck_map",Context.MODE_PRIVATE).getString(GeocodingRequest.ENDPOINT_PREFERENCE,GeocodingRequest.DEFAULT_ENDPOINT)?:GeocodingRequest.DEFAULT_ENDPOINT
+        val request=GeocodingRequest(query,language,endpoint); session.search=request
+        session.status.text=session.resources.getString(R.string.befuck_location_searching)
+        session.searchFuture=searchExecutor.submit {
+            val result=runCatching { request.execute() }
+            main.post {
+                if (!isCurrent(session)||!session.state.accepts(ticket)) return@post
+                session.search=null; session.searchFuture=null
+                result.onSuccess { places ->
+                    session.results.removeAllViews()
+                    session.status.text=session.resources.getString(if (places.isEmpty()) R.string.befuck_location_search_failed else R.string.befuck_location_search_results)
+                    places.forEach { place -> session.results.addView(ExpressiveUi.row(session.activity,place.label,TablerIcon.MAP_PIN) { choose(session,place.location) },LinearLayout.LayoutParams(-1,-2).apply { bottomMargin=dp(session.activity,4) }) }
+                    session.resultsScroll.visibility=if (places.isEmpty()) View.GONE else View.VISIBLE
+                }.onFailure { session.status.text=session.resources.getString(R.string.befuck_location_search_error) }
+            }
         }
+    }
+    private fun showProviderSettings(activity:Activity,resources:Resources) {
+        val prefs=activity.getSharedPreferences("befuck_map",Context.MODE_PRIVATE)
+        val input=EditText(activity).apply {
+            setText(prefs.getString(GeocodingRequest.ENDPOINT_PREFERENCE,GeocodingRequest.DEFAULT_ENDPOINT)); setTextColor(Color.WHITE)
+            textSize=14f; inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            background=ExpressiveUi.shape(activity,ExpressiveUi.CONTAINER,20f)
+            setPadding(dp(activity,16),dp(activity,12),dp(activity,16),dp(activity,12))
+        }
+        ExpressiveDialogs.form(activity,resources.getString(R.string.befuck_location_provider),resources.getString(R.string.befuck_location_provider_hint),input,
+            resources.getString(R.string.befuck_crop_done),resources.getString(R.string.befuck_close)) {
+            val value=input.text.toString().trim()
+            if (GeocodingRequest.validEndpoint(value)) { prefs.edit().putString(GeocodingRequest.ENDPOINT_PREFERENCE,value).apply(); true }
+            else { input.error=resources.getString(R.string.befuck_location_provider_invalid); false }
+        }
+    }
+    @JvmStatic fun onRequestPermissionsResult(activity:Activity,requestCode:Int,@Suppress("UNUSED_PARAMETER") grantResults:IntArray):Boolean {
+        if (requestCode!=LOCATION_PERMISSION_REQUEST) return false
+        val session=sessions[activity]?:return true
+        val ticket=session.permissionTicket?:return true; session.permissionTicket=null
+        if (!session.state.accepts(ticket)) return true
+        if (hasLocationPermission(activity)) requestCurrentLocation(session,ticket)
+        else session.status.text=session.resources.getString(R.string.befuck_location_permission_denied)
         return true
     }
-
-    @JvmStatic
-    fun onActivityPause(activity: Activity) {
-        sessions[activity]?.let(::pauseMapLifecycle)
-    }
-
-    @JvmStatic
-    fun onActivityResume(activity: Activity) {
-        sessions[activity]?.takeIf { it.dialog.isShowing }?.let(::startMapLifecycle)
-    }
-
-    @JvmStatic
-    fun onActivityDestroy(activity: Activity) {
-        sessions[activity]?.dialog?.dismiss()
-    }
-
-    private fun chooseLocation(session: MapSession, location: LocationData, moveCamera: Boolean) {
-        session.userInteracted = true
-        session.selectedLocation = location
-        session.status.text = formatLocation(location)
-        if (moveCamera) {
-            session.map?.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(location.latitude, location.longitude), 14.0))
-        }
-        updateLocationFeature(session, location)
-    }
-
-    private fun updateLocationFeature(session: MapSession, location: LocationData) {
-        session.locationSource?.setGeoJson(Point.fromLngLat(location.longitude, location.latitude))
-    }
-
-    private fun search(activity: Activity, session: MapSession, query: String) {
-        if (query.isBlank()) return
-        searchExecutor.execute {
-            val result = runCatching {
-                val encoded = URLEncoder.encode(query, Charsets.UTF_8.name())
-                val connection = URL("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=$encoded")
-                    .openConnection() as HttpURLConnection
-                try {
-                    connection.connectTimeout = 10_000
-                    connection.readTimeout = 15_000
-                    connection.setRequestProperty("Accept", "application/json")
-                    connection.setRequestProperty("User-Agent", "${activity.packageName}/BeFakeLocation")
-                    val status = connection.responseCode
-                    if (status !in 200..299) throw IOException("Geocoding returned HTTP $status")
-                    val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    val entries = JSONArray(body)
-                    if (entries.length() == 0) null else {
-                        val first = entries.getJSONObject(0)
-                        LocationData(first.getString("lat").toDouble(), first.getString("lon").toDouble())
-                    }
-                } finally {
-                    connection.disconnect()
-                }
-            }
-            mainHandler.post {
-                if (sessions[activity] !== session || session.destroyed) return@post
-                result.onSuccess { location ->
-                    if (location == null) Toast.makeText(activity, R.string.befuck_location_search_failed, Toast.LENGTH_SHORT).show()
-                    else chooseLocation(session, location, moveCamera = true)
-                }.onFailure {
-                    Toast.makeText(activity, R.string.befuck_location_search_failed, Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    private fun requestLocationPermission(activity: Activity) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            runCatching {
-                activity.requestPermissions(
-                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                    LOCATION_PERMISSION_REQUEST,
-                )
-            }
-        }
-    }
-
-    private fun hasLocationPermission(activity: Activity): Boolean =
-        activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-
+    private fun hasLocationPermission(context:Context)=context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED || context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED
     @SuppressLint("MissingPermission")
-    private fun lastKnownLocation(activity: Activity): LocationData? {
-        if (!hasLocationPermission(activity)) return null
-        val manager = activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-            .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
-            .maxByOrNull { it.time }
-            ?.let { LocationData(it.latitude, it.longitude) }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun requestCurrentLocation(activity: Activity, session: MapSession, onlyIfUnchanged: Boolean) {
-        if (!hasLocationPermission(activity)) {
-            requestLocationPermission(activity)
-            return
+    private fun requestCurrentLocation(session:MapSession,ticket:Long) {
+        if (!isCurrent(session)||!session.state.accepts(ticket)) return
+        val activity=session.activity
+        val manager=activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val provider=manager?.let { service -> listOf(LocationManager.NETWORK_PROVIDER,LocationManager.GPS_PROVIDER).firstOrNull { name -> runCatching { service.isProviderEnabled(name) }.getOrDefault(false) } }
+        if (manager==null||provider==null||!hasLocationPermission(activity)) { session.status.text=session.resources.getString(R.string.befuck_location_unavailable); return }
+        cancelLocation(session); session.status.text=session.resources.getString(R.string.befuck_location_locating)
+        fun complete(location:Location?) {
+            if (!isCurrent(session)||!session.state.accepts(ticket)) return
+            cancelLocation(session)
+            if (location!=null && LocationSelectionState.isValid(LocationData(location.latitude,location.longitude))) choose(session,LocationData(location.latitude,location.longitude))
+            else { session.state.invalidate(); session.status.text=session.resources.getString(R.string.befuck_location_unavailable) }
         }
-        val manager = activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
-        val provider = runCatching {
-            manager.getBestProvider(Criteria().apply { accuracy = Criteria.ACCURACY_COARSE }, true)
-        }.getOrNull() ?: listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-            .firstOrNull { name -> runCatching { manager.isProviderEnabled(name) }.getOrDefault(false) }
-            ?: return
-
-        val applyLocation: (Location?) -> Unit = { location ->
-            if (location != null && sessions[activity] === session && !session.destroyed &&
-                (!onlyIfUnchanged || !session.userInteracted)
-            ) {
-                chooseLocation(session, LocationData(location.latitude, location.longitude), moveCamera = true)
-                if (onlyIfUnchanged) session.userInteracted = false
+        session.locationTimeout=Runnable { complete(null) }.also { main.postDelayed(it,TIMEOUT_MS) }
+        if (Build.VERSION.SDK_INT>=30) {
+            val signal=CancellationSignal(); session.locationCancellation=signal
+            runCatching { manager.getCurrentLocation(provider,signal,activity.mainExecutor) { complete(it) } }.onFailure { complete(null) }
+        } else {
+            val listener=object:LocationListener {
+                override fun onLocationChanged(location:Location) { complete(location) }
+                @Deprecated("Deprecated in Android") override fun onStatusChanged(provider:String?,status:Int,extras:Bundle?)=Unit
+                override fun onProviderEnabled(provider:String)=Unit
+                override fun onProviderDisabled(provider:String) { complete(null) }
             }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                manager.getCurrentLocation(provider, null, activity.mainExecutor) { location -> applyLocation(location) }
-            }.onFailure { applyLocation(lastKnownLocation(activity)?.asLocation()) }
-            return
-        }
-
-        val finished = AtomicBoolean(false)
-        val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
-                if (!finished.compareAndSet(false, true)) return
-                runCatching { manager.removeUpdates(this) }
-                session.locationTimeout?.let(mainHandler::removeCallbacks)
-                session.locationListener = null
-                applyLocation(location)
-            }
-
-            @Deprecated("Deprecated in Android")
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-            override fun onProviderEnabled(provider: String) = Unit
-            override fun onProviderDisabled(provider: String) = Unit
-        }
-        session.locationListener?.let { old -> runCatching { manager.removeUpdates(old) } }
-        session.locationListener = listener
-        val timeout = Runnable {
-            if (finished.compareAndSet(false, true)) {
-                runCatching { manager.removeUpdates(listener) }
-                session.locationListener = null
-                applyLocation(lastKnownLocation(activity)?.asLocation())
-            }
-        }
-        session.locationTimeout = timeout
-        mainHandler.postDelayed(timeout, LOCATION_TIMEOUT_MS)
-        runCatching { manager.requestSingleUpdate(provider, listener, Looper.getMainLooper()) }
-            .onFailure { timeout.run() }
-    }
-
-    private fun LocationData.asLocation(): Location = Location("BeFake").apply {
-        latitude = this@asLocation.latitude
-        longitude = this@asLocation.longitude
-    }
-
-    private fun startMapLifecycle(session: MapSession) {
-        if (session.destroyed) return
-        if (!session.started) {
-            session.mapView.onStart()
-            session.started = true
-        }
-        if (!session.resumed) {
-            session.mapView.onResume()
-            session.resumed = true
+            session.locationListener=listener
+            runCatching { manager.requestSingleUpdate(provider,listener,Looper.getMainLooper()) }.onFailure { complete(null) }
         }
     }
-
-    private fun pauseMapLifecycle(session: MapSession) {
-        if (session.resumed) {
-            session.mapView.onPause()
-            session.resumed = false
-        }
-        if (session.started) {
-            session.mapView.onStop()
-            session.started = false
-        }
+    private fun cancelLocation(session:MapSession) {
+        session.locationTimeout?.let(main::removeCallbacks); session.locationTimeout=null
+        session.locationCancellation?.cancel(); session.locationCancellation=null
+        session.locationListener?.let { listener -> runCatching { (session.activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)?.removeUpdates(listener) } }
+        session.locationListener=null
     }
-
-    private fun destroyMapSession(session: MapSession) {
-        if (session.destroyed) return
-        session.destroyed = true
-        val manager = session.activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        session.locationListener?.let { listener -> runCatching { manager?.removeUpdates(listener) } }
-        session.locationTimeout?.let(mainHandler::removeCallbacks)
-        session.locationListener = null
-        session.locationTimeout = null
+    private fun cancelPending(session:MapSession) {
+        session.state.invalidate(); session.permissionTicket=null; cancelLocation(session)
+        session.search?.cancel(); session.search=null; session.searchFuture?.cancel(true); session.searchFuture=null
+        session.results.removeAllViews(); session.resultsScroll.visibility=View.GONE
+    }
+    @JvmStatic fun onActivityPause(activity:Activity) { sessions[activity]?.let { session ->
+        if (session.permissionTicket==null) cancelPending(session) else cancelLocation(session)
         pauseMapLifecycle(session)
-        session.mapView.onLowMemory()
-        session.mapView.onDestroy()
+    } }
+    @JvmStatic fun onActivityResume(activity:Activity) { sessions[activity]?.takeIf { it.dialog.isShowing }?.let(::startMapLifecycle) }
+    @JvmStatic fun onActivityDestroy(activity:Activity) { sessions[activity]?.dialog?.dismiss() }
+    private fun startMapLifecycle(session:MapSession) {
+        if (session.destroyed) return
+        if (!session.started) { session.mapView.onStart(); session.started=true }
+        if (!session.resumed) { session.mapView.onResume(); session.resumed=true }
     }
-
-    private fun formatLocation(location: LocationData): String =
-        String.format(Locale.US, "Lat: %.5f, Lng: %.5f", location.latitude, location.longitude)
-
-    private fun destinationPinBitmap(): Bitmap = Bitmap.createBitmap(64, 80, Bitmap.Config.ARGB_8888).also { bitmap ->
-        val canvas = Canvas(bitmap)
-        val pin = Path().apply {
-            moveTo(32f, 78f)
-            cubicTo(27f, 68f, 4f, 43f, 4f, 28f)
-            cubicTo(4f, 12f, 16f, 2f, 32f, 2f)
-            cubicTo(48f, 2f, 60f, 12f, 60f, 28f)
-            cubicTo(60f, 43f, 37f, 68f, 32f, 78f)
-            close()
-        }
-        canvas.drawPath(pin, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(230, 55, 65) })
-        canvas.drawCircle(32f, 28f, 11f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+    private fun pauseMapLifecycle(session:MapSession) {
+        if (session.resumed) { session.mapView.onPause(); session.resumed=false }
+        if (session.started) { session.mapView.onStop(); session.started=false }
     }
-
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
-
-    private fun rounded(context: Context, color: Int, radiusDp: Float): GradientDrawable =
-        GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = radiusDp * context.resources.displayMetrics.density
-        }
+    private fun destroy(session:MapSession) {
+        if (session.destroyed) return
+        session.destroyed=true; cancelPending(session); session.state.close(); pauseMapLifecycle(session)
+        runCatching { session.mapView.onDestroy() }; session.source=null; session.map=null
+    }
+    private fun dp(context:Context,value:Int)=ExpressiveUi.dp(context,value)
 }

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Applied only to ModuleUiContext; never setTheme() on the BeReal Activity. -->
+    <style name="Theme.BeFuck.Expressive" parent="Theme.Material3Expressive.Dark.NoActionBar">
+        <item name="colorPrimary">#FFFFFF</item>
+        <item name="colorOnPrimary">#101010</item>
+        <item name="colorPrimaryContainer">#303030</item>
+        <item name="colorOnPrimaryContainer">#FFFFFF</item>
+        <item name="colorSecondary">#D0D0D0</item>
+        <item name="colorOnSecondary">#141414</item>
+        <item name="colorSecondaryContainer">#292929</item>
+        <item name="colorOnSecondaryContainer">#FFFFFF</item>
+        <item name="colorSurface">#141414</item>
+        <item name="colorOnSurface">#FFFFFF</item>
+        <item name="colorSurfaceVariant">#303030</item>
+        <item name="colorOnSurfaceVariant">#B8B8B8</item>
+        <item name="colorSurfaceContainer">#202020</item>
+        <item name="colorSurfaceContainerHigh">#262626</item>
+        <item name="colorSurfaceContainerHighest">#303030</item>
+        <item name="colorOutline">#929292</item>
+        <item name="colorOutlineVariant">#424242</item>
+        <item name="colorControlActivated">#FFFFFF</item>
+        <item name="android:colorAccent">#FFFFFF</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:textColorPrimary">#FFFFFF</item>
+        <item name="android:textColorSecondary">#B8B8B8</item>
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+    </style>
+</resources>

@@ -55,7 +55,7 @@ class VideoCropDialog(
     private val otherAvailableMs: Long?,
     private val onEdited: (VideoEdit) -> Unit,
     onCancelled: () -> Unit,
-) : Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
+) : Dialog(activity, android.R.style.Theme_Black_NoTitleBar) {
     private val main = Handler(Looper.getMainLooper())
     private val frames = Executors.newSingleThreadExecutor()
     @Volatile private var closed = false
@@ -88,9 +88,9 @@ class VideoCropDialog(
         override fun run() {
             val current = player ?: return
             if (!prepared || closed) return
-            val position = current.currentPosition.toLong()
+            val position = runCatching { current.currentPosition.toLong() }.getOrElse { previewFailed(); return }
             if (playing && (position >= endMs || position < startMs)) {
-                current.seekTo(startMs, MediaPlayer.SEEK_CLOSEST)
+                runCatching { current.seekTo(startMs, MediaPlayer.SEEK_CLOSEST) }.onFailure { previewFailed() }
             }
             timeline.playheadMs = position.coerceIn(startMs, endMs)
             if (playing) main.postDelayed(this, 60)
@@ -102,21 +102,23 @@ class VideoCropDialog(
         window?.addFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0F0F12.toInt())
+            setBackgroundColor(ExpressiveUi.BACKGROUND)
         }
         val toolbar = LinearLayout(activity).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
-        toolbar.addView(button(R.string.befuck_close) { dismiss() })
+        toolbar.addView(ExpressiveUi.iconButton(activity, TablerIcon.X, labels.getString(R.string.befuck_close)) { dismiss() }, LinearLayout.LayoutParams(dp(48), dp(48)))
         toolbar.addView(TextView(activity).apply {
             text = labels.getString(R.string.befuck_video_edit_title)
             setTextColor(Color.WHITE)
-            textSize = 17f
+            textSize = 22f
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(0, -2, 1f))
         done.text = labels.getString(R.string.befuck_crop_done)
         styleButton(done)
+        done.setTextColor(Color.BLACK)
+        done.background = ExpressiveUi.ripple(activity, Color.WHITE)
         done.isEnabled = false
         done.setOnClickListener {
             if (!inputValid || poster == null || !crop.hasCropRegion) return@setOnClickListener
@@ -131,7 +133,7 @@ class VideoCropDialog(
             text = labels.getString(R.string.befuck_video_crop_hint)
             textSize = 13f
             gravity = Gravity.CENTER
-            setTextColor(0xFFCCCCCC.toInt())
+            setTextColor(ExpressiveUi.SECONDARY)
             setPadding(dp(16), dp(4), dp(16), dp(8))
         })
 
@@ -148,24 +150,27 @@ class VideoCropDialog(
         val controls = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(12))
-            setBackgroundColor(0xFF1B1B1F.toInt())
+            setBackgroundColor(ExpressiveUi.SURFACE)
         }
         val actions = LinearLayout(activity).apply { gravity = Gravity.CENTER }
         styleButton(play)
+        setIcon(play, TablerIcon.PLAYER_PLAY)
         play.text = labels.getString(R.string.befuck_video_play)
+        setIcon(play, TablerIcon.PLAYER_PLAY)
         play.isEnabled = false
         play.setOnClickListener {
             val current = player ?: return@setOnClickListener
             if (!prepared || !inputValid) return@setOnClickListener
-            if (playing) pausePreview() else {
+            if (playing) pausePreview() else runCatching {
                 playing = true
                 if (current.currentPosition.toLong() !in startMs until endMs) current.seekTo(startMs, MediaPlayer.SEEK_CLOSEST)
                 current.start()
                 crop.drawImage = !videoFrameReady
                 crop.invalidate()
                 play.text = labels.getString(R.string.befuck_video_pause)
+                setIcon(play, TablerIcon.PLAYER_PAUSE)
                 main.post(ticker)
-            }
+            }.onFailure { previewFailed() }
         }
         actions.addView(play, LinearLayout.LayoutParams(0, -2, 1f))
         actions.addView(button(R.string.befuck_crop_rotate) { crop.rotate90() }, LinearLayout.LayoutParams(0, -2, 1f))
@@ -181,7 +186,7 @@ class VideoCropDialog(
         controls.addView(timeline, LinearLayout.LayoutParams(-1, dp(64)))
         controls.addView(TextView(activity).apply {
             text = labels.getString(R.string.befuck_video_trim_hint)
-            setTextColor(0xFFCCCCCC.toInt())
+            setTextColor(ExpressiveUi.SECONDARY)
             textSize = 12f
             setPadding(0, dp(4), 0, dp(8))
         })
@@ -197,7 +202,7 @@ class VideoCropDialog(
             val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
             column.addView(TextView(activity).apply {
                 text = labels.getString(label)
-                setTextColor(0xFFCCCCCC.toInt())
+                setTextColor(ExpressiveUi.SECONDARY)
                 labelFor = input.id
             })
             column.addView(input, LinearLayout.LayoutParams(-1, -2))
@@ -245,43 +250,44 @@ class VideoCropDialog(
         texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(value: SurfaceTexture, width: Int, height: Int) {
                 if (closed) return
+                releasePlayer()
                 surface = Surface(value)
+                val current = MediaPlayer()
+                player = current
                 videoFrameReady = false
                 crop.drawImage = true
-                player = MediaPlayer().also { current ->
-                    current.setOnPreparedListener {
-                        if (closed) return@setOnPreparedListener
+                current.setOnPreparedListener {
+                    if (closed || player !== current) return@setOnPreparedListener
+                    runCatching {
                         prepared = true
-                        play.isEnabled = true
-                        done.isEnabled = inputValid && poster != null
+                        play.isEnabled = inputValid
+                        done.isEnabled = inputValid && poster != null && crop.hasCropRegion
                         current.seekTo(startMs, MediaPlayer.SEEK_CLOSEST)
                         texture.setTransform(crop.videoMatrix(texture.width, texture.height))
-                    }
-                    current.setOnSeekCompleteListener { main.post(ticker) }
-                    current.setOnInfoListener { _, what, _ ->
-                        if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
-                            videoFrameReady = true
-                            if (playing) { crop.drawImage = false; crop.invalidate() }
-                        }
-                        false
-                    }
-                    current.setOnCompletionListener {
-                        if (playing) { current.seekTo(startMs, MediaPlayer.SEEK_CLOSEST); current.start() }
-                    }
-                    current.setOnErrorListener { _, _, _ ->
-                        pausePreview()
-                        prepared = false
-                        play.isEnabled = false
-                        done.isEnabled = false
-                        summary.text = labels.getString(R.string.befuck_video_prepare_error)
-                        true
-                    }
-                    runCatching {
-                        current.setDataSource(source.absolutePath)
-                        current.setSurface(surface)
-                        current.prepareAsync()
-                    }.onFailure { summary.text = labels.getString(R.string.befuck_video_prepare_error) }
+                    }.onFailure { previewFailed() }
                 }
+                current.setOnSeekCompleteListener { if (!closed && player === current) main.post(ticker) }
+                current.setOnInfoListener { _, what, _ ->
+                    if (!closed && player === current && what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                        videoFrameReady = true
+                        if (playing) { crop.drawImage = false; crop.invalidate() }
+                    }
+                    false
+                }
+                current.setOnCompletionListener {
+                    if (!closed && player === current && playing) runCatching {
+                        current.seekTo(startMs, MediaPlayer.SEEK_CLOSEST); current.start()
+                    }.onFailure { previewFailed() }
+                }
+                current.setOnErrorListener { _, _, _ ->
+                    if (!closed && player === current) previewFailed()
+                    true
+                }
+                runCatching {
+                    current.setDataSource(source.absolutePath)
+                    current.setSurface(surface)
+                    current.prepareAsync()
+                }.onFailure { if (player === current) previewFailed() }
             }
             override fun onSurfaceTextureSizeChanged(value: SurfaceTexture, width: Int, height: Int) {
                 texture.setTransform(crop.videoMatrix(width, height))
@@ -300,6 +306,7 @@ class VideoCropDialog(
             main.removeCallbacks(ticker)
             releasePlayer()
             frames.shutdownNow()
+            crop.clearImage()
             poster?.recycle()
             poster = null
             timeline.releaseFrames()
@@ -332,20 +339,28 @@ class VideoCropDialog(
         crop.invalidate()
         if (wasPlaying && !closed) runCatching { player?.currentPosition?.toLong() }.getOrNull()?.let(::requestPoster)
         play.text = labels.getString(R.string.befuck_video_play)
+        setIcon(play, TablerIcon.PLAYER_PLAY)
     }
 
     private fun releasePlayer() {
-        pausePreview()
-        prepared = false
-        player?.release()
-        player = null
-        surface?.release()
-        surface = null
+        playing = false; prepared = false; videoFrameReady = false
+        main.removeCallbacks(ticker)
+        val previous = player; player = null
+        runCatching { previous?.release() }
+        runCatching { surface?.release() }; surface = null
+        play.isEnabled = false; done.isEnabled = false
+        crop.drawImage = true; crop.invalidate()
+        play.text = labels.getString(R.string.befuck_video_play)
+        setIcon(play, TablerIcon.PLAYER_PLAY)
+    }
+    private fun previewFailed() {
+        releasePlayer()
+        if (!closed) summary.text = labels.getString(R.string.befuck_video_prepare_error)
     }
 
     private fun seekPreview(position: Long) {
         pausePreview()
-        if (prepared) player?.seekTo(position.coerceIn(0, sourceDurationMs - 1), MediaPlayer.SEEK_CLOSEST)
+        if (prepared) runCatching { player?.seekTo(position.coerceIn(0, sourceDurationMs - 1), MediaPlayer.SEEK_CLOSEST) }.onFailure { previewFailed() }
         timeline.playheadMs = position
         requestPoster(position)
     }
@@ -365,6 +380,8 @@ class VideoCropDialog(
     }
 
     private fun loadFrames() {
+        if (closed) return
+        val request = posterRequest.incrementAndGet()
         frames.execute {
             val retriever = MediaMetadataRetriever()
             try {
@@ -373,10 +390,12 @@ class VideoCropDialog(
                 val bitmap = requireNotNull(retriever.getScaledFrameAtTime(startMs * 1000, MediaMetadataRetriever.OPTION_CLOSEST,
                     (sourceWidth * scale).toInt().coerceAtLeast(1), (sourceHeight * scale).toInt().coerceAtLeast(1)))
                 main.post {
-                    if (closed) bitmap.recycle() else {
+                    if (closed || request != posterRequest.get()) bitmap.recycle() else {
+                        val previous = poster
                         poster = bitmap
                         crop.setImageBitmap(bitmap)
                         crop.setCropRegion(initialEdit.crop)
+                        previous?.recycle()
                         done.isEnabled = inputValid && prepared
                     }
                 }
@@ -390,7 +409,7 @@ class VideoCropDialog(
             } catch (failure: Throwable) {
                 android.util.Log.w("BeFuck/Video", "Could not load video editor frames", failure)
                 main.post { if (!closed && poster == null) summary.text = labels.getString(R.string.befuck_video_prepare_error) }
-            } finally { retriever.release() }
+            } finally { runCatching { retriever.release() } }
         }
     }
 
@@ -418,26 +437,26 @@ class VideoCropDialog(
                 }
             } catch (failure: Throwable) {
                 android.util.Log.w("BeFuck/Video", "Could not seek video preview", failure)
-            } finally { retriever.release() }
+            } finally { runCatching { retriever.release() } }
         }
     }
 
-    private fun button(label: Int, action: () -> Unit) = Button(context).apply {
-        text = labels.getString(label)
-        styleButton(this)
-        setOnClickListener { action() }
+    private fun button(label: Int, action: () -> Unit) = ExpressiveUi.button(context, labels.getString(label),
+        icon = when (label) { R.string.befuck_crop_rotate -> TablerIcon.ROTATE_CLOCKWISE; R.string.befuck_crop_reset -> TablerIcon.REFRESH; else -> TablerIcon.CHECK }, action = action).apply {
+            textSize = 13f; setPadding(dp(6), dp(12), dp(6), dp(12))
+        }
+    private fun setIcon(button: Button, icon: TablerIcon) {
+        val drawable = TablerIconDrawable(icon, dp(20), Color.WHITE)
+        drawable.setBounds(0, 0, dp(20), dp(20))
+        button.setCompoundDrawablesRelative(null, drawable, null, null)
+        button.compoundDrawablePadding = dp(4)
     }
-
     private fun styleButton(button: Button) {
-        button.setTextColor(Color.WHITE)
-        button.textSize = 14f
-        button.isAllCaps = false
-        button.minWidth = dp(88)
-        button.minHeight = dp(48)
+        button.setTextColor(Color.WHITE); button.textSize = 13f; button.isAllCaps = false
+        button.minWidth = 0; button.minimumWidth = 0; button.minHeight = dp(52); button.minimumHeight = dp(52)
         button.gravity = Gravity.CENTER
-        button.setPadding(dp(16), dp(8), dp(16), dp(8))
-        button.includeFontPadding = false
-        button.background = GradientDrawable().apply { setColor(0xFF29292E.toInt()); cornerRadius = dp(12).toFloat() }
+        button.setPadding(dp(8), dp(12), dp(8), dp(12))
+        button.background = ExpressiveUi.ripple(context)
     }
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
