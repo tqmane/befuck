@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_archive_title">バックアップと統合</string>
+    <string name="befuck_archive_account">ログイン中のアカウントUID</string>
+    <string name="befuck_archive_account_unavailable">ログイン中のアカウントを安全に識別できていません。BeRealに戻ってフィードを更新し、この画面を開き直してください。投稿者からログインアカウントを推測することはありません。</string>
+    <string name="befuck_archive_explanation">保存した投稿のURL・投稿者・日時などをSQLiteファイルに書き出します。同じアカウントの別端末で作ったバックアップを取り込むと、この端末のデータに統合できます。全置換はしません。</string>
+    <string name="befuck_archive_export">SQLiteにバックアップ</string>
+    <string name="befuck_archive_import">バックアップを取り込んで統合</string>
+    <string name="befuck_archive_associate">未分類の旧データを関連付け</string>
+    <string name="befuck_archive_associate_warning">%1$d件の旧データ・未分類データには閲覧アカウント情報がありません。投稿者から閲覧アカウントは判定できません。アカウント %2$s で保存したものと確認したうえで関連付けてください。同じ投稿IDは統合し、旧形式の元テーブルは端末内に残します。</string>
+    <string name="befuck_archive_associate_confirm">このアカウントに関連付ける</string>
+    <string name="befuck_archive_privacy">バックアップは暗号化されません。投稿者名・投稿日時・キャプション・署名付きの完全なメディアURLが含まれます。公開・第三者への共有に注意してください。ログインのパスワードやAuthorizationヘッダー、画像・動画本体、設定・診断ログは含めません。</string>
+    <string name="befuck_archive_choose_destination">保存先を選ぶ</string>
+    <string name="befuck_archive_limitations">移せるのは投稿情報とURLで、画像・動画本体ではありません。期限切れURLは復活しません。異なるURL候補と元の観測日時は保持します。ファイルによる手動統合であり、自動同期ではありません。</string>
+    <string name="befuck_archive_counts">このアカウント：%1$d件 · 未分類：%2$d件</string>
+    <string name="befuck_archive_working">保存データを処理中…</string>
+    <string name="befuck_archive_exported">SQLiteバックアップを保存しました（%1$d KiB）。</string>
+    <string name="befuck_archive_cancelled">キャンセルしました。保存データは変更していません。</string>
+    <string name="befuck_archive_picker_failed">ファイル選択画面を開けませんでした。</string>
+    <string name="befuck_archive_preview_ready">バックアップを検証しました。統合を確認してください。</string>
+    <string name="befuck_archive_confirm_title">このバックアップを統合しますか？</string>
+    <string name="befuck_archive_confirm_message">アカウント：%1$s\n\n新規投稿：%2$d件\n更新する投稿：%3$d件\n変更なし：%4$d件\n追加URL：%5$d件\n\n既存投稿は削除しません。件数は現時点の見込みで、統合時に最新DBと再照合して一括反映します。投稿者UIDの矛盾がある場合は全体を中止します。</string>
+    <string name="befuck_archive_merge">削除せず統合する</string>
+    <string name="befuck_archive_merged">統合しました：新規%1$d件・更新%2$d件・変更なし%3$d件・追加URL%4$d件。</string>
+    <string name="befuck_archive_wrong_account">別のアカウントのバックアップ、または処理中にアカウントが変わりました。統合していません。</string>
+    <string name="befuck_archive_author_conflict">同じ投稿IDに異なる投稿者UIDが記録されています。統合全体を中止し、既存データは変更していません。</string>
+    <string name="befuck_archive_version">対応していないバックアップ形式・スキーマです。アプリを更新するか、対応形式で書き出してください。</string>
+    <string name="befuck_archive_clock">観測日時が不正、または未来になっています。書き出し元の端末の時計を確認してください。</string>
+    <string name="befuck_archive_limit">上限を超えています：64 MiB・投稿50,000件・URL300,000件・1投稿のURL候補1,024件までです。</string>
+    <string name="befuck_archive_invalid">有効で完全なBeFuckのSQLiteバックアップではありません。統合していません。</string>
+    <string name="befuck_archive_failed">処理を完了できませんでした。既存の保存データは保持しています。空き容量・ファイルへのアクセスを確認して再試行してください。書き出し中断時は保存先に不完全なファイルが残る場合があります。</string>
+    <string name="befuck_archive_unassigned_notice">未分類の旧データです。「バックアップと統合」からログイン中のアカウントに関連付けてから、端末間で統合してください。</string>
+</resources>

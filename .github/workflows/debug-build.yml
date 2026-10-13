@@ -129,3 +129,11 @@ jobs:
           archive: false
           retention-days: 14
           if-no-files-found: ignore
+      - name: Upload backup screen render
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          path: app/build/reports/ui/archive-backup.png
+          archive: false
+          retention-days: 14
+          if-no-files-found: ignore

@@ -63,3 +63,7 @@ Output APK: `app/build/outputs/apk/debug/app-debug.apk`
 ## License
 
 Copyright 2026 **tqmane**. [PolyForm Noncommercial 1.0.0](LICENSE).
+
+## Saved-post backup and merge
+
+Saved post URLs, author UID/name, posting/capture times and captions are stored in relational SQLite columns. Open **Saved posts → Backup and merge** to export a `.sqlite` file or preview and merge a backup from another device using the same account. Duplicate post IDs are merged without deleting existing posts; full URL alternatives and per-field observation times are retained. Old unassigned data requires explicit account association. Backups are unencrypted and contain signed URLs, not photo/video files or login credentials. This is manual file transfer, not background synchronization. See [backup details and limits](docs/archive-backup.md).

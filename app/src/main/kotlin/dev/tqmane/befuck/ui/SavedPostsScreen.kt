@@ -54,12 +54,14 @@ internal object SavedPostsScreen {
         val uiContext = ModuleUiContext(activity, resources)
         val locale = resources.configuration.locales[0] ?: Locale.getDefault()
         val model = SavedCalendarModel(LocalDate.now(clock))
+        val accountScope = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot()
         val largeText = activity.resources.configuration.fontScale >= 1.5f
         var closed = false
         var generation = 0
         var task: FutureTask<Unit>? = null
         var visibleLimit = PAGE
         var hasLoaded = false
+        var unassignedCount = 0
         var loadFailed = false
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         val header = LinearLayout(activity).apply {
@@ -95,6 +97,12 @@ internal object SavedPostsScreen {
         tabs.addView(calendarTab, if (largeText) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f))
         tabs.addView(allTab, (if (largeText) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)).apply { if (largeText) topMargin = dp(activity, 8) else marginStart = dp(activity, 8) })
         controls.addView(tabs, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 8) })
+        val backupButton = action(uiContext, resources.getString(R.string.befuck_archive_title), false, TablerIcon.ARROWS_EXCHANGE) {}.apply { tag = "archive-backup-entry" }
+        controls.addView(backupButton, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 8) })
+        val legacyNotice = ExpressiveUi.text(activity, resources.getString(R.string.befuck_archive_unassigned_notice), 13f, ExpressiveUi.SECONDARY).apply {
+            visibility = View.GONE; setPadding(dp(activity,4),dp(activity,8),dp(activity,4),0)
+        }
+        controls.addView(legacyNotice)
         root.addView(controls)
         val scroll = ScrollView(activity)
         val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(activity, 16), dp(activity, 4), dp(activity, 16), dp(activity, 24)) }
@@ -110,7 +118,7 @@ internal object SavedPostsScreen {
         column.addView(dayBar)
         val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; tag = "saved-day-posts" }
         column.addView(list)
-        fun active() = !closed && !activity.isDestroyed && !activity.isFinishing
+        fun active() = !closed && !activity.isDestroyed && !activity.isFinishing && dev.tqmane.befuck.archive.ArchiveAccounts.snapshot() == accountScope
         fun tab(button: MaterialButton, selected: Boolean) {
             button.isSelected = selected
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(if (selected) Color.WHITE else ExpressiveUi.CONTAINER)
@@ -140,6 +148,7 @@ internal object SavedPostsScreen {
             dayTitle.text = if (model.mode == SavedCalendarModel.Mode.ALL) resources.getString(R.string.befuck_cache_all_dates)
                 else model.selectedDate.format(DateTimeFormatter.ofPattern(if (locale.language == "ja") "yyyy/M/d（E）" else "EEE, MMM d, yyyy", locale))
             count.text = resources.getString(R.string.befuck_calendar_count, posts.size)
+            legacyNotice.visibility = if (unassignedCount > 0) View.VISIBLE else View.GONE
             if (hasLoaded) status.text = resources.getString(R.string.befuck_download_cached_count, model.matching.size)
             if (!hasLoaded) {
                 count.text = ""
@@ -227,7 +236,7 @@ internal object SavedPostsScreen {
             val ticket = ++generation
             status.text = resources.getString(R.string.befuck_saved_loading)
             task = FutureTask<Unit> {
-                val result = runCatching { loadPosts() }
+                val result = runCatching { loadPosts().also { unassignedCount = dev.tqmane.befuck.archive.ArchiveRepository.unassignedCount() } }
                 main.post {
                     if (!active() || ticket != generation) return@post
                     result.onSuccess { posts ->
@@ -238,6 +247,7 @@ internal object SavedPostsScreen {
             }.also { future -> runCatching { execute.execute(future) }.onFailure { loadFailed = true; renderPosts(); status.text = resources.getString(R.string.befuck_saved_load_failed) } }
         }
         refresh.setOnClickListener { load() }
+        backupButton.setOnClickListener { ArchiveBackupUi.show(activity, resources) { if (active()) load() } }
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { model.query = s?.toString().orEmpty(); main.removeCallbacks(renderLater); main.postDelayed(renderLater, 150) }
@@ -250,6 +260,11 @@ internal object SavedPostsScreen {
                 closed = true; ++generation; task?.cancel(true); main.removeCallbacks(renderLater)
             }
         }
+        val unsubscribeAccount = dev.tqmane.befuck.archive.ArchiveAccounts.subscribe {
+            main.post { if (dev.tqmane.befuck.archive.ArchiveAccounts.snapshot() != accountScope) dialog.dismiss() }
+        }
+        val previousClose = closeNow
+        closeNow = { previousClose(); unsubscribeAccount() }
         dialog.setOnDismissListener { closeNow() }
         BoundedScreen.show(activity, dialog, root)
         if (dialog.isShowing) { renderPosts(); load() }

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_archive_title">Backup and merge</string>
+    <string name="befuck_archive_account">Current account UID</string>
+    <string name="befuck_archive_account_unavailable">The current account has not been identified safely. Return to BeReal, refresh the feed and reopen this screen. Backup identity is never inferred from a post author.</string>
+    <string name="befuck_archive_explanation">Export saved post URLs and metadata as a SQLite file. Import a backup from another device using the same account to merge it into this device. Existing posts are not replaced wholesale.</string>
+    <string name="befuck_archive_export">Export SQLite backup</string>
+    <string name="befuck_archive_import">Import and merge backup</string>
+    <string name="befuck_archive_associate">Associate unassigned old data</string>
+    <string name="befuck_archive_associate_warning">%1$d old or unassigned records have no viewer account identity. Their authors do not identify which account saved them. Associate them with account %2$s only after checking they belong to this account. Matching post IDs are merged; the original legacy table is retained locally.</string>
+    <string name="befuck_archive_associate_confirm">Associate with this account</string>
+    <string name="befuck_archive_privacy">The file is not encrypted. It contains usernames, post dates, captions and full media URLs, including URL signatures. Do not share it publicly. Login passwords and authorization headers, media files, app settings and diagnostic logs are not included.</string>
+    <string name="befuck_archive_choose_destination">Choose destination</string>
+    <string name="befuck_archive_limitations">This transfers the local URL index, not photo/video files. A backup cannot renew expired URLs. URL alternatives and original observation dates are preserved. This is manual file-based merging, not automatic device sync.</string>
+    <string name="befuck_archive_counts">%1$d posts for this account · %2$d unassigned records</string>
+    <string name="befuck_archive_working">Processing the archive…</string>
+    <string name="befuck_archive_exported">SQLite backup exported (%1$d KiB).</string>
+    <string name="befuck_archive_cancelled">Cancelled. No archive changes were made.</string>
+    <string name="befuck_archive_picker_failed">The document picker could not be opened.</string>
+    <string name="befuck_archive_preview_ready">Backup validated. Confirm the merge to apply it.</string>
+    <string name="befuck_archive_confirm_title">Merge this backup?</string>
+    <string name="befuck_archive_confirm_message">Account: %1$s\n\nNew posts: %2$d\nUpdated posts: %3$d\nUnchanged: %4$d\nAdditional URLs: %5$d\n\nNo existing post is deleted. These counts are a preview; the merge rechecks the current database atomically. Conflicting author IDs abort the whole import.</string>
+    <string name="befuck_archive_merge">Merge without deleting</string>
+    <string name="befuck_archive_merged">Merge complete: %1$d added, %2$d updated, %3$d unchanged, %4$d additional URLs.</string>
+    <string name="befuck_archive_wrong_account">The backup belongs to another account, or the active account changed. Nothing was merged.</string>
+    <string name="befuck_archive_author_conflict">The same post ID has conflicting author UIDs. The entire merge was cancelled; no existing records were changed.</string>
+    <string name="befuck_archive_version">Unsupported backup format or schema. Update the app or export a compatible backup.</string>
+    <string name="befuck_archive_clock">The archive has invalid or future observation times. Check the source device clock before exporting again.</string>
+    <string name="befuck_archive_limit">Backup exceeds supported limits: 64 MiB, 50,000 posts, 300,000 URLs or 1,024 URL alternatives per post.</string>
+    <string name="befuck_archive_invalid">This is not a valid, complete BeFuck SQLite backup. Nothing was merged.</string>
+    <string name="befuck_archive_failed">The operation could not finish. Existing archive data is retained. Check storage and file access, then retry. An interrupted export may leave an incomplete destination file.</string>
+    <string name="befuck_archive_unassigned_notice">Unassigned old data. Open Backup and merge to associate it with the current account before combining devices.</string>
+</resources>
