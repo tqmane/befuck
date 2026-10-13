@@ -1,0 +1,80 @@
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:preDebugUnitTestBuild
+> Task :app:javaPreCompileDebugUnitTest
+> Task :app:packageDebugUnitTestForUnitTest
+> Task :app:processDebugUnitTestManifest
+> Task :app:preDebugAndroidTestBuild SKIPPED
+> Task :app:generateDebugUnitTestConfig
+> Task :app:extractProguardFiles
+> Task :app:compileDebugKotlin
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/runtime/SmsAuthCompatibility.kt:49:19 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'Any?'.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/symbols/KnownMappings3970.kt:210:13 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'Array<(out) CapturedType(*)!>?'.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/BeFakeMapLibreLocationDialog.kt:299:35 'fun requestSingleUpdate(p0: String, p1: LocationListener, p2: Looper?): Unit' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/BeFuckGalleryUi.kt:502:23 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/BeFuckGalleryUi.kt:530:30 'fun recycle(): Unit' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/ExpressiveDialogs.kt:49:64 'static field SOFT_INPUT_ADJUST_RESIZE: Int' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/VideoCropDialog.kt:318:68 'static field SOFT_INPUT_ADJUST_RESIZE: Int' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/VideoCropDialog.kt:320:28 'fun setDecorFitsSystemWindows(p0: Boolean): Unit' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+Note: <workspace>/app/src/main/java/dev/tqmane/befuck/BeRealModule.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :app:processDebugJavaRes
+> Task :app:mergeDebugJavaResource
+> Task :app:dexBuilderDebug
+> Task :app:mergeProjectDexDebug
+> Task :app:compileChecks
+
+> Task :app:checkModule
+PASS: SMS host boundaries/signatures, stale text-field focus mapping, paused/nested Compose scopes, version guards, authentication host boundaries, timestamps, MP4 sample preservation, malformed atoms, repair inference, selected RealMoji snapshot
+
+> Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+> Task :app:bundleDebugClassesToCompileJar
+> Task :app:generateDebugLintReportModel
+> Task :app:generateDebugAndroidTestLintModel
+> Task :app:generateDebugUnitTestLintModel
+
+> Task :app:compileDebugUnitTestKotlin
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/archive/ArchiveStoreTest.kt:13:8 'annotation class SQLiteMode : Any, Annotation' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/archive/ArchiveStoreTest.kt:19:2 'annotation class SQLiteMode : Any, Annotation' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/archive/ArchiveStoreTest.kt:19:13 'annotation class SQLiteMode : Any, Annotation' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/archive/ArchiveStoreTest.kt:19:24 'enum class Mode : Enum<SQLiteMode.Mode!>' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/ArchiveBackupUiTest.kt:34:8 'annotation class SQLiteMode : Any, Annotation' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/ArchiveBackupUiTest.kt:44:2 'annotation class SQLiteMode : Any, Annotation' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/ArchiveBackupUiTest.kt:44:13 'annotation class SQLiteMode : Any, Annotation' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/ArchiveBackupUiTest.kt:44:24 'enum class Mode : Enum<SQLiteMode.Mode!>' is deprecated. Deprecated in Java.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/ArchiveBackupUiTest.kt:157:72 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'File?'.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/CalendarScreenTest.kt:53:61 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'File?'.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/MediaAndUiTest.kt:106:61 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'File?'.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/SavedPreviewUiTest.kt:49:61 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'File?'.
+w: file://<workspace>/app/src/test/kotlin/dev/tqmane/befuck/ui/ScreenLifecycleTest.kt:106:120 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver of type 'File?'.
+
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+> Task :app:lintAnalyzeDebugAndroidTest
+> Task :app:lintAnalyzeDebug
+> Task :app:lintAnalyzeDebugUnitTest
+> Task :app:testDebugUnitTest
+
+> Task :app:lintReportDebug
+Wrote HTML report to file://<workspace>/app/build/reports/lint-results-debug.html
+
+> Task :app:lintDebug
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_4-1791888370843.json
+
+[Incubating] Problems report is available at: file://<workspace>/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.8.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 2m 18s
+59 actionable tasks: 59 executed
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.8.0/userguide/configuration_cache_enabling.html
