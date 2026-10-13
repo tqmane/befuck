@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_preview_open">View %1$s — %2$s full screen</string>
+    <string name="befuck_preview_loading">Loading preview…</string>
+    <string name="befuck_preview_missing">No media</string>
+    <string name="befuck_preview_failed_small">Preview unavailable\nTap to open</string>
+    <string name="befuck_preview_failed">Could not load preview. Check your connection or refresh the feed if the URL has expired. Saving is still available.</string>
+    <string name="befuck_preview_retry">Retry preview</string>
+    <string name="befuck_preview_save">Save</string>
+    <string name="befuck_preview_save_current">Save this camera</string>
+    <string name="befuck_preview_previous">Previous camera</string>
+    <string name="befuck_preview_next">Next camera</string>
+    <string name="befuck_preview_position">%1$d / %2$d · %3$s</string>
+    <string name="befuck_preview_swipe_hint">Swipe left or right to switch cameras</string>
+    <string name="befuck_preview_photo_hint">Swipe to switch cameras · Pinch or double-tap to zoom</string>
+    <string name="befuck_preview_video_hint">Video preview · Press Play to load and play</string>
+    <string name="befuck_preview_video_loading">Loading video for playback…</string>
+    <string name="befuck_preview_video_failed">Video playback is unavailable. Retry Play or save the original video.</string>
+    <string name="befuck_preview_seek">Video position</string>
+    <string name="befuck_preview_audio_unavailable">Audio is in use by another app. Press Play to try again.</string>
+    <string name="befuck_preview_network_notice">Visible previews load from saved URLs. Only URL metadata is included in backups.</string>
+</resources>
