@@ -202,7 +202,9 @@ internal class SavedPostViewer(private val activity: Activity, private val label
         if (videoRequest != null) return
         file?.let { texture.visibility = View.VISIBLE; startPlayer(); return }
         val page = pages.current ?: return
-        val ticket = generation
+        // A slow/failed poster must not cover playback with a retry overlay or overwrite its status.
+        imageRequest?.cancel(); imageRequest = null
+        val ticket = ++generation
         play.isEnabled = false; retry.visibility = View.GONE
         state.text = labels.getString(R.string.befuck_preview_video_loading)
         videoRequest = source.video(page.media) { result ->
