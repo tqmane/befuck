@@ -1,0 +1,131 @@
+{
+  "commit": "8365993f1f51a9e0b7d2c7d8375432adcee8dd45",
+  "suites": [
+    {
+      "name": "dev.tqmane.befuck.archive.ArchiveMergeTest",
+      "tests": "11",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.CalendarDayPixelsTest",
+      "tests": "2",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.PreviewTransportTest",
+      "tests": "6",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.archive.ArchiveWriteBufferTest",
+      "tests": "3",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.SavedPreviewUiTest",
+      "tests": "9",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.CalendarScreenTest",
+      "tests": "7",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.SavedCalendarModelTest",
+      "tests": "11",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.TablerTintTest",
+      "tests": "4",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.ArchiveBackupUiTest",
+      "tests": "7",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.MediaAndUiTest",
+      "tests": "7",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.archive.ArchiveIoAndAccountTest",
+      "tests": "3",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.ScreenLifecycleTest",
+      "tests": "4",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.archive.ArchiveStoreTest",
+      "tests": "36",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.download.CacheJsonTest",
+      "tests": "3",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.LocationSelectionStateTest",
+      "tests": "5",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.download.MediaTransferTest",
+      "tests": "5",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.download.FeedDownloadScopeTest",
+      "tests": "1",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    },
+    {
+      "name": "dev.tqmane.befuck.ui.PreviewModelTest",
+      "tests": "5",
+      "failures": "0",
+      "skipped": "0",
+      "errors": []
+    }
+  ]
+}
