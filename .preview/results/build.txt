@@ -1,0 +1,80 @@
+CalendarScreenTest > selectingDateRendersOnlyThatDaysPostsBelowCalendarAndAllRetainsUnknown FAILED
+    java.lang.AssertionError at CalendarScreenTest.kt:71
+
+SavedPreviewUiTest > staleImageAfterSwipeOrCloseCannotReplaceCurrentCamera FAILED
+    java.lang.AssertionError at SavedPreviewUiTest.kt:88
+
+126 tests completed, 4 failed
+
+> Task :app:testDebugUnitTest FAILED
+
+> Task :app:lintReportDebug
+Wrote HTML report to file://<workspace>/app/build/reports/lint-results-debug.html
+Lint found 1 error and 153 warnings. First failure:
+<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/PreviewGestures.kt:47: Error: This custom view should extend androidx.appcompat.widget.AppCompatImageView instead [AppCompatCustomView]
+internal class PreviewPhotoView(context: Context) : ImageView(context) {
+                                                    ~~~~~~~~~
+
+
+> Task :app:lintDebug FAILED
+Lint found 1 error, 153 warnings. First failure:
+
+<workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/PreviewGestures.kt:47: Error: This custom view should extend androidx.appcompat.widget.AppCompatImageView instead [AppCompatCustomView]
+
+The full lint text report is located at:
+  <workspace>/app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run_4-1791887324205.json
+
+[Incubating] Problems report is available at: file://<workspace>/build/reports/problems/problems-report.html
+
+FAILURE: Build completed with 2 failures.
+
+1: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':app:testDebugUnitTest'.
+> There were failing tests. See the report at: file://<workspace>/app/build/reports/tests/testDebugUnitTest/index.html
+
+* Try:
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* What went wrong:
+Execution failed for task ':app:lintDebug' (registered by plugin 'com.android.internal.application').
+> Lint found errors in the project; aborting build.
+  
+  Fix the issues identified by lint, or create a baseline to see only new errors.
+  To create a baseline, run `gradlew updateLintBaseline` after adding the following to the module's build.gradle file:
+  ```
+  android {
+      lint {
+          baseline = file("lint-baseline.xml")
+      }
+  }
+  ```
+  For more details, see https://developer.android.com/studio/write/lint#snapshot
+  
+  Lint found 1 error, 153 warnings. First failure:
+  
+  <workspace>/app/src/main/kotlin/dev/tqmane/befuck/ui/PreviewGestures.kt:47: Error: This custom view should extend androidx.appcompat.widget.AppCompatImageView instead [AppCompatCustomView]
+  
+  The full lint text report is located at:
+    <workspace>/app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.8.0/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 2m 53s
+59 actionable tasks: 59 executed
