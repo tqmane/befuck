@@ -20,4 +20,10 @@ class CacheJsonTest {
         val post = FeedPostMediaCache.fromJson(JSONObject().put("id", "synthetic").put("captured", 123L).put("own", false).put("main", true))
         assertEquals(false, post.isOwnPost); assertEquals(true, post.isMain)
     }
+    @Test fun explicitEmptyLegacyCaptionIsNotChangedToUnknown() {
+        val json = JSONObject().put("id", "empty-caption").put("captured", 123L).put("caption", "")
+        assertEquals("", FeedPostMediaCache.fromJson(json).caption)
+        json.put("caption", JSONObject.NULL)
+        assertNull(FeedPostMediaCache.fromJson(json).caption)
+    }
 }

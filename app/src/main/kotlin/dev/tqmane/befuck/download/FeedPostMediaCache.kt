@@ -2,12 +2,11 @@ package dev.tqmane.befuck.download
 
 import dev.tqmane.befuck.symbols.KnownMappings
 import dev.tqmane.befuck.symbols.HostClass
+import dev.tqmane.befuck.archive.ArchiveRepository
+import dev.tqmane.befuck.archive.ArchiveAccounts
 import android.util.LruCache
 import android.content.Context
-import android.content.ContentValues
-import android.database.sqlite.SQLiteDatabase
 import org.json.JSONObject
-import java.util.concurrent.Executors
 import dev.tqmane.befuck.symbols.FeedMediaSymbols
 import java.net.URI
 import java.lang.reflect.Modifier
@@ -44,80 +43,48 @@ data class FeedPostMedia(
 /** Bounded, process-local index of posts BeReal has already deserialized for the feed. */
 object FeedPostMediaCache {
     private val cache = LruCache<String, FeedPostMedia>(200)
-    private val storage = Executors.newSingleThreadExecutor()
-    @Volatile private var database: SQLiteDatabase? = null
-    private var initializing = false
+    private var cacheEpoch = -1L
     private val currentUsernames = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     @JvmStatic
     fun captureCurrentUser(model: Any?) {
+        // Compatibility hook name: updates author names only, never the active account.
         if (model == null) return
         runCatching {
             fun text(name: String) = model.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(model) as? String
             val uid = text("uid")?.takeIf { it.isNotBlank() } ?: return
             val username = text("userName")?.takeIf { it.isNotBlank() } ?: return
             currentUsernames[uid] = username
-            synchronized(cache) {
+            withCache {
                 cache.snapshot().values.filter { it.ownerUid == uid && it.username.isNullOrBlank() }
-                    .forEach { storePost(it.copy(username = username)) }
+                    .forEach { storePost(FeedPostMedia(it.postId, null, null, null, null, capturedAtMillis = System.currentTimeMillis(), username = username, ownerUid = uid)) }
             }
         }
     }
 
     @JvmStatic
-    @Synchronized
-    fun initialize(context: Context) {
-        if (database != null || initializing) return
-        val path = context.getDatabasePath("befuck-post-urls.db")
-        initializing = true
-        storage.execute {
-            var opened: SQLiteDatabase? = null
-            try {
-                path.parentFile?.mkdirs()
-                val db = SQLiteDatabase.openOrCreateDatabase(path, null)
-                opened = db
-                db.execSQL("CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, captured INTEGER NOT NULL, data TEXT NOT NULL)")
-                database = db
-                synchronized(cache) { cache.snapshot().values.toList() }.forEach(::persist)
-                android.util.Log.i("BeFuck/Cache", "Persistent post URL index ready")
-            } catch (failure: Throwable) {
-                if (database === opened) database = null
-                runCatching { opened?.close() }
-                android.util.Log.e("BeFuck/Cache", "Could not open post URL index", failure)
-            } finally { synchronized(FeedPostMediaCache) { initializing = false } }
-        }
-    }
+    fun initialize(context: Context) { ArchiveRepository.initialize(context.applicationContext ?: context) }
 
-    private fun persist(post: FeedPostMedia) {
-        val db = database ?: return
-        // Native SQLite serializes these small per-post writes; media bytes are never cached here.
-        runCatching {
-            db.insertWithOnConflict("posts", null, ContentValues().apply {
-                put("id", post.postId)
-                put("captured", post.capturedAtMillis)
-                put("data", toJson(post).toString())
-            }, SQLiteDatabase.CONFLICT_REPLACE)
-        }.onFailure { android.util.Log.e("BeFuck/Cache", "Could not persist post URLs", it) }
+    private inline fun <T> withCache(action: () -> T): T = synchronized(cache) {
+        val epoch = ArchiveAccounts.snapshot().generation
+        if (cacheEpoch != epoch) { cache.evictAll(); cacheEpoch = epoch }
+        action()
     }
 
     private fun storePost(post: FeedPostMedia) {
-        val previous = cache.get(post.postId)
-        if (previous != null && post.copy(capturedAtMillis = previous.capturedAtMillis) == previous) return
-        cache.put(post.postId, post)
-        storage.execute { persist(post) }
+        val account = ArchiveAccounts.snapshot().uid.orEmpty()
+        val previous = cache.get(post.postId) ?: runCatching { ArchiveRepository.get(account, post.postId) }.getOrNull()
+        // Runtime presentation can fill gaps, but storage gets only the raw observation (not inherited values).
+        cache.put(post.postId, post.copy(
+            takenAt = post.takenAt ?: previous?.takenAt, postedAt = post.postedAt ?: previous?.postedAt,
+            username = post.username ?: previous?.username, ownerUid = post.ownerUid ?: previous?.ownerUid,
+            caption = post.caption ?: previous?.caption, primary = post.primary ?: previous?.primary,
+            secondary = post.secondary ?: previous?.secondary, bts = post.bts ?: previous?.bts,
+            momentId = post.momentId ?: previous?.momentId, isMain = post.isMain ?: previous?.isMain,
+            isOwnPost = post.isOwnPost ?: previous?.isOwnPost))
+        ArchiveRepository.capture(account, post)
     }
-
-    private fun toJson(post: FeedPostMedia): JSONObject = JSONObject().apply {
-        put("id", post.postId); put("takenAt", post.takenAt); put("postedAt", post.postedAt)
-        put("username", post.username); put("caption", post.caption); put("own", post.isOwnPost)
-        put("ownerUid", post.ownerUid)
-        put("momentId", post.momentId); put("main", post.isMain)
-        put("captured", post.capturedAtMillis)
-        fun media(item: FeedMediaItem?) = item?.let {
-            JSONObject().put("url", it.url).put("mime", it.mimeType).put("width", it.width).put("height", it.height)
-        }
-        put("primary", media(post.primary)); put("secondary", media(post.secondary)); put("bts", media(post.bts))
-    }
+    internal fun invalidateArchiveMemory() { synchronized(cache) { cache.evictAll() } }
 
     internal fun fromJson(json: JSONObject): FeedPostMedia {
         fun text(key: String) = (json.opt(key) as? String)?.takeIf { it.isNotBlank() }
@@ -125,16 +92,13 @@ object FeedPostMediaCache {
             FeedMediaItem(it.getString("url"), it.optString("mime").takeIf(String::isNotBlank),
                 it.optInt("width").takeIf { n -> n > 0 }, it.optInt("height").takeIf { n -> n > 0 })
         }
-        return FeedPostMedia(json.getString("id"), text("takenAt"), text("caption"), media("primary"), media("secondary"),
+        return FeedPostMedia(json.getString("id"), text("takenAt"), json.opt("caption") as? String, media("primary"), media("secondary"),
             json.opt("own") as? Boolean, json.getLong("captured"), text("username"), text("postedAt"), media("bts"), text("ownerUid"), text("momentId"), json.opt("main") as? Boolean)
     }
 
     @JvmStatic
-    fun get(postId: String): FeedPostMedia? = synchronized(cache) { cache.get(postId) } ?: runCatching {
-        database?.rawQuery("SELECT data FROM posts WHERE id = ?", arrayOf(postId))?.use {
-            if (it.moveToFirst()) fromJson(JSONObject(it.getString(0))) else null
-        }
-    }.getOrNull()
+    fun get(postId: String): FeedPostMedia? = withCache { cache.get(postId) }
+        ?: runCatching { ArchiveRepository.get(ArchiveAccounts.snapshot().uid.orEmpty(), postId) }.getOrNull()
 
     /** Field mapping checked against the 3.97.0 CorePost constructor, including database-loaded posts. */
     @JvmStatic
@@ -163,12 +127,8 @@ object FeedPostMediaCache {
                 if (primaryModel?.javaClass?.simpleName == KnownMappings.current().className(HostClass.BtsMedia)) media(primaryModel, bts = true) else null, ownerUid,
                 moment?.let { field(it, "a") as? String }, field(model, "o") as? Boolean)
             if (captured.primary == null && captured.secondary == null) return
-            synchronized(cache) {
-                val existing = get(id)
-                storePost(captured.copy(
-                    isOwnPost = if (ownerUid != null && currentUsernames.containsKey(ownerUid)) true else existing?.isOwnPost,
-                    username = captured.username?.takeIf { it.isNotBlank() } ?: existing?.username,
-                ))
+            withCache {
+                storePost(captured.copy(isOwnPost = ownerUid?.let { owner -> ArchiveAccounts.snapshot().uid?.let { it == owner } }))
             }
         }.onFailure { android.util.Log.w("BeFuck/Cache", "CorePost media capture failed", it) }
     }
@@ -209,24 +169,7 @@ object FeedPostMediaCache {
                 postedAt = runCatching { model.javaClass.getDeclaredField("postedAt").apply { isAccessible = true }.get(model) as? String }.getOrNull(),
                 bts = readMedia(symbols.postBtsMediaField?.get(model), symbols),
             )
-            synchronized(cache) {
-                val existing = get(id)
-                storePost(
-                    post.copy(
-                        takenAt = post.takenAt ?: existing?.takenAt,
-                        caption = post.caption ?: existing?.caption,
-                        primary = post.primary ?: existing?.primary,
-                        secondary = post.secondary ?: existing?.secondary,
-                        isOwnPost = existing?.isOwnPost,
-                        username = existing?.username,
-                        postedAt = post.postedAt ?: existing?.postedAt,
-                        bts = post.bts ?: existing?.bts,
-                        ownerUid = existing?.ownerUid,
-                        momentId = existing?.momentId,
-                        isMain = existing?.isMain,
-                    ),
-                )
-            }
+            withCache { storePost(post) }
             true
         } catch (_: Throwable) {
             false
@@ -246,26 +189,12 @@ object FeedPostMediaCache {
             val secondaryValue = symbols.dualMediaSecondaryField!!.get(dualMedia)
             val primaryResolved = readUiMedia(primaryValue)
             val secondaryResolved = readUiMedia(secondaryValue)
-            synchronized(cache) {
-                val existing = get(postId)
-                val merged = FeedPostMedia(
-                    postId = postId,
-                    takenAt = existing?.takenAt,
-                    caption = existing?.caption,
-                    primary = existing?.primary ?: primaryResolved,
-                    secondary = existing?.secondary ?: secondaryResolved,
-                    isOwnPost = isOwnPost,
-                    capturedAtMillis = System.currentTimeMillis(),
-                    username = Regex(", ownerUsername=([^,)]*)").find(postData.toString())?.groupValues?.get(1)
-                        ?.takeIf { it.isNotBlank() } ?: existing?.username,
-                    postedAt = existing?.postedAt,
-                    bts = existing?.bts,
-                    ownerUid = existing?.ownerUid,
-                    momentId = existing?.momentId,
-                    isMain = existing?.isMain,
-                )
-                if (merged.primary == null && merged.secondary == null) return false
-                storePost(merged)
+            withCache {
+                val observed = FeedPostMedia(postId, null, null, primaryResolved, secondaryResolved, isOwnPost,
+                    System.currentTimeMillis(),
+                    username = Regex(", ownerUsername=([^,)]*)").find(postData.toString())?.groupValues?.get(1)?.takeIf(String::isNotBlank))
+                if (observed.primary == null && observed.secondary == null) return false
+                storePost(observed)
             }
             synchronized(dualMediaPostLock) { dualMediaPostIds[dualMedia] = postId }
             activeTimelinePostId = postId
@@ -291,7 +220,7 @@ object FeedPostMediaCache {
     @JvmStatic
     fun composingPost(): FeedPostMedia? {
         val postId = currentComposingPostId() ?: return null
-        return synchronized(cache) { cache.get(postId) }
+        return withCache { cache.get(postId) }
     }
 
     @JvmStatic
@@ -299,7 +228,7 @@ object FeedPostMediaCache {
         if (dualMedia == null) return null
         val postId = postIdForDualMedia(dualMedia)
             ?: return null
-        return synchronized(cache) { cache.get(postId) }
+        return withCache { cache.get(postId) }
     }
 
     @JvmStatic
@@ -339,7 +268,7 @@ object FeedPostMediaCache {
     @JvmStatic
     fun composingGridDetailPost(): FeedPostMedia? {
         val postId = composingGridDetailPostId.get() ?: return null
-        return synchronized(cache) { cache.get(postId) }
+        return withCache { cache.get(postId) }
     }
 
     @JvmStatic
@@ -387,7 +316,7 @@ object FeedPostMediaCache {
             }
             isCurrentSelection
         }
-        return if (matchesSelection) synchronized(cache) { cache.get(mediaPostId) } else null
+        return if (matchesSelection) withCache { cache.get(mediaPostId) } else null
     }
 
     @JvmStatic
@@ -402,7 +331,7 @@ object FeedPostMediaCache {
             }
             selectedPostId.takeIf { isCurrentSelection }
         } ?: return null
-        val post = synchronized(cache) { cache.get(postId) } ?: return null
+        val post = withCache { cache.get(postId) } ?: return null
         if (dualMedia != null) synchronized(dualMediaPostLock) { dualMediaPostIds[dualMedia] = postId }
         return post
     }
@@ -448,7 +377,7 @@ object FeedPostMediaCache {
         if (urls.isEmpty()) return null
         val exactUrls = urls.toHashSet()
         val normalizedUrls = urls.mapTo(HashSet(), ::normalizedMediaUrl)
-        val matchingPostIds = synchronized(cache) {
+        val matchingPostIds = withCache {
             cache.snapshot().values.asSequence()
                 .filter { post ->
                     listOfNotNull(post.primary?.url, post.secondary?.url).any { url ->
@@ -472,31 +401,21 @@ object FeedPostMediaCache {
     }.getOrDefault(url.substringBefore('?'))
 
     @JvmStatic
-    fun recent(): List<FeedPostMedia> {
-        val posts = linkedMapOf<String, FeedPostMedia>()
-        runCatching {
-            database?.rawQuery("SELECT data FROM posts ORDER BY captured DESC", null)?.use { cursor ->
-                while (cursor.moveToNext()) runCatching { fromJson(JSONObject(cursor.getString(0))) }
-                    .getOrNull()?.let { posts[it.postId] = it }
-            }
-        }
-        synchronized(cache) { cache.snapshot().values.forEach { posts[it.postId] = it } }
-        return posts.values.sortedByDescending { PostMediaMetadata.timestamp(it) ?: it.capturedAtMillis }
-    }
+    fun recent(): List<FeedPostMedia> = ArchiveRepository.recent(ArchiveAccounts.snapshot().uid.orEmpty())
 
     @JvmStatic
-    fun activeTimelinePost(): FeedPostMedia? = synchronized(cache) {
+    fun activeTimelinePost(): FeedPostMedia? = withCache {
         val activeId = activeTimelinePostId
         activeId?.let(cache::get)
             ?: cache.snapshot().values.maxByOrNull { it.capturedAtMillis }
     }
 
     @JvmStatic
-    fun size(): Int = synchronized(cache) { cache.size() }
+    fun size(): Int = withCache { cache.size() }
 
     fun hasOwnMainPost(momentId: String): Boolean = recent().any {
         it.momentId == momentId && it.isMain == true &&
-            (it.isOwnPost == true || it.ownerUid?.let(currentUsernames::containsKey) == true)
+            (it.isOwnPost == true || it.ownerUid == ArchiveAccounts.snapshot().uid && it.ownerUid != null)
     }
 
     private fun readMedia(value: Any?, symbols: FeedMediaSymbols): FeedMediaItem? {

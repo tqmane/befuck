@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_calendar_tab">달력</string>
+    <string name="befuck_calendar_today">오늘</string>
+    <string name="befuck_calendar_previous_month">이전 달</string>
+    <string name="befuck_calendar_next_month">다음 달</string>
+    <string name="befuck_calendar_previous_year">이전 해</string>
+    <string name="befuck_calendar_next_year">다음 해</string>
+    <string name="befuck_calendar_choose_month">%1$s. 년/월 선택</string>
+    <string name="befuck_calendar_return_month">%1$s. 월 달력으로 돌아가기</string>
+    <string name="befuck_calendar_day_posts">%1$s · 저장된 게시물 %2$d개</string>
+    <string name="befuck_calendar_count">%1$d개</string>
+    <string name="befuck_calendar_empty_day">이 날짜에 저장된 게시물이 없습니다</string>
+    <string name="befuck_calendar_cached_only">로컬에 저장된 게시물 정보만 여기에 표시됩니다.</string>
+    <string name="befuck_calendar_legend">● 게시물 있음 · 테두리: 오늘</string>
+    <string name="befuck_saved_save_all">모든 미디어 저장</string>
+    <string name="befuck_saved_save_camera">%1$s의 %2$s 저장</string>
+    <string name="befuck_saved_partial">%1$d개를 저장했습니다. 일부 미디어는 저장하지 못했습니다.</string>
+    <string name="befuck_settings_recovery_section">복구 및 진단</string>
+    <string name="befuck_settings_storage_section">초기화 및 저장소</string>
+</resources>

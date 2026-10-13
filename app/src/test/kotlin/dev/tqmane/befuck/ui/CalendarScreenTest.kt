@@ -55,7 +55,7 @@ class CalendarScreenTest {
     }
     @Test fun selectingDateRendersOnlyThatDaysPostsBelowCalendarAndAllRetainsUnknown() {
         val owner=Robolectric.buildActivity(Activity::class.java).setup(); val activity=owner.get()
-        val dialog=SavedPostsScreen.show(activity,activity.resources,::posts,direct,clock)
+        val dialog=SavedPostsScreen.show(activity,activity.resources,::posts,direct,clock,previewSource=FixturePreviewSource())
         shadowOf(Looper.getMainLooper()).idle()
         val root=content(dialog)
         assertTrue(views(root).any { it.tag=="saved-post-today" })
@@ -75,7 +75,7 @@ class CalendarScreenTest {
     }
     @Test fun searchAndMonthYearNavigationKeepCalendarAndTimelineInSync() {
         val owner=Robolectric.buildActivity(Activity::class.java).setup(); val activity=owner.get()
-        val dialog=SavedPostsScreen.show(activity,activity.resources,::posts,direct,clock)
+        val dialog=SavedPostsScreen.show(activity,activity.resources,::posts,direct,clock,previewSource=FixturePreviewSource())
         shadowOf(Looper.getMainLooper()).idle(); val root=content(dialog)
         (tagged(root,"saved-search") as EditText).setText("example b")
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200))
@@ -92,7 +92,7 @@ class CalendarScreenTest {
     @Test fun cancelledQueuedRefreshCannotRepopulateClosedWindow() {
         val queued=mutableListOf<Runnable>(); var reads=0
         val owner=Robolectric.buildActivity(Activity::class.java).setup(); val activity=owner.get()
-        val dialog=SavedPostsScreen.show(activity,activity.resources,{ reads++;posts() },Executor { queued+=it },clock)
+        val dialog=SavedPostsScreen.show(activity,activity.resources,{ reads++;posts() },Executor { queued+=it },clock,previewSource=FixturePreviewSource())
         dialog.dismiss(); queued.forEach(Runnable::run); shadowOf(Looper.getMainLooper()).idle()
         assertEquals(0,reads); assertFalse(dialog.isShowing)
         BeFuckGalleryUi.onActivityDestroy(activity); owner.pause().stop().destroy()
@@ -100,7 +100,7 @@ class CalendarScreenTest {
     @Test fun newerRefreshRejectsAlreadyQueuedOlderResult() {
         var calls=0
         val owner=Robolectric.buildActivity(Activity::class.java).setup(); val activity=owner.get()
-        val dialog=SavedPostsScreen.show(activity,activity.resources,{ calls++; if(calls==1) emptyList() else posts() },direct,clock)
+        val dialog=SavedPostsScreen.show(activity,activity.resources,{ calls++; if(calls==1) emptyList() else posts() },direct,clock,previewSource=FixturePreviewSource())
         tagged(content(dialog),"saved-refresh").performClick()
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(2,calls)
@@ -110,7 +110,7 @@ class CalendarScreenTest {
     @Test fun failedLoadIsNotMisreportedAsEmptyDayAndCanRetry() {
         var fail=true
         val owner=Robolectric.buildActivity(Activity::class.java).setup(); val activity=owner.get()
-        val dialog=SavedPostsScreen.show(activity,activity.resources,{ if(fail) throw java.io.IOException("Synthetic unavailable index"); posts() },direct,clock)
+        val dialog=SavedPostsScreen.show(activity,activity.resources,{ if(fail) throw java.io.IOException("Synthetic unavailable index"); posts() },direct,clock,previewSource=FixturePreviewSource())
         shadowOf(Looper.getMainLooper()).idle();val root=content(dialog)
         assertFalse(views(root).any { it.tag=="saved-empty-day" })
         assertTrue(views(root).filterIsInstance<TextView>().any { it.text.toString()==activity.resources.getString(dev.tqmane.befuck.R.string.befuck_saved_load_failed) })
@@ -123,7 +123,7 @@ class CalendarScreenTest {
             RuntimeEnvironment.setQualifiers("ja-rJP-w${width}dp-h1100dp-mdpi")
             RuntimeEnvironment.setFontScale(scale)
             val owner=Robolectric.buildActivity(Activity::class.java).setup(); val activity=owner.get()
-            val dialog=SavedPostsScreen.show(activity,activity.resources,::posts,direct,clock)
+            val dialog=SavedPostsScreen.show(activity,activity.resources,::posts,direct,clock,previewSource=FixturePreviewSource())
             shadowOf(Looper.getMainLooper()).idle(); val root=content(dialog)
             screenshot(root,width,1100,name)
             assertTrue(tagged(root,"befuck-bounded-content").width<=760)

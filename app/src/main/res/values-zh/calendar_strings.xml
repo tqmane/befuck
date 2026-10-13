@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_calendar_tab">日历</string>
+    <string name="befuck_calendar_today">今天</string>
+    <string name="befuck_calendar_previous_month">上个月</string>
+    <string name="befuck_calendar_next_month">下个月</string>
+    <string name="befuck_calendar_previous_year">上一年</string>
+    <string name="befuck_calendar_next_year">下一年</string>
+    <string name="befuck_calendar_choose_month">%1$s。选择年月</string>
+    <string name="befuck_calendar_return_month">%1$s。返回月历</string>
+    <string name="befuck_calendar_day_posts">%1$s · 已保存帖子 %2$d 条</string>
+    <string name="befuck_calendar_count">%1$d 条</string>
+    <string name="befuck_calendar_empty_day">这一天没有已保存的帖子</string>
+    <string name="befuck_calendar_cached_only">此处仅显示已保存在本地索引中的帖子。</string>
+    <string name="befuck_calendar_legend">● 有帖子 · 外边框: 今天</string>
+    <string name="befuck_saved_save_all">保存所有媒体</string>
+    <string name="befuck_saved_save_camera">保存 %1$s 的 %2$s</string>
+    <string name="befuck_saved_partial">已保存 %1$d 项。部分媒体无法保存。</string>
+    <string name="befuck_settings_recovery_section">修复与诊断</string>
+    <string name="befuck_settings_storage_section">重置与存储</string>
+</resources>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_preview_open">全屏查看 %1$s 的 %2$s</string>
+    <string name="befuck_preview_loading">正在加载预览…</string>
+    <string name="befuck_preview_missing">无媒体内容</string>
+    <string name="befuck_preview_failed_small">无法显示预览\n点击打开</string>
+    <string name="befuck_preview_failed">无法加载预览。请检查网络连接；若 URL 已过期，请刷新信息流（仍可尝试保存操作）。</string>
+    <string name="befuck_preview_retry">重试</string>
+    <string name="befuck_preview_save">保存</string>
+    <string name="befuck_preview_save_current">保存当前镜头</string>
+    <string name="befuck_preview_previous">上一个镜头</string>
+    <string name="befuck_preview_next">下一个镜头</string>
+    <string name="befuck_preview_position">%1$d / %2$d · %3$s</string>
+    <string name="befuck_preview_swipe_hint">左右滑动切换前后镜头</string>
+    <string name="befuck_preview_photo_hint">左右滑动切换镜头 · 双指或双击缩放</string>
+    <string name="befuck_preview_video_hint">视频预览 · 点击播放开始加载</string>
+    <string name="befuck_preview_video_loading">正在加载视频…</string>
+    <string name="befuck_preview_video_failed">无法播放视频。请重试播放或直接保存原视频。</string>
+    <string name="befuck_preview_seek">视频播放进度</string>
+    <string name="befuck_preview_audio_unavailable">其他应用正在使用音频。请点击播放重试。</string>
+    <string name="befuck_preview_network_notice">预览通过已保存的 URL 加载。备份中仅包含 URL 与帖子信息。</string>
+</resources>

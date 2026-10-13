@@ -8,7 +8,7 @@ A white circle identifies the selected date, an outline identifies an unselected
 
 Dates are derived from `PostMediaMetadata.timestamp`: valid `postedAt` first, then `takenAt`, converted through the device's local time zone. Cache capture time is not substituted as the posting date. Unknown timestamps are not silently assigned to today. Month browsing does not change the selected date until a day is selected. Leap days, six-row months, year boundaries and navigation bounds are explicitly tested.
 
-This is a browser for the existing local post index, not an API for discovering uncached historical BeReal posts. Browsing it does not fetch remote image previews. Existing back/front/all-media saving is retained, with more explicit labels, partial-save feedback and disabled actions while the selected download is pending.
+This is a browser for the existing local post index, not an API for discovering uncached historical BeReal posts. Visible front/back previews now load on demand from the saved URLs; see [media previews](saved-media-preview.md). The backup remains URL/metadata-only. Existing back/front/all-media saving is retained, with more explicit labels, partial-save feedback and disabled actions while the selected download is pending.
 
 ## Official Material widgets, not painted imitations
 
@@ -30,16 +30,16 @@ At large font sizes the calendar/all-date controls stack vertically. Date labels
 
 ## Regression coverage and reviewed renders
 
-The follow-up adds 24 tests to the prior 23:
+Regression coverage includes:
 
-| Tests | Count | Evidence exercised |
-| --- | ---: | --- |
-| SavedCalendarModelTest | 11 | All months 2000–2100, leap years, six-week grids, year limits, local-midnight boundaries, timestamp precedence, unknown dates, search and snapshot deduplication |
-| CalendarScreenTest | 7 | Real day clicks and lists below, all-date/today navigation, search/year chooser, queued cancellation, refresh races, loader failure/retry, actual MaterialSwitch preference changes, phone/tablet/large-text layouts |
-| TablerTintTest | 4 | Actual raster colors after tint/state changes, clearing filters and MaterialButton icon tinting |
-| CalendarDayPixelsTest | 2 | A visible selected-date fill and a visible post dot outside the text area |
+| Tests | Evidence exercised |
+| --- | --- |
+| SavedCalendarModelTest | All months 2000–2100, leap years, six-week grids, year limits, local-midnight boundaries, timestamp precedence, unknown dates, search and snapshot deduplication |
+| CalendarScreenTest | Real day clicks and lists below, all-date/today navigation, search/year chooser, queued cancellation, refresh races, loader failure/retry, actual MaterialSwitch preference changes, phone/tablet/large-text layouts |
+| TablerTintTest | Actual raster colors after tint/state changes, clearing filters and MaterialButton icon tinting |
+| CalendarDayPixelsTest | A visible selected-date fill and a visible post dot outside the text area |
 
-All **47 tests passed, with no failures or skips**, in [run 38353353751](https://github.com/tqmane/befuck/actions/runs/38353353751), along with assembly, `checkModule` and lint. Existing lint warnings are not claimed to be eliminated. The normal PR workflow repeats these checks and publishes a machine-readable test summary.
+The normal PR workflow runs these tests with assembly, `checkModule` and lint. Its artifacts contain the JUnit XML and HTML reports for that checkout; see [development and verification](development.md).
 
 The rendered pixels were inspected, not merely generated. This exposed an invisible selected-tab icon and clipped/missing date-selection details that a successful build did not detect. Their fixes have dedicated tint/pixel and layout assertions. These images draw the **actual View hierarchy using synthetic local fixtures** on Robolectric Android 13/API 33 with native graphics, not a separate mock-up or a real BeReal session:
 
@@ -57,10 +57,10 @@ python3 checks/export_tabler.py
 ./gradlew --no-daemon --continue :app:assembleDebug :app:checkModule :app:testDebugUnitTest :app:lintDebug
 ```
 
-The regular PR workflow is read-only. It publishes the module debug APK, XML/HTML reports, `test-summary.json` and separate calendar/settings render artifacts. Normal icon generation uses the vendored SVGs; no icon network fetch is required. The temporary source-migration workflow is not part of the final change.
+The regular PR workflow verifies checked-in source and publishes the debug APK plus one report artifact containing XML/HTML reports and all generated UI renders. Normal icon generation uses the vendored SVGs; no icon network fetch is required.
 
 ## Remaining device qualification
 
-No physical device or emulator was installed or changed, and no authenticated posting or real-account network request was exercised. In particular, the official Material widgets' interaction with the intended BeReal 3.97.1 host resources/class loader and actual rendering/animations remains a device test, not something inferred from compilation or Robolectric success. Existing map, media and authentication qualification limits in the baseline audit also remain.
+The official Material widgets' interaction with the intended BeReal 3.97.1 host resources/class loader and actual rendering/animations remains a device test, not something inferred from compilation or Robolectric success. See [development and verification](development.md) for the shared device qualification boundary.
 
 The loader-failure and cancellation tests exercise the screen's injectable loader/queue; they are not a claim that a physically corrupted SQLite database or every storage error has been reproduced on a device. A passing test suite is not a guarantee that all application bugs have been eliminated.

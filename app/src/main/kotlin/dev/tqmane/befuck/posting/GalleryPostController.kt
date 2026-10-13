@@ -46,6 +46,29 @@ object GalleryPostController {
         symbols.currentUserProviderMethod != null &&
         symbols.currentUserUidField != null
 
+    /** Read-only current-user provider. Never infer login identity from arbitrary User constructors. */
+    internal fun readCurrentAccount(activity: Activity, symbols: ResolvedSymbols, completion: Consumer<String?>) {
+        val once = AtomicBoolean(false)
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        fun deliver(uid: String?) { if (once.compareAndSet(false, true)) completion.accept(uid) }
+        val timeout = Runnable { deliver(null) }
+        main.postDelayed(timeout, 15000L)
+        executor.execute {
+            try {
+                val type = requireNotNull(symbols.currentUserProviderClass)
+                val method = requireNotNull(symbols.currentUserProviderMethod)
+                val uid = requireNotNull(symbols.currentUserUidField)
+                val receiver = resolveKoinInstance(type, activity.classLoader, symbols.versionName)
+                val context = coroutineContext(lifecycleScope(activity, activity.classLoader))
+                invokeSuspend(receiver, method, emptyArray(), method.parameterTypes.single(), context) { user, failure ->
+                    main.removeCallbacks(timeout)
+                    val value = if (failure == null && user != null && uid.declaringClass.isInstance(user)) runCatching { uid.get(user) as? String }.getOrNull() else null
+                    deliver(value?.takeIf(String::isNotBlank))
+                }
+            } catch (_: Exception) { main.removeCallbacks(timeout); deliver(null) }
+        }
+    }
+
     /** Refreshes the app-owned feed state after a BeFake created its post outside the feed ViewModel. */
     @JvmStatic
     fun refreshHomeFeed(activity: Activity, versionName: String?) {

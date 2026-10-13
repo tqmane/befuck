@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_archive_title">备份与合并</string>
+    <string name="befuck_archive_account">当前账号 UID</string>
+    <string name="befuck_archive_account_unavailable">未能安全识别当前账号。请返回 BeReal 刷新信息流后重新打开此界面（不会根据帖子发布者推断当前账号）。</string>
+    <string name="befuck_archive_explanation">将已保存帖子的 URL、发布者、时间等信息导出为 SQLite 文件。可导入同一账号在其他设备上的备份并合并到本设备（不会覆盖或删除现有数据）。</string>
+    <string name="befuck_archive_export">导出 SQLite 备份</string>
+    <string name="befuck_archive_import">导入并合并备份</string>
+    <string name="befuck_archive_associate">关联未分类的历史数据</string>
+    <string name="befuck_archive_associate_warning">%1$d 条历史未分类数据缺少浏览者账号信息。无法根据发布者确定保存时所用的账号。请在确认属于当前账号后，再关联至账号 %2$s。相同帖子 ID 会自动合并，原历史数据也会保留在本地。</string>
+    <string name="befuck_archive_associate_confirm">关联到此账号</string>
+    <string name="befuck_archive_privacy">备份文件未加密。包含用户名、发布时间、配文以及带签名的完整媒体 URL。请勿公开分享。密码、授权头、照片与视频实体文件、应用设置及诊断日志不会包含在内。</string>
+    <string name="befuck_archive_choose_destination">选择保存位置</string>
+    <string name="befuck_archive_limitations">转移的是本地帖子信息和 URL，而非照片或视频实体文件。备份无法恢复已过期的 URL。URL 候选及原始记录时间将予以保留。此功能为手动文件合并，非自动同步。</string>
+    <string name="befuck_archive_counts">当前账号: %1$d 条 · 未分类: %2$d 条</string>
+    <string name="befuck_archive_working">正在处理保存的数据…</string>
+    <string name="befuck_archive_exported">SQLite 备份已导出（%1$d KiB）。</string>
+    <string name="befuck_archive_cancelled">已取消。未对本地数据进行更改。</string>
+    <string name="befuck_archive_picker_failed">无法打开文件选择器。</string>
+    <string name="befuck_archive_preview_ready">备份验证完毕。请确认后执行合并。</string>
+    <string name="befuck_archive_confirm_title">是否合并此备份？</string>
+    <string name="befuck_archive_confirm_message">账号: %1$s\n\n新增帖子: %2$d 条\n更新帖子: %3$d 条\n无变化: %4$d 条\n新增 URL: %5$d 条\n\n现有帖子不会被删除。以上数量为预览估算，合并时将重新与数据库对照并原子化写入。若存在发布者 UID 冲突，将中止整个合并操作。</string>
+    <string name="befuck_archive_merge">保留现有数据并合并</string>
+    <string name="befuck_archive_merged">合并完成（新增: %1$d 条，更新: %2$d 条，无变化: %3$d 条，新增 URL: %4$d 条）。</string>
+    <string name="befuck_archive_wrong_account">备份属于其他账号，或处理过程中当前账号已变更。未执行合并。</string>
+    <string name="befuck_archive_author_conflict">同一帖子 ID 存在冲突的发布者 UID。整个合并操作已中止，本地数据未作改动。</string>
+    <string name="befuck_archive_version">不支持的备份格式或架构。请更新应用或导出兼容格式。</string>
+    <string name="befuck_archive_clock">记录时间异常或属于未来时间。请检查导出设备的系统时钟后重试。</string>
+    <string name="befuck_archive_limit">超出备份限制（上限: 64 MiB、50,000 条帖子、300,000 条 URL 或每条帖子 1,024 个 URL 候选）。</string>
+    <string name="befuck_archive_invalid">不是有效且完整的 BeFuck SQLite 备份文件。未执行合并。</string>
+    <string name="befuck_archive_failed">操作未能完成。现有保存数据已保留。请检查存储空间和文件访问权限后重试。导出中断可能在目标位置留下不完整的文件。</string>
+    <string name="befuck_archive_unassigned_notice">存在未分类的历史数据。请在“备份与合并”中将其关联至当前账号后再进行多设备合并。</string>
+</resources>

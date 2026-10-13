@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_preview_open">%1$s의 %2$s 전체 화면 보기</string>
+    <string name="befuck_preview_loading">미리보기 불러오는 중…</string>
+    <string name="befuck_preview_missing">미디어 없음</string>
+    <string name="befuck_preview_failed_small">미리보기를 표시할 수 없음\n탭하여 열기</string>
+    <string name="befuck_preview_failed">미리보기를 불러올 수 없습니다. 네트워크 연결을 확인하거나, URL이 만료된 경우 피드를 새로고침하세요 (저장은 계속 이용 가능).</string>
+    <string name="befuck_preview_retry">다시 시도</string>
+    <string name="befuck_preview_save">저장</string>
+    <string name="befuck_preview_save_current">현재 카메라 저장</string>
+    <string name="befuck_preview_previous">이전 카메라</string>
+    <string name="befuck_preview_next">다음 카메라</string>
+    <string name="befuck_preview_position">%1$d / %2$d · %3$s</string>
+    <string name="befuck_preview_swipe_hint">좌우로 스와이프하여 전면/후면 카메라 전환</string>
+    <string name="befuck_preview_photo_hint">좌우 스와이프로 카메라 전환 · 두 손가락 또는 더블 탭으로 확대</string>
+    <string name="befuck_preview_video_hint">동영상 미리보기 · 재생을 탭하여 불러오기</string>
+    <string name="befuck_preview_video_loading">동영상 불러오는 중…</string>
+    <string name="befuck_preview_video_failed">동영상을 재생할 수 없습니다. 재생을 다시 시도하거나 원본 동영상을 저장하세요.</string>
+    <string name="befuck_preview_seek">동영상 재생 위치</string>
+    <string name="befuck_preview_audio_unavailable">다른 앱에서 오디오를 사용 중입니다. 재생을 탭하여 다시 시도하세요.</string>
+    <string name="befuck_preview_network_notice">미리보기는 저장된 URL에서 불러옵니다. 백업에는 URL 및 게시물 정보만 포함됩니다.</string>
+</resources>
