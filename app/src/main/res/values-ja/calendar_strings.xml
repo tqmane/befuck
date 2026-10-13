@@ -8,14 +8,14 @@
     <string name="befuck_calendar_next_year">次の年</string>
     <string name="befuck_calendar_choose_month">%1$s。年月を選択</string>
     <string name="befuck_calendar_return_month">%1$s。月のカレンダーに戻る</string>
-    <string name="befuck_calendar_day_posts">%1$s · 保存した投稿%2$d件</string>
+    <string name="befuck_calendar_day_posts">%1$s · 保存済み投稿 %2$d件</string>
     <string name="befuck_calendar_count">%1$d件</string>
     <string name="befuck_calendar_empty_day">この日の保存済み投稿はありません</string>
-    <string name="befuck_calendar_cached_only">アプリ内に保存された投稿情報だけが表示されます。</string>
-    <string name="befuck_calendar_legend">● 投稿あり · 枠線は今日</string>
+    <string name="befuck_calendar_cached_only">アプリ内に保存された投稿情報のみ表示されます。</string>
+    <string name="befuck_calendar_legend">● 投稿あり · 枠線: 今日</string>
     <string name="befuck_saved_save_all">すべてのメディアを保存</string>
     <string name="befuck_saved_save_camera">%1$sの%2$sを保存</string>
     <string name="befuck_saved_partial">%1$d件を保存しました。一部は保存できませんでした。</string>
     <string name="befuck_settings_recovery_section">修復と診断</string>
-    <string name="befuck_settings_storage_section">リセットと保存領域</string>
+    <string name="befuck_settings_storage_section">リセットとストレージ</string>
 </resources>

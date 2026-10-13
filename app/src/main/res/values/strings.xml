@@ -37,7 +37,7 @@
     <string name="befuck_realmoji_download">Save</string>
     <string name="befuck_download_in_progress">Saving…</string>
     <string name="befuck_download_complete">Saved %1$d item(s)</string>
-    <string name="befuck_download_failed">Could not save. Check storage space and network.</string>
+    <string name="befuck_download_failed">Could not save. Check storage space and network connection.</string>
     <string name="befuck_close">Close</string>
     <string name="befuck_audience">Audience</string>
     <string name="befuck_audience_friends">Friends</string>
@@ -71,7 +71,7 @@
     <string name="befuck_location_map_failed">Could not load map</string>
     <string name="befuck_location_button">Location</string>
     <string name="befuck_location_none">No location</string>
-    <string name="befuck_cache_url_only">Only post info is saved locally. Tap save to download photos or videos.</string>
+    <string name="befuck_cache_url_only">Only post info is saved locally. Tap Save to download photos or videos.</string>
     <string name="befuck_cache_user_filter">Search username</string>
     <string name="befuck_cache_date_filter">Choose date</string>
     <string name="befuck_cache_all_dates">All dates</string>
