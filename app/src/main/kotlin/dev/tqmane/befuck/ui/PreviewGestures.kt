@@ -52,7 +52,7 @@ internal class PreviewPhotoView(context: Context) : androidx.appcompat.widget.Ap
     private var x = 0f; private var y = 0f
     private val scale = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            if (!detector.scaleFactor.isFinite()) return false
+            if (bitmap == null || !detector.scaleFactor.isFinite()) return false
             val next = (zoom * detector.scaleFactor).coerceIn(1f, 5f)
             transform.postScale(next / zoom, next / zoom, detector.focusX, detector.focusY)
             zoom = next; clamp(); parent?.requestDisallowInterceptTouchEvent(true); return true
@@ -62,6 +62,7 @@ internal class PreviewPhotoView(context: Context) : androidx.appcompat.widget.Ap
         override fun onDown(event: MotionEvent) = true
         override fun onSingleTapConfirmed(event: MotionEvent): Boolean { performClick(); return true }
         override fun onDoubleTap(event: MotionEvent): Boolean {
+            if (bitmap == null) return true
             if (isZoomed) fit() else { transform.postScale(3f, 3f, event.x, event.y); zoom = 3f; clamp() }
             return true
         }
@@ -72,16 +73,20 @@ internal class PreviewPhotoView(context: Context) : androidx.appcompat.widget.Ap
         zoom = 1f; transform.reset()
         bitmap?.let {
             if (width > 0 && height > 0) {
-                val factor = minOf(width.toFloat() / it.width, height.toFloat() / it.height)
+                val dw = drawable?.intrinsicWidth?.takeIf { value -> value > 0 } ?: it.width
+                val dh = drawable?.intrinsicHeight?.takeIf { value -> value > 0 } ?: it.height
+                val factor = minOf(width.toFloat() / dw, height.toFloat() / dh)
                 transform.setScale(factor, factor)
-                transform.postTranslate((width - it.width * factor) / 2, (height - it.height * factor) / 2)
+                transform.postTranslate((width - dw * factor) / 2, (height - dh * factor) / 2)
             }
         }
         imageMatrix = transform
     }
     private fun clamp() {
         val image = bitmap ?: return
-        val bounds = RectF(0f, 0f, image.width.toFloat(), image.height.toFloat()).also { transform.mapRect(it) }
+        val dw = drawable?.intrinsicWidth?.takeIf { it > 0 } ?: image.width
+        val dh = drawable?.intrinsicHeight?.takeIf { it > 0 } ?: image.height
+        val bounds = RectF(0f, 0f, dw.toFloat(), dh.toFloat()).also { transform.mapRect(it) }
         val dx = when { bounds.width() <= width -> width / 2f - bounds.centerX(); bounds.left > 0 -> -bounds.left; bounds.right < width -> width - bounds.right; else -> 0f }
         val dy = when { bounds.height() <= height -> height / 2f - bounds.centerY(); bounds.top > 0 -> -bounds.top; bounds.bottom < height -> height - bounds.bottom; else -> 0f }
         transform.postTranslate(dx, dy); imageMatrix = transform
