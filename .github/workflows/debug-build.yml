@@ -30,11 +30,14 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          # API 37 uses the major.minor package name in the SDK repository.
           packages: 'platform-tools platforms;android-37.0'
           log-accepted-android-sdk-licenses: false
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+      - name: Verify reproducible vendored icons
+        run: |
+          python3 checks/export_tabler.py
+          git diff --exit-code -- app/src/main/kotlin/dev/tqmane/befuck/ui/TablerIcon.kt app/src/main/res/drawable
       - name: Build debug APK
         run: bash ./gradlew --no-daemon :app:assembleDebug
       - name: Upload debug APK
@@ -44,13 +47,15 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-      - name: Run module checks and Android lint
-        run: bash ./gradlew --no-daemon :app:checkModule :app:lintDebug
+      - name: Run module checks, Android 13 behavior tests and lint
+        run: bash ./gradlew --no-daemon --continue :app:checkModule :app:testDebugUnitTest :app:lintDebug
       - name: Upload verification reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: BeFuck-reports-${{ github.run_number }}
-          path: app/build/reports/
+          path: |
+            app/build/reports/
+            app/build/test-results/
           if-no-files-found: ignore
           retention-days: 14

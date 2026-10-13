@@ -19,3 +19,10 @@ SMS protocol references: StayReal Android's BeRealAuthApi and BeRealHeaders,
 and Ogma's public/auth/v2.proto phone-verification schema.
 https://code.vexcited.com/stayreal/android
 https://code.vexcited.com/stayreal/ogma
+
+Tabler Icons 3.49.0 (MIT), copyright Paweł Kuna.
+Source: https://github.com/tabler/tabler-icons
+Pinned commit: bbed884d15354b5cebf2493371f20dc2d5e83eaf
+Original SVGs and license are retained in third_party/tabler/.
+The APK includes the full license in META-INF/befuck/licenses/Tabler-Icons-MIT.txt.
+Kotlin and Android VectorDrawable paths are mechanically derived from those SVGs.

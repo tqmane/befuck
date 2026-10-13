@@ -25,7 +25,10 @@ object RuntimeKnowledge {
     private const val INFO = "repair_info:"
     private const val MAX_LOG_BYTES = 512L * 1024L
     private val writer = Executors.newSingleThreadExecutor { task -> Thread(task, "BeFuckRuntimeLog") }
-    private val seenEvents = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val seenEvents = java.util.Collections.newSetFromMap(java.util.Collections.synchronizedMap(
+        object : LinkedHashMap<String, Boolean>(512, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?) = size > 512
+        }))
     private val analyzing = ThreadLocal<Boolean>()
     private var context: Context? = null
     private var loader: ClassLoader? = null
@@ -114,13 +117,14 @@ object RuntimeKnowledge {
         event("preferences_cleared", JSONObject())
     }
 
-    fun repairs(): Map<String, String> = settings().all.filterKeys { it.startsWith(REPAIR) }
-        .mapKeys { it.key.removePrefix(REPAIR) }.mapValues { it.value as String }
+    fun repairs(): Map<String, String> = settings().all.entries.mapNotNull { (key, value) ->
+        if (key.startsWith(REPAIR) && value is String) key.removePrefix(REPAIR) to value else null
+    }.toMap()
 
     data class RepairRule(val key: String, val value: String, val source: String, val reason: String, val updatedAt: String?)
 
     fun repairRules(): List<RepairRule> = repairs().map { (key, value) ->
-        val info = settings().getString(INFO + key, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val info = (settings().all[INFO + key] as? String)?.let { runCatching { JSONObject(it) }.getOrNull() }
         RepairRule(key, value, if (settings().getBoolean(MANUAL + key, false)) "manual" else info?.optString("source", "saved") ?: "saved",
             info?.optString("reason").orEmpty(), info?.optString("at")?.takeIf { it.isNotBlank() })
     }.sortedWith(compareByDescending<RepairRule> { it.updatedAt.orEmpty() }.thenBy { it.key })
@@ -163,7 +167,7 @@ object RuntimeKnowledge {
     }
 
     fun registerRepair(owner: String, name: String, value: String) {
-        require(owner.isNotBlank() && name.isNotBlank() && value.isNotEmpty())
+        require(owner.isNotBlank() && name.isNotBlank())
         val field = Class.forName(owner, false, requireNotNull(loader)).getDeclaredField(name).apply { isAccessible = true }
         require(Modifier.isStatic(field.modifiers) && !Modifier.isFinal(field.modifiers) && field.type == String::class.java) { "Only mutable static String fields can be repaired" }
         // Saving an explicit manual edit updates the current field as well as the next-start rule.

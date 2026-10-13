@@ -83,6 +83,7 @@ object BeFuckGalleryUi {
     private const val MAX_IMAGE_BYTES = 1_048_576
     private const val MAX_SOURCE_VIDEO_BYTES = 1_073_741_824L
     private val sessions = WeakHashMap<Activity, Session>()
+    private val pickerOwners = WeakHashMap<Activity, Pair<Session, Int>>()
     private val entryTrackers = WeakHashMap<Activity, EntryTracker>()
     private val lastHomeState = WeakHashMap<Activity, Boolean>()
     private val detailDownloadOverlays = WeakHashMap<Activity, FrameLayout>()
@@ -131,6 +132,10 @@ object BeFuckGalleryUi {
         val mediaButtons: MutableMap<Int, Button> = linkedMapOf(),
         var frontPhotoSource: Uri? = null,
         var backPhotoSource: Uri? = null,
+        var photoEditor: Dialog? = null,
+        var pickerRequest: Int? = null,
+        var pendingRequest: GalleryPostRequest? = null,
+        val formControls: MutableList<View> = arrayListOf(),
         var videoEditor: VideoCropDialog? = null,
         var videoSourcesInUse: Set<String> = emptySet(),
     )
@@ -174,6 +179,8 @@ object BeFuckGalleryUi {
 
     @JvmStatic
     fun onActivityDestroy(activity: Activity) {
+        DialogOwners.destroy(activity)
+        pickerOwners.remove(activity)
         onActivityPause(activity)
         BeFakeLocationDialog.onActivityDestroy(activity)
         runCatching { sessions[activity]?.dialog?.dismiss() }
@@ -574,21 +581,20 @@ object BeFuckGalleryUi {
         val backSlot = requestCode == REQUEST_BACK || requestCode == REQUEST_BACK_VIDEO
         val video = requestCode == REQUEST_FRONT_VIDEO || requestCode == REQUEST_BACK_VIDEO
         if (!frontSlot && !backSlot) return false
-        if (resultCode != Activity.RESULT_OK || data?.data == null) {
-            sessions[activity]?.let { it.status.text = it.resources.getString(R.string.befuck_selection_cancelled) }
+        val owner = pickerOwners[activity] ?: return true
+        if (owner.second != requestCode) return true
+        pickerOwners.remove(activity)
+        val session = owner.first
+        session.pickerRequest = null
+        if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) return true
+        updatePostAvailability(session)
+        val uri = data?.data
+        if (resultCode != Activity.RESULT_OK || uri == null) {
+            session.status.text = session.resources.getString(R.string.befuck_selection_cancelled)
             return true
         }
-        val uri = data.data!!
-        val session = sessions[activity] ?: return true
-        if (session.isSubmitting || !mediaKindAllowed(session, frontSlot, video)) {
-            session.status.text = session.resources.getString(R.string.befuck_media_type_mismatch)
-            return true
-        }
-        if (video) {
-            showVideoCrop(activity, session, uri, frontSlot)
-        } else {
-            showPhotoCrop(activity, session, uri, frontSlot)
-        }
+        if (session.isSubmitting || session.isPreparing || session.pendingOfficialPostId != null || !mediaKindAllowed(session, frontSlot, video)) return true
+        if (video) showVideoCrop(activity, session, uri, frontSlot) else showPhotoCrop(activity, session, uri, frontSlot)
         return true
     }
 
@@ -689,11 +695,16 @@ object BeFuckGalleryUi {
         session.isPreparing = true
         updatePostAvailability(session)
         runCatching {
-            CropDialog.show(
+            session.photoEditor = CropDialog.show(
                 activity = activity,
                 resources = session.resources,
                 imageUri = uri,
                 onCropped = { croppedBitmap ->
+                    session.photoEditor = null
+                    if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) {
+                        croppedBitmap.recycle()
+                        return@show
+                    }
                     session.isPreparing = true
                     updatePostAvailability(session)
                     session.status.text = session.resources.getString(R.string.befuck_preparing_image)
@@ -703,6 +714,8 @@ object BeFuckGalleryUi {
                     }
                 },
                 onCancelled = {
+                    session.photoEditor = null
+                    if (sessions[activity] !== session) return@show
                     session.isPreparing = false
                     updatePostAvailability(session)
                     session.status.text = session.resources.getString(R.string.befuck_selection_cancelled)
@@ -729,7 +742,7 @@ object BeFuckGalleryUi {
         photoSource: Uri? = null,
     ) {
         val session = sessions[activity]
-        if (session !== expectedSession) {
+        if (session !== expectedSession || activity.isDestroyed || activity.isFinishing) {
             result.getOrNull()?.let { discardPreparedMedia(activity, it) }
             return
         }
@@ -743,13 +756,13 @@ object BeFuckGalleryUi {
             }
             val previewFile = File(selected.previewPath ?: selected.path)
             if (frontSlot) {
-                session.front?.let { discardPreparedMedia(activity, it, setOfNotNull(selected.sourcePath)) }
+                session.front?.let { discardPreparedMedia(activity, it, setOfNotNull(selected.path, selected.previewPath, selected.sourcePath)) }
                 session.front = selected
                 session.frontPhotoSource = photoSource
                 session.frontPreview.setImageURI(Uri.fromFile(previewFile))
                 session.frontLabel.text = selectedMediaLabel(session.resources, selected, true)
             } else {
-                session.back?.let { discardPreparedMedia(activity, it, setOfNotNull(selected.sourcePath)) }
+                session.back?.let { discardPreparedMedia(activity, it, setOfNotNull(selected.path, selected.previewPath, selected.sourcePath)) }
                 session.back = selected
                 session.backPhotoSource = photoSource
                 session.backPreview.setImageURI(Uri.fromFile(previewFile))
@@ -761,7 +774,7 @@ object BeFuckGalleryUi {
             session.status.text = if (mediaTypeMismatch(session)) {
                 session.resources.getString(R.string.befuck_media_type_mismatch)
             } else if (session.front?.isVideo == true && session.back?.isVideo == true) {
-                val duration = min(requireNotNull(session.front?.videoEdit).durationMs, requireNotNull(session.back?.videoEdit).durationMs)
+                val duration = min(session.front?.videoEdit?.durationMs ?: session.front?.durationMs ?: 0L, session.back?.videoEdit?.durationMs ?: session.back?.durationMs ?: 0L)
                 session.resources.getString(R.string.befuck_video_pair_duration, duration / 1000.0)
             } else if (session.front != null && session.back != null) {
                 session.resources.getString(R.string.befuck_media_ready,
@@ -786,10 +799,10 @@ object BeFuckGalleryUi {
         (if (front) session.back else session.front)?.let { it.isVideo == video } ?: true
 
     private fun updatePostAvailability(session: Session) {
-        val ready = session.front != null && session.back != null && !mediaTypeMismatch(session) && !session.isSubmitting && !session.isPreparing
+        val ready = session.front != null && session.back != null && !mediaTypeMismatch(session) && !session.isSubmitting && !session.isPreparing && session.pickerRequest == null
         session.postButton?.isEnabled = ready
         session.postButton?.alpha = if (ready) 1f else 0.45f
-        val busy = session.isSubmitting || session.isPreparing || session.pendingOfficialPostId != null
+        val busy = session.isSubmitting || session.isPreparing || session.pendingOfficialPostId != null || session.pickerRequest != null
         session.mediaButtons.forEach { (request, button) ->
             val front = request == REQUEST_FRONT || request == REQUEST_FRONT_VIDEO
             val video = request == REQUEST_FRONT_VIDEO || request == REQUEST_BACK_VIDEO
@@ -797,8 +810,9 @@ object BeFuckGalleryUi {
             button.isEnabled = !busy && mediaKindAllowed(session, front, video)
             button.alpha = if (button.isEnabled) 1f else 0.3f
         }
-        session.frontPreview.isEnabled = !busy && session.front != null
-        session.backPreview.isEnabled = !busy && session.back != null
+        session.frontPreview.isEnabled = !busy
+        session.backPreview.isEnabled = !busy
+        session.formControls.forEach { it.isEnabled = !session.isSubmitting && session.pendingOfficialPostId == null }
     }
 
     private fun prepareCroppedBitmap(activity: Activity, bitmap: Bitmap, slot: String): GalleryMediaFile {
@@ -823,507 +837,288 @@ object BeFuckGalleryUi {
         }
     }
 
-    private fun open(activity: Activity, resources: Resources, symbols: ResolvedSymbols) {
-        val dialog = Dialog(activity)
+    internal fun open(activity: Activity, resources: Resources, symbols: ResolvedSymbols?) {
+        if (activity.isDestroyed || activity.isFinishing || sessions[activity]?.dialog?.isShowing == true) return
+        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar)
         val content = FrameLayout(activity).apply { setBackgroundColor(BG) }
-        val panel = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BG)
-            clipToOutline = true
+        val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(panel, FrameLayout.LayoutParams(if (activity.resources.configuration.screenWidthDp > 600) dp(activity, 560) else -1, -1, Gravity.CENTER))
+        val header = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(activity, 20), dp(activity, 12), dp(activity, 12), dp(activity, 12))
         }
-        val scroll = ScrollView(activity)
+        val titles = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_title), 30f, bold = true).apply { letterSpacing = -.03f })
+            addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_gallery_eyebrow), 12f, MUTED))
+        }
+        header.addView(titles, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(ExpressiveUi.iconButton(activity, TablerIcon.SETTINGS_2, resources.getString(R.string.befuck_settings_title)) { openSettings(activity, resources) }, LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48)))
+        header.addView(ExpressiveUi.iconButton(activity, TablerIcon.X, resources.getString(R.string.befuck_close)) { dialog.dismiss() }, LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48)))
+        panel.addView(header)
+        val scroll = ScrollView(activity).apply { isFillViewport = false }
         val column = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(activity, 20), dp(activity, 20), dp(activity, 20), dp(activity, 20))
+            setPadding(dp(activity, 16), 0, dp(activity, 16), dp(activity, 24))
         }
-        scroll.addView(column, FrameLayout.LayoutParams(-1, -2))
-        val windowWidthPx = activity.window?.decorView?.width
-            ?.takeIf { it > 0 }
-            ?: activity.resources.displayMetrics.widthPixels
-        val screenWidthDp = windowWidthPx / activity.resources.displayMetrics.density
-        val sheetWidth = if (screenWidthDp > 600f) dp(activity, 560) else -1
-        val screenHeight = activity.window?.decorView?.height
-            ?.takeIf { it > 0 }
-            ?: activity.resources.displayMetrics.heightPixels
-        val sheetHeight = screenHeight
-        content.addView(panel, FrameLayout.LayoutParams(sheetWidth, sheetHeight, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
-
-        val headerRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(activity, 20), dp(activity, 14), dp(activity, 12), dp(activity, 14))
-        }
-        val titleBlock = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        titleBlock.addView(TextView(activity).apply {
-            text = resources.getString(R.string.befuck_title)
-            textSize = 24f
-            letterSpacing = -0.03f
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        })
-        titleBlock.addView(TextView(activity).apply {
-            text = resources.getString(R.string.befuck_gallery_eyebrow)
-            textSize = 10f
-            letterSpacing = 0.14f
-            typeface = Typeface.create("monospace", Typeface.NORMAL)
-            setTextColor(MUTED)
-        })
-        headerRow.addView(titleBlock, LinearLayout.LayoutParams(0, -2, 1f))
-        headerRow.addView(
-            iconButton(activity, GLYPH_SETTINGS, resources.getString(R.string.befuck_settings_title)) {
-                openSettings(activity, resources)
-            },
-            LinearLayout.LayoutParams(dp(activity, 44), dp(activity, 44)),
-        )
-        headerRow.addView(
-            iconButton(activity, GLYPH_CLOSE, resources.getString(R.string.befuck_close)) { dialog.dismiss() },
-            LinearLayout.LayoutParams(dp(activity, 44), dp(activity, 44)).apply { marginStart = dp(activity, 8) },
-        )
-        panel.addView(headerRow)
-        panel.addHairline(activity)
+        scroll.addView(column)
         panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        content.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
-            val height = min(sheetHeight, bottom - top - content.paddingTop - content.paddingBottom)
-            if (height > 0 && panel.layoutParams.height != height) panel.layoutParams = panel.layoutParams.apply { this.height = height }
-        }
-
-        column.addView(label(activity, resources.getString(R.string.befuck_intro)).apply { textSize = 12.5f },
-            gapParams(activity, 0, 0, 0, 20))
-
-        val downloadRow = rowAction(activity, resources.getString(R.string.befuck_download_recent)) {
-            openDownloadDialog(activity, resources)
-        }
-        column.addHairline(activity)
-        column.addView(downloadRow, gapParams(activity, 0, 0, 0, 0))
-        column.addHairline(activity)
-        column.addView(View(activity), LinearLayout.LayoutParams(-1, dp(activity, 28)))
-        column.addView(sectionLabel(activity, resources.getString(R.string.befuck_media_pair), 1), gapParams(activity, 0, 0, 0, 10))
-        val mediaRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-        val frontPreview = mediaPreview(activity)
-        val backPreview = mediaPreview(activity)
-        val frontLabel = label(activity, resources.getString(R.string.befuck_front_missing)).apply { textSize = 11f }
-        val backLabel = label(activity, resources.getString(R.string.befuck_back_missing)).apply { textSize = 11f }
+        column.addView(ExpressiveUi.heading(activity, resources.getString(R.string.befuck_media_pair), resources.getString(R.string.befuck_intro)))
+        val frontPreview = ImageView(activity)
+        val backPreview = ImageView(activity)
+        val frontLabel = label(activity, resources.getString(R.string.befuck_front_missing))
+        val backLabel = label(activity, resources.getString(R.string.befuck_back_missing))
         val mediaButtons = linkedMapOf<Int, Button>()
-
-        fun mediaSlot(
-            title: String,
-            side: String,
-            image: ImageView,
-            selected: TextView,
-            front: Boolean,
-        ): LinearLayout {
-            val card = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-            val imageFrame = FrameLayout(activity).apply {
-                background = rounded(activity, SURFACE, RADIUS_DP)
-                clipToOutline = true
+        val largeText = activity.resources.configuration.fontScale >= 1.5f
+        val mediaRow = LinearLayout(activity).apply { orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL }
+        fun slot(front: Boolean, preview: ImageView, selected: TextView): View {
+            val title = resources.getString(if (front) R.string.befuck_download_front else R.string.befuck_download_back)
+            val card = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = ExpressiveUi.shape(activity)
+                setPadding(dp(activity, 8), dp(activity, 8), dp(activity, 8), dp(activity, 12))
             }
-            image.scaleType = ImageView.ScaleType.CENTER_CROP
-            image.background = null
-            image.contentDescription = "$title ﾂｷ ${resources.getString(R.string.befuck_crop_title)}"
-            image.setOnClickListener {
-                val session = sessions[activity] ?: return@setOnClickListener
-                val media = (if (front) session.front else session.back) ?: return@setOnClickListener
-                if (session.isPreparing || session.isSubmitting || session.pendingOfficialPostId != null) return@setOnClickListener
-                if (media.isVideo) {
-                    showVideoCrop(activity, session, null, front)
-                    return@setOnClickListener
-                }
-                val source = (if (front) session.frontPhotoSource else session.backPhotoSource) ?: Uri.fromFile(File(media.path))
-                showPhotoCrop(activity, session, source, front)
-            }
-            imageFrame.addView(image, FrameLayout.LayoutParams(-1, -1))
-            val chip = TextView(activity).apply {
-                text = side
-                textSize = 9f
-                letterSpacing = 0.14f
-                typeface = Typeface.create("monospace", Typeface.BOLD)
-                setTextColor(Color.BLACK)
-                setPadding(dp(activity, 6), dp(activity, 3), dp(activity, 6), dp(activity, 3))
-                background = rounded(activity, Color.WHITE, 6f, Color.WHITE)
-            }
-            imageFrame.addView(chip, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
-                setMargins(dp(activity, 8), dp(activity, 8), 0, 0)
-            })
-            val mediaWidth = ((if (sheetWidth > 0) sheetWidth else windowWidthPx) - dp(activity, 52)) / 2
-            card.addView(imageFrame, LinearLayout.LayoutParams(-1, (mediaWidth * 4f / 3f).toInt()))
-            card.addView(TextView(activity).apply {
-                text = title
-                textSize = 13f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(Color.WHITE)
-                setPadding(0, dp(activity, 10), 0, dp(activity, 2))
-            })
-            selected.maxLines = 2
-            card.addView(selected, LinearLayout.LayoutParams(-1, dp(activity, 32)))
-            val choices = LinearLayout(activity).apply {
-                background = rounded(activity, BG, RADIUS_DP)
-                clipToOutline = true
-                setPadding(dp(activity, 1), dp(activity, 1), dp(activity, 1), dp(activity, 1))
-            }
-            val options = listOf(
-                resources.getString(R.string.befuck_pick_photo) to if (front) REQUEST_FRONT else REQUEST_BACK,
-                resources.getString(R.string.befuck_pick_video) to if (front) REQUEST_FRONT_VIDEO else REQUEST_BACK_VIDEO,
-            )
-            options.forEachIndexed { index, (text, request) ->
-                if (index > 0) choices.addView(hairline(activity), LinearLayout.LayoutParams(dp(activity, 1), -1))
-                choices.addView(secondaryButton(activity, text) {
-                    if (sessions[activity]?.isSubmitting != true && sessions[activity]?.isPreparing != true) launchPicker(activity, request)
-                }.apply {
-                    mediaButtons[request] = this
-                    textSize = 12f
-                    contentDescription = "$title ﾂｷ $text"
-                    background = RippleDrawable(
-                        android.content.res.ColorStateList.valueOf(0x33808080),
-                        StateListDrawable().apply {
-                            addState(intArrayOf(android.R.attr.state_selected), ColorDrawable(Color.WHITE))
-                            addState(intArrayOf(), ColorDrawable(Color.TRANSPARENT))
-                        }, ColorDrawable(Color.WHITE),
-                    )
-                    setTextColor(android.content.res.ColorStateList(
-                        arrayOf(intArrayOf(android.R.attr.state_selected), intArrayOf()), intArrayOf(Color.BLACK, Color.WHITE),
-                    ))
-                    setPadding(dp(activity, 2), 0, dp(activity, 2), 0)
-                }, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
-            }
-            card.addView(choices, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 6) })
-            return card
-        }
-
-        mediaRow.addView(
-            mediaSlot(
-                resources.getString(R.string.befuck_download_back), "BACK", backPreview, backLabel,
-                front = false,
-            ),
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(activity, 6) },
-        )
-        mediaRow.addView(
-            mediaSlot(
-                resources.getString(R.string.befuck_download_front), "FRONT", frontPreview, frontLabel,
-                front = true,
-            ),
-            LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(activity, 6) },
-        )
-        column.addView(mediaRow, gapParams(activity, 0, 0, 0, 28))
-
-        column.addView(sectionLabel(activity, resources.getString(R.string.befuck_caption), 2), gapParams(activity, 0, 0, 0, 8))
-        val caption = EditText(activity).apply {
-            hint = resources.getString(R.string.befuck_caption_hint)
-            setHintTextColor(0xFF5E5E5E.toInt())
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            maxLines = 4
-            background = rounded(activity, BG, RADIUS_DP)
-            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
-        }
-        column.addView(caption, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(activity, 28) })
-
-        column.addView(sectionLabel(activity, resources.getString(R.string.befuck_audience), 3), gapParams(activity, 0, 0, 0, 8))
-        var selectedAudience = 0
-        var refreshAudienceButtons: () -> Unit = {}
-        val audienceRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            background = rounded(activity, BG, RADIUS_DP)
-            clipToOutline = true
-            setPadding(dp(activity, 1), dp(activity, 1), dp(activity, 1), dp(activity, 1))
-        }
-        val audienceOptions = listOf(
-            resources.getString(R.string.befuck_audience_friends),
-            resources.getString(R.string.befuck_audience_fof),
-            resources.getString(R.string.befuck_audience_public),
-        )
-        val audienceButtons = audienceOptions.mapIndexed { index, text ->
-            TextView(activity).apply {
-                this.text = text
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                maxLines = 2
-                setPadding(dp(activity, 4), dp(activity, 6), dp(activity, 4), dp(activity, 6))
-                isClickable = true
+            val frame = FrameLayout(activity).apply { background = ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER, 22f); clipToOutline = true }
+            preview.apply {
+                scaleType = ImageView.ScaleType.CENTER
+                setImageDrawable(TablerIconDrawable(TablerIcon.CAMERA, dp(activity, 40), MUTED))
+                contentDescription = "$title · ${resources.getString(R.string.befuck_crop_title)}"
                 isFocusable = true
                 setOnClickListener {
-                    selectedAudience = index
-                    refreshAudienceButtons()
+                    val session = sessions[activity] ?: return@setOnClickListener
+                    if (session.dialog !== dialog || session.isPreparing || session.isSubmitting || session.pendingOfficialPostId != null || session.pickerRequest != null) return@setOnClickListener
+                    val media = if (front) session.front else session.back
+                    when {
+                        media == null -> {
+                            val video = (if (front) session.back else session.front)?.isVideo == true
+                            launchPicker(activity, if (front) { if (video) REQUEST_FRONT_VIDEO else REQUEST_FRONT } else { if (video) REQUEST_BACK_VIDEO else REQUEST_BACK })
+                        }
+                        media.isVideo -> showVideoCrop(activity, session, null, front)
+                        else -> showPhotoCrop(activity, session, (if (front) session.frontPhotoSource else session.backPhotoSource) ?: Uri.fromFile(File(media.path)), front)
+                    }
                 }
-            }.also { button ->
-                if (index > 0) audienceRow.addView(hairline(activity), LinearLayout.LayoutParams(dp(activity, 1), -1))
-                audienceRow.addView(button, LinearLayout.LayoutParams(0, dp(activity, 46), 1f))
             }
-        }
-        refreshAudienceButtons = {
-            audienceButtons.forEachIndexed { index, button ->
-                val selected = index == selectedAudience
-                button.setTextColor(if (selected) Color.BLACK else Color.WHITE)
-                button.background = RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(if (selected) 0x33000000 else 0x33FFFFFF),
-                    ColorDrawable(if (selected) Color.WHITE else Color.TRANSPARENT),
-                    null,
-                )
+            frame.addView(preview, FrameLayout.LayoutParams(-1, -1))
+            frame.addView(ExpressiveUi.text(activity, title, 12f, Color.BLACK, true).apply {
+                background = ExpressiveUi.shape(activity, Color.WHITE, 16f)
+                setPadding(dp(activity, 10), dp(activity, 5), dp(activity, 10), dp(activity, 5))
+            }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply { setMargins(dp(activity, 8), dp(activity, 8), dp(activity, 8), 0) })
+            card.addView(frame, LinearLayout.LayoutParams(-1, dp(activity, 190)))
+            frame.addOnLayoutChangeListener { view, left, _, right, _, _, _, _, _ ->
+                val height = minOf(dp(activity, 480), ((right - left) * 4f / 3f).toInt())
+                if (height > 0 && view.layoutParams.height != height) view.layoutParams = view.layoutParams.apply { this.height = height }
             }
-        }
-        refreshAudienceButtons()
-        column.addView(audienceRow, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(activity, 28) })
-
-        val retakeHeader = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
-        retakeHeader.addView(sectionLabel(activity, resources.getString(R.string.befuck_retakes), 4), LinearLayout.LayoutParams(0, -2, 1f))
-        val retakeCount = TextView(activity).apply {
-            text = "00"
-            textSize = 16f
-            typeface = Typeface.create("monospace", Typeface.BOLD)
-            gravity = Gravity.END
-            setTextColor(Color.WHITE)
-        }
-        retakeHeader.addView(retakeCount)
-        column.addView(retakeHeader, gapParams(activity, 0, 0, 0, 4))
-        val retakes = SeekBar(activity).apply {
-            max = 15
-            progress = 0
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFF2E2E2E.toInt())
-            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    retakeCount.text = "%02d".format(progress)
+            selected.textSize = 12f
+            selected.minimumHeight = dp(activity, 52)
+            selected.setPadding(dp(activity, 8), dp(activity, 10), dp(activity, 8), dp(activity, 8))
+            card.addView(selected, LinearLayout.LayoutParams(-1, -2))
+            val choices = LinearLayout(activity)
+            listOf(false, true).forEachIndexed { index, video ->
+                val request = if (front) { if (video) REQUEST_FRONT_VIDEO else REQUEST_FRONT } else { if (video) REQUEST_BACK_VIDEO else REQUEST_BACK }
+                val choice = resources.getString(if (video) R.string.befuck_pick_video else R.string.befuck_pick_photo)
+                val button = ExpressiveUi.button(activity, choice) { launchPicker(activity, request) }.apply {
+                    textSize = 12f; contentDescription = "$title · $choice"
+                    setPadding(dp(activity, 6), dp(activity, 10), dp(activity, 6), dp(activity, 10))
+                    val icon = TablerIconDrawable(if (video) TablerIcon.VIDEO else TablerIcon.PHOTO, dp(activity, 20), Color.WHITE)
+                    icon.setBounds(0, 0, dp(activity, 20), dp(activity, 20))
+                    setCompoundDrawablesRelative(null, icon, null, null); compoundDrawablePadding = dp(activity, 4)
+                    background = RippleDrawable(android.content.res.ColorStateList.valueOf(0x33FFFFFF), StateListDrawable().apply {
+                        addState(intArrayOf(android.R.attr.state_selected), ExpressiveUi.shape(activity, 0xFF393939.toInt(), 20f, 0xFF858585.toInt()))
+                        addState(intArrayOf(), ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER, 20f))
+                    }, null)
                 }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                mediaButtons[request] = button
+                choices.addView(button, LinearLayout.LayoutParams(0, -2, 1f).apply { if (index == 1) marginStart = dp(activity, 6) })
+            }
+            card.addView(choices)
+            return card
+        }
+        listOf(slot(false, backPreview, backLabel), slot(true, frontPreview, frontLabel)).forEachIndexed { index, card ->
+            mediaRow.addView(card, (if (largeText) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)).apply {
+                if (index == 1) { if (largeText) topMargin = dp(activity, 12) else marginStart = dp(activity, 12) }
             })
         }
-        column.addView(retakes, gapParams(activity, 0, 0, 0, 20))
-
+        column.addView(mediaRow, gapParams(activity, 0, 0, 0, 16))
+        column.addView(ExpressiveUi.row(activity, resources.getString(R.string.befuck_download_recent), TablerIcon.FOLDER) { openDownloadDialog(activity, resources) }, gapParams(activity, 0, 0, 0, 24))
+        fun group(): LinearLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL; background = ExpressiveUi.shape(activity)
+            setPadding(dp(activity, 16), dp(activity, 16), dp(activity, 16), dp(activity, 16))
+            column.addView(this, gapParams(activity, 0, 0, 0, 16))
+        }
+        val details = group()
+        details.addView(sectionLabel(activity, resources.getString(R.string.befuck_caption)))
+        val caption = EditText(activity).apply {
+            hint = resources.getString(R.string.befuck_caption_hint); contentDescription = resources.getString(R.string.befuck_caption)
+            setTextColor(Color.WHITE); setHintTextColor(MUTED); textSize = 16f; maxLines = 4
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            background = ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER, 20f)
+            setPadding(dp(activity, 14), dp(activity, 14), dp(activity, 14), dp(activity, 14))
+        }
+        details.addView(caption, gapParams(activity, 0, 10, 0, 20))
+        details.addView(sectionLabel(activity, resources.getString(R.string.befuck_audience)))
+        var selectedAudience = 0
+        val audienceRow = LinearLayout(activity).apply { orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL }
+        val audienceButtons = mutableListOf<Button>()
+        fun refreshAudience() { audienceButtons.forEachIndexed { index, button ->
+            button.isSelected = selectedAudience == index
+            button.setTextColor(if (button.isSelected) Color.BLACK else Color.WHITE)
+            button.background = ExpressiveUi.ripple(activity, if (button.isSelected) Color.WHITE else ExpressiveUi.CONTAINER, 20f)
+        } }
+        listOf(R.string.befuck_audience_friends, R.string.befuck_audience_fof, R.string.befuck_audience_public).forEachIndexed { index, id ->
+            val button = ExpressiveUi.button(activity, resources.getString(id)) { selectedAudience = index; refreshAudience() }.apply {
+                textSize = 13f; setPadding(dp(activity, 6), dp(activity, 12), dp(activity, 6), dp(activity, 12))
+            }
+            audienceButtons += button
+            audienceRow.addView(button, (if (largeText) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)).apply {
+                if (index > 0) { if (largeText) topMargin = dp(activity, 6) else marginStart = dp(activity, 6) }
+            })
+        }
+        refreshAudience()
+        details.addView(audienceRow, gapParams(activity, 0, 10, 0, 0))
+        val options = group()
+        val retakeRow = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL }
+        retakeRow.addView(sectionLabel(activity, resources.getString(R.string.befuck_retakes)), LinearLayout.LayoutParams(0, -2, 1f))
+        val count = ExpressiveUi.text(activity, "0", 24f, bold = true)
+        retakeRow.addView(count); options.addView(retakeRow)
+        val retakes = SeekBar(activity).apply {
+            max = 15; minimumHeight = dp(activity, 48)
+            contentDescription = resources.getString(R.string.befuck_retakes)
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(ExpressiveUi.OUTLINE)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(view: SeekBar?, value: Int, fromUser: Boolean) { count.text = value.toString() }
+                override fun onStartTrackingTouch(view: SeekBar?) = Unit
+                override fun onStopTrackingTouch(view: SeekBar?) = Unit
+            })
+        }
+        options.addView(retakes, LinearLayout.LayoutParams(-1, -2))
         val late = Switch(activity).apply {
-            text = resources.getString(R.string.befuck_post_late)
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            monochromeSwitch(this)
+            text = resources.getString(R.string.befuck_post_late); textSize = 16f; setTextColor(Color.WHITE)
+            minHeight = dp(activity, 56); switchPadding = dp(activity, 16); monochromeSwitch(this)
         }
-        column.addHairline(activity)
-        column.addView(late, LinearLayout.LayoutParams(-1, dp(activity, 54)))
-        column.addHairline(activity)
-
-        fun locationText(location: LocationData?): String =
-            if (location != null) "%.4f, %.4f".format(location.latitude, location.longitude)
-            else resources.getString(R.string.befuck_location_button) + " / " + resources.getString(R.string.befuck_location_none)
-        val locationButton = TextView(activity).apply {
-            text = locationText(null)
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER_VERTICAL
-            compoundDrawablePadding = dp(activity, 12)
-            setCompoundDrawablesRelativeWithIntrinsicBounds(GlyphDrawable(GLYPH_PIN, dp(activity, 20), Color.WHITE), null, null, null)
-            background = RippleDrawable(
-                android.content.res.ColorStateList.valueOf(0x33FFFFFF), null, ColorDrawable(Color.WHITE),
-            )
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                val currentSession = sessions[activity] ?: return@setOnClickListener
-                BeFakeLocationDialog.show(activity, resources, currentSession.location) { newLocation ->
-                    currentSession.location = newLocation
-                    text = locationText(newLocation)
-                }
-            }
-        }
-        column.addView(locationButton, LinearLayout.LayoutParams(-1, dp(activity, 54)))
-        column.addHairline(activity)
-        column.addView(View(activity), LinearLayout.LayoutParams(-1, dp(activity, 20)))
-
-        val status = label(activity, resources.getString(R.string.befuck_media_local_status)).apply {
-            textSize = 11.5f
-            typeface = Typeface.MONOSPACE
-            setPadding(0, dp(activity, 12), 0, dp(activity, 4))
-        }
-        status.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-        val footer = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(activity, 20), 0, dp(activity, 20), dp(activity, 16))
-            setBackgroundColor(BG)
-        }
-        footer.addHairline(activity)
-        footer.addView(status, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(activity, 8) })
-        lateinit var postButton: Button
-        postButton = primaryButton(activity, resources.getString(R.string.befuck_post_now)) {
-            val session = sessions[activity] ?: return@primaryButton
-            if (session.isPreparing || session.isSubmitting) return@primaryButton
-            val front = session.front
-            val back = session.back
-            if (front == null || back == null) {
-                session.status.text = resources.getString(R.string.befuck_choose_both)
-                return@primaryButton
-            }
-            if (front.isVideo != back.isVideo) {
-                session.status.text = resources.getString(R.string.befuck_media_type_mismatch)
-                return@primaryButton
-            }
-            val useOfficialPipeline = front.isVideo || selectedAudience != 0
-            if (!useOfficialPipeline && !BeFakeAuthHeaders.hasAuthorization()) {
-                session.status.text = resources.getString(R.string.befuck_auth_waiting)
-                return@primaryButton
-            }
-            val post = GalleryPostRequest(
-                front = front,
-                back = back,
-                caption = session.caption.text?.toString().orEmpty(),
-                retakeCount = session.retakes.progress,
-                isLate = session.late.isChecked,
-                visibility = when (selectedAudience) {
-                    1 -> "friend-of-friends"
-                    2 -> "public"
-                    else -> "friends"
-                },
-                location = session.location,
-            )
-            session.status.text = resources.getString(R.string.befuck_post_submitting)
-            session.isSubmitting = true
-            updatePostAvailability(session)
-            postButton.text = resources.getString(R.string.befuck_post_submitting)
-            postButton.isEnabled = false
-            val completion = Consumer<Boolean> { success ->
-                mainThread.post {
-                    if (success) {
-                        if (useOfficialPipeline) {
-                            session.keepMediaUntilUpload = true
-                        } else {
-                            session.front?.let { discardPreparedMedia(activity, it) }
-                            session.back?.let { discardPreparedMedia(activity, it) }
-                        }
-                        GalleryPostController.refreshHomeFeed(activity, symbols.versionName)
-                        Toast.makeText(
-                            activity,
-                            resources.getString(
-                                if (useOfficialPipeline) R.string.befuck_post_completed
-                                else R.string.befuck_post_accepted,
-                            ),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                        session.dialog.dismiss()
-                    } else {
-                        if (session.pendingOfficialPostId == null) {
-                            session.keepMediaUntilUpload = false
-                            if (sessions[activity] !== session) {
-                                session.front?.let { discardPreparedMedia(activity, it) }
-                                session.back?.let { discardPreparedMedia(activity, it) }
-                                return@post
-                            }
-                        }
-                        session.isSubmitting = false
-                        updatePostAvailability(session)
-                        postButton.text = resources.getString(R.string.befuck_post_now)
-                        session.status.text = resources.getString(R.string.befuck_post_failed)
-                        postButton.isEnabled = true
+        options.addView(late)
+        val status = label(activity, resources.getString(R.string.befuck_media_local_status)).apply { accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
+        val session = Session(dialog, resources, frontPreview, backPreview, frontLabel, backLabel, caption, retakes, late, status)
+        val locationRow = ExpressiveUi.row(activity, resources.getString(R.string.befuck_location_button), TablerIcon.MAP_PIN, resources.getString(R.string.befuck_location_none)) {
+            if (sessions[activity] === session && !session.isSubmitting && session.pendingOfficialPostId == null) {
+                BeFakeLocationDialog.show(activity, resources, session.location) { location ->
+                    if (sessions[activity] === session && !session.isSubmitting && session.pendingOfficialPostId == null) {
+                        session.location = location
+                        // Stable labels container owned by ExpressiveUi.row.
+                        val row = session.formControls.lastOrNull() as? LinearLayout
+                        val labels = row?.getChildAt(1) as? LinearLayout
+                        (labels?.getChildAt(1) as? TextView)?.text = location?.let { String.format(Locale.ROOT, "%.5f, %.5f", it.latitude, it.longitude) } ?: resources.getString(R.string.befuck_location_none)
                     }
                 }
             }
-            if (useOfficialPipeline) {
-                if (!GalleryPostController.isReady(symbols)) {
-                    session.isSubmitting = false
-                    updatePostAvailability(session)
-                    postButton.text = resources.getString(R.string.befuck_post_now)
-                    session.status.text = resources.getString(R.string.befuck_official_pipeline_unavailable)
-                    postButton.isEnabled = true
-                    return@primaryButton
-                }
-                fun send(prepared: GalleryPostRequest) {
-                    GalleryPostController.postNow(activity, symbols, prepared, session.pendingOfficialPostId,
-                        Consumer { postId ->
-                            session.pendingOfficialPostId = postId
-                            session.keepMediaUntilUpload = true
-                        }, completion)
-                }
-                if (front.isVideo && session.pendingOfficialPostId == null) {
-                    // Retain inputs if the dialog closes while the background export is reading them.
-                    session.keepMediaUntilUpload = true
-                    session.status.text = resources.getString(R.string.befuck_video_exporting)
-                    importer.execute {
-                        val aligned = runCatching { alignVideoPair(activity, post) }
-                        mainThread.post {
-                            if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) {
-                                aligned.getOrNull()?.selectedMedia?.forEach { discardPreparedMedia(activity, it) }
-                                post.selectedMedia.forEach { discardPreparedMedia(activity, it) }
-                                return@post
-                            }
-                            aligned.onSuccess { prepared ->
-                                val preserve = prepared.selectedMedia.flatMap { listOfNotNull(it.path, it.previewPath, it.sourcePath) }.toSet()
-                                post.selectedMedia.forEach { discardPreparedMedia(activity, it, preserve) }
-                                session.front = prepared.front
-                                session.back = prepared.back
-                                send(prepared)
-                            }.onFailure {
-                                android.util.Log.e("BeFuck/Video", "Could not align the selected video intervals", it)
-                                session.keepMediaUntilUpload = false
-                                completion.accept(false)
-                            }
-                        }
-                    }
-                } else send(post)
-            } else {
-                BeFakeUploadController.postNow(activity, post, completion)
-            }
         }
-        footer.addView(postButton.apply {
-            textSize = 16f
-            isEnabled = false
-            alpha = 0.45f
-            minHeight = dp(activity, 54)
-        }, gapParams(activity, 0, 2, 0, 12))
-        column.addView(
-            label(activity, resources.getString(R.string.befuck_footer)).apply { textSize = 11f },
-            gapParams(activity, 0, 0, 0, 12),
-        )
-
-        panel.addView(footer, LinearLayout.LayoutParams(-1, -2))
-        dialog.setContentView(content)
-        dialog.setOnDismissListener {
-            sessions.remove(activity)?.let { dismissed ->
-                dismissed.videoEditor?.dismiss()
-                if (!dismissed.keepMediaUntilUpload) {
-                    val preserve = dismissed.videoSourcesInUse
-                    dismissed.front?.let { discardPreparedMedia(activity, it, preserve) }
-                    dismissed.back?.let { discardPreparedMedia(activity, it, preserve) }
-                }
-            }
-        }
-        val session = Session(
-            dialog,
-            resources,
-            frontPreview,
-            backPreview,
-            frontLabel,
-            backLabel,
-            caption,
-            retakes,
-            late,
-            status,
-        )
-        session.postButton = postButton
+        column.addView(locationRow)
+        session.formControls.addAll(listOf(caption, retakes, late) + audienceButtons + locationRow)
         session.mediaButtons.putAll(mediaButtons)
+        val footer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(activity, 16), dp(activity, 10), dp(activity, 16), dp(activity, 12))
+        }
+        footer.addView(status, gapParams(activity, 4, 0, 4, 8))
+        val post = ExpressiveUi.button(activity, resources.getString(R.string.befuck_post_now), true, TablerIcon.UPLOAD) {
+            submitPost(activity, session, symbols, when (selectedAudience) { 1 -> "friend-of-friends"; 2 -> "public"; else -> "friends" })
+        }
+        session.postButton = post
+        footer.addView(post, LinearLayout.LayoutParams(-1, -2))
+        panel.addView(footer)
         sessions[activity] = session
         updatePostAvailability(session)
-        dialog.show()
-        dialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-            window.setDimAmount(0f)
-            if (Build.VERSION.SDK_INT >= 30) {
-                window.setDecorFitsSystemWindows(false)
-                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-                content.setOnApplyWindowInsetsListener { view, insets ->
-                    val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars())
-                    val ime = insets.getInsets(android.view.WindowInsets.Type.ime())
-                    val bottom = max(bars.bottom, ime.bottom)
-                    view.setPadding(0, bars.top, 0, bottom)
-                    panel.layoutParams = panel.layoutParams.apply {
-                        height = min(sheetHeight, (view.height.takeIf { it > 0 } ?: screenHeight) - bars.top - bottom)
-                    }
-                    insets
-                }
-                content.requestApplyInsets()
-            } else {
-                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        dialog.setOnDismissListener {
+            if (sessions[activity] === session) sessions.remove(activity)
+            session.photoEditor?.dismiss(); session.videoEditor?.dismiss()
+            BeFakeLocationDialog.onActivityDestroy(activity)
+            session.frontPreview.setImageDrawable(null); session.backPreview.setImageDrawable(null)
+            if (!session.keepMediaUntilUpload) {
+                session.front?.let { discardPreparedMedia(activity, it, session.videoSourcesInUse) }
+                session.back?.let { discardPreparedMedia(activity, it, session.videoSourcesInUse) }
             }
         }
+        ExpressiveUi.showFullScreen(dialog, content)
     }
+
+    private fun submitPost(activity: Activity, session: Session, symbols: ResolvedSymbols?, audience: String) {
+        if (sessions[activity] !== session || session.isPreparing || session.isSubmitting || session.pickerRequest != null) return
+        val front = session.front ?: return
+        val back = session.back ?: return
+        if (mediaTypeMismatch(session)) return
+        val resources = session.resources
+        val request = session.pendingRequest ?: GalleryPostRequest(front = front, back = back, caption = session.caption.text.toString(), retakeCount = session.retakes.progress, isLate = session.late.isChecked, visibility = audience, location = session.location)
+        val official = (request.front?.isVideo == true) || request.visibility != "friends"
+        if (symbols == null || official && !GalleryPostController.isReady(symbols)) {
+            session.status.text = resources.getString(R.string.befuck_official_pipeline_unavailable); return
+        }
+        if (!official && !BeFakeAuthHeaders.hasAuthorization()) { session.status.text = resources.getString(R.string.befuck_auth_waiting); return }
+        // The worker, not the dialog, owns source files from the moment submission starts.
+        session.keepMediaUntilUpload = true
+        session.isSubmitting = true
+        session.pendingRequest = request
+        session.status.text = resources.getString(R.string.befuck_post_submitting)
+        session.postButton?.text = session.status.text
+        updatePostAvailability(session)
+        val delivered = AtomicBoolean(false)
+        val completion = Consumer<Boolean> { success ->
+            if (delivered.compareAndSet(false, true)) mainThread.post {
+                session.isSubmitting = false
+                val active = sessions[activity] === session && !activity.isFinishing && !activity.isDestroyed
+                if (success) {
+                    session.keepMediaUntilUpload = false
+                    (session.pendingRequest ?: request).selectedMedia.forEach { discardPreparedMedia(activity, it) }
+                    session.pendingRequest = null; session.pendingOfficialPostId = null
+                    if (active) {
+                        GalleryPostController.refreshHomeFeed(activity, symbols.versionName)
+                        Toast.makeText(activity, resources.getString(if (official) R.string.befuck_post_completed else R.string.befuck_post_accepted), Toast.LENGTH_LONG).show()
+                        session.dialog.dismiss()
+                    }
+                } else {
+                    session.keepMediaUntilUpload = session.pendingOfficialPostId != null
+                    if (!session.keepMediaUntilUpload) {
+                        if (!active) (session.pendingRequest ?: request).selectedMedia.forEach { discardPreparedMedia(activity, it) }
+                        session.pendingRequest = null
+                    }
+                    if (active) {
+                        session.postButton?.text = resources.getString(R.string.befuck_post_now)
+                        session.status.text = resources.getString(R.string.befuck_post_failed)
+                        updatePostAvailability(session)
+                    }
+                }
+            }
+        }
+        fun send(prepared: GalleryPostRequest) {
+            session.pendingRequest = prepared
+            runCatching {
+                GalleryPostController.postNow(activity, symbols, prepared, session.pendingOfficialPostId, Consumer { id ->
+                    mainThread.post { session.pendingOfficialPostId = id; session.keepMediaUntilUpload = true }
+                }, completion)
+            }.onFailure { completion.accept(false) }
+        }
+        if (official && (request.front?.isVideo == true) && session.pendingOfficialPostId == null) {
+            session.status.text = resources.getString(R.string.befuck_video_exporting)
+            importer.execute {
+                val aligned = runCatching { alignVideoPair(activity, request) }
+                mainThread.post {
+                    if (sessions[activity] !== session || activity.isDestroyed || activity.isFinishing) {
+                        aligned.getOrNull()?.selectedMedia?.forEach { discardPreparedMedia(activity, it) }
+                        request.selectedMedia.forEach { discardPreparedMedia(activity, it) }
+                        session.keepMediaUntilUpload = false; session.isSubmitting = false; session.pendingRequest = null
+                        return@post
+                    }
+                    aligned.onSuccess { prepared ->
+                        val preserve = prepared.selectedMedia.flatMap { listOfNotNull(it.path, it.previewPath, it.sourcePath) }.toSet()
+                        request.selectedMedia.forEach { discardPreparedMedia(activity, it, preserve) }
+                        session.front = prepared.front; session.back = prepared.back
+                        send(prepared)
+                    }.onFailure { completion.accept(false) }
+                }
+            }
+        } else if (official) send(request)
+        else runCatching { BeFakeUploadController.postNow(activity, request, completion) }.onFailure { completion.accept(false) }
+    }
+
 
     private fun openSettings(activity: Activity, resources: Resources) {
         val dialog = Dialog(activity)
@@ -1344,7 +1139,7 @@ object BeFuckGalleryUi {
         }, LinearLayout.LayoutParams(0, -2, 1f))
         topBar.addView(
             iconButton(activity, GLYPH_CLOSE, resources.getString(R.string.befuck_close)) { dialog.dismiss() },
-            LinearLayout.LayoutParams(dp(activity, 44), dp(activity, 44)),
+            LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48)),
         )
         root.addView(topBar)
         root.addHairline(activity)
@@ -1363,23 +1158,28 @@ object BeFuckGalleryUi {
             setTextColor(MUTED)
         }
         val toggles = linkedMapOf<String, Switch>()
+        var refreshingToggles = false
         column.addView(summary, gapParams(activity, 0, 0, 0, 28))
         fun refresh() {
             summary.text = resources.getString(R.string.befuck_settings_summary,
                 RuntimeKnowledge.versionName.orEmpty(), RuntimeKnowledge.versionCode,
                 if (RuntimeKnowledge.loadSymbols() != null) resources.getString(R.string.befuck_settings_saved)
                 else resources.getString(R.string.befuck_settings_empty), RuntimeKnowledge.repairs().size)
-            toggles.forEach { (key, view) -> view.isChecked = RuntimeKnowledge.enabled(key) }
+            refreshingToggles = true
+            try { toggles.forEach { (key, view) -> view.isChecked = RuntimeKnowledge.enabled(key) } } finally { refreshingToggles = false }
         }
         fun toggle(key: String, title: Int) {
             column.addView(Switch(activity).apply {
                 text = resources.getString(title)
                 textSize = 14f
                 setTextColor(Color.WHITE)
-                minHeight = dp(activity, 52)
+                minHeight = dp(activity, 64)
+                switchPadding = dp(activity, 16)
+                background = ExpressiveUi.shape(activity, SURFACE, 20f)
+                setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12))
                 isChecked = RuntimeKnowledge.enabled(key)
                 monochromeSwitch(this)
-                setOnCheckedChangeListener { _, checked -> RuntimeKnowledge.setEnabled(key, checked) }
+                setOnCheckedChangeListener { _, checked -> if (!refreshingToggles) RuntimeKnowledge.setEnabled(key, checked) }
                 toggles[key] = this
             }, gapParams(activity, 0, 0, 0, 0))
             column.addHairline(activity)
@@ -1397,10 +1197,8 @@ object BeFuckGalleryUi {
             column.addHairline(activity)
         }
         fun clearAction(title: Int, action: () -> Unit) = rowItem(resources.getString(title), danger = true) {
-            android.app.AlertDialog.Builder(activity).setTitle(resources.getString(title))
-                .setMessage(resources.getString(R.string.befuck_settings_clear_hint))
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(resources.getString(R.string.befuck_settings_clear)) { _, _ -> action(); refresh() }.show()
+            ExpressiveDialogs.confirm(activity, resources.getString(title), resources.getString(R.string.befuck_settings_clear_hint),
+                resources.getString(R.string.befuck_settings_clear), resources.getString(R.string.befuck_close)) { action(); refresh() }
         }
         column.addView(sectionLabel(activity, resources.getString(R.string.befuck_settings_add_rule), 2), gapParams(activity, 0, 0, 0, 4))
         column.addHairline(activity)
@@ -1442,12 +1240,7 @@ object BeFuckGalleryUi {
         clearAction(R.string.befuck_settings_clear_repairs) { RuntimeKnowledge.clearRepairs() }
         clearAction(R.string.befuck_settings_clear_all) { RuntimeKnowledge.clearPreferences() }
         refresh()
-        dialog.setContentView(root)
-        dialog.show()
-        dialog.window?.let {
-            it.setBackgroundDrawableResource(android.R.color.black)
-            it.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-        }
+        ExpressiveUi.showFullScreen(dialog, root)
     }
 
     /** Gray thumb stays visible against the white checked track and the black host background. */
@@ -1458,12 +1251,12 @@ object BeFuckGalleryUi {
             setColor(fill); cornerRadius = px(h).toFloat(); setSize(px(w), px(h)); setStroke(px(1), stroke)
         }
         fun knob(color: Int) = InsetDrawable(GradientDrawable().apply {
-            shape = GradientDrawable.OVAL; setColor(color); setSize(px(16), px(16))
+            shape = GradientDrawable.OVAL; setColor(color); setSize(px(24), px(24))
         }, px(4))
         view.showText = false
         view.trackDrawable = StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_checked), pill(Color.WHITE, Color.WHITE, 44, 24))
-            addState(intArrayOf(), pill(BG, MUTED, 44, 24))
+            addState(intArrayOf(android.R.attr.state_checked), pill(Color.WHITE, Color.WHITE, 52, 32))
+            addState(intArrayOf(), pill(BG, MUTED, 52, 32))
         }
         view.thumbDrawable = StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_checked), knob(0xFF808080.toInt()))
@@ -1521,7 +1314,7 @@ object BeFuckGalleryUi {
                     setPadding(0, dp(activity, 14), 0, dp(activity, 14))
                     background = RippleDrawable(android.content.res.ColorStateList.valueOf(0x33808080), null, ColorDrawable(Color.WHITE))
                 }
-                row.addView(label(activity, listOfNotNull(source, at).joinToString(" ﾂｷ ")).apply { textSize = 11f })
+                row.addView(label(activity, listOfNotNull(source, at).joinToString(" · ")).apply { textSize = 11f })
                 row.addView(label(activity, rule.key.replace("#", "\n")).apply {
                     typeface = Typeface.MONOSPACE; textSize = 12f; setTextColor(Color.WHITE)
                 }, gapParams(activity, 0, 6, 0, 4))
@@ -1539,7 +1332,7 @@ object BeFuckGalleryUi {
         })
         render()
         dialog.setContentView(root)
-        dialog.show()
+        DialogOwners.show(activity, dialog)
         dialog.window?.let { window ->
             window.setLayout(-1, -1)
             if (Build.VERSION.SDK_INT >= 30) {
@@ -1593,173 +1386,34 @@ object BeFuckGalleryUi {
                     .onFailure { status.text = resources.getString(R.string.befuck_settings_rule_error, it.javaClass.simpleName) }
             }
         }
-        dialog.show()
+        DialogOwners.show(activity, dialog)
     }
 
     private fun launchPicker(activity: Activity, requestCode: Int) {
         val session = sessions[activity] ?: return
-        if (session.isSubmitting || session.isPreparing) return
+        if (session.isPreparing || session.isSubmitting || session.pendingOfficialPostId != null || pickerOwners.containsKey(activity)) return
         val front = requestCode == REQUEST_FRONT || requestCode == REQUEST_FRONT_VIDEO
         val video = requestCode == REQUEST_FRONT_VIDEO || requestCode == REQUEST_BACK_VIDEO
-        if (!mediaKindAllowed(session, front, video)) {
-            session.status.text = session.resources.getString(R.string.befuck_media_type_mismatch)
-            return
+        if (requestCode !in setOf(REQUEST_FRONT, REQUEST_BACK, REQUEST_FRONT_VIDEO, REQUEST_BACK_VIDEO) || !mediaKindAllowed(session, front, video)) return
+        session.pickerRequest = requestCode
+        pickerOwners[activity] = session to requestCode
+        updatePostAvailability(session)
+        val mime = if (video) "video/*" else "image/*"
+        val intents = listOf(Intent("android.provider.action.PICK_IMAGES").setType(mime),
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+        for (intent in intents) {
+            try { activity.startActivityForResult(intent, requestCode); return }
+            catch (_: ActivityNotFoundException) { }
+            catch (_: SecurityException) { }
         }
-        val type = if (requestCode == REQUEST_FRONT_VIDEO || requestCode == REQUEST_BACK_VIDEO) "video/*" else "image/*"
-        try {
-            activity.startActivityForResult(
-                Intent(MediaStore.ACTION_PICK_IMAGES).setType(type),
-                requestCode,
-            )
-        } catch (_: ActivityNotFoundException) {
-            try {
-                activity.startActivityForResult(
-                    Intent(Intent.ACTION_OPEN_DOCUMENT)
-                        .setType(type)
-                        .addCategory(Intent.CATEGORY_OPENABLE)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                    requestCode,
-                )
-            } catch (_: ActivityNotFoundException) {
-                sessions[activity]?.status?.text = sessions[activity]?.resources?.getString(
-                    R.string.befuck_photo_picker_unavailable,
-                )
-            }
-        }
+        pickerOwners.remove(activity); session.pickerRequest = null
+        session.status.text = session.resources.getString(R.string.befuck_photo_picker_unavailable)
+        updatePostAvailability(session)
     }
 
+
     private fun openDownloadDialog(activity: Activity, resources: Resources) {
-        val posts = FeedPostMediaCache.recent()
-        val dialog = Dialog(activity)
-        val content = FrameLayout(activity).apply { setBackgroundColor(Color.BLACK) }
-        val scroll = ScrollView(activity)
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(activity, 20), dp(activity, 20), dp(activity, 20), dp(activity, 24))
-        }
-        scroll.addView(column, FrameLayout.LayoutParams(-1, -2))
-        val widthDp = ((activity.window?.decorView?.width
-            ?.takeIf { it > 0 }
-            ?: activity.resources.displayMetrics.widthPixels) / activity.resources.displayMetrics.density)
-        val panelWidth = if (widthDp > 600f) dp(activity, 560) else -1
-        content.addView(scroll, FrameLayout.LayoutParams(panelWidth, -1, Gravity.CENTER))
-
-        column.addView(TextView(activity).apply {
-            text = resources.getString(R.string.befuck_download_title)
-            textSize = 22f
-            letterSpacing = -0.02f
-            typeface = Typeface.create("sans-serif", Typeface.BOLD)
-            setTextColor(Color.WHITE)
-        }, gapParams(activity, 0, 0, 0, 12))
-        val status = label(
-            activity,
-            if (posts.isEmpty()) resources.getString(R.string.befuck_download_no_posts)
-            else resources.getString(R.string.befuck_download_cached_count, posts.size),
-        )
-        column.addView(status, gapParams(activity, 0, 0, 0, 12))
-        column.addView(label(activity, resources.getString(R.string.befuck_cache_url_only)), gapParams(activity, 0, 0, 0, 12))
-        val userFilter = EditText(activity).apply {
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-            hint = resources.getString(R.string.befuck_cache_user_filter)
-            setTextColor(Color.WHITE)
-            setHintTextColor(0xFF5E5E5E.toInt())
-            background = rounded(activity, BG, RADIUS_DP)
-            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
-            isSingleLine = true
-        }
-        column.addView(userFilter, gapParams(activity, 0, 0, 0, 12))
-        var selectedDate: String? = null
-        val filters = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-        val dateButton = secondaryButton(activity, resources.getString(R.string.befuck_cache_date_filter)) {}
-        filters.addView(dateButton, LinearLayout.LayoutParams(0, dp(activity, 48), 1f))
-        val allDates = secondaryButton(activity, resources.getString(R.string.befuck_cache_all_dates)) {}
-        filters.addView(allDates, LinearLayout.LayoutParams(0, dp(activity, 48), 1f))
-        column.addView(filters, gapParams(activity, 0, 0, 0, 12))
-        val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        column.addView(list)
-
-        fun renderPosts() {
-        list.removeAllViews()
-        val matching = posts.filter { post ->
-            (selectedDate == null || PostMediaMetadata.dateLabel(post, "yyyy-MM-dd") == selectedDate) &&
-                (userFilter.text.isBlank() || post.username.orEmpty().contains(userFilter.text.toString().trim(), ignoreCase = true))
-        }
-        status.text = resources.getString(R.string.befuck_download_cached_count, matching.size)
-        for (post in matching) {
-            val card = LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
-                background = rounded(activity, BG, RADIUS_DP)
-            }
-            val owner = post.username?.takeIf { it.isNotBlank() } ?: resources.getString(R.string.befuck_cache_unknown_user)
-            val date = PostMediaMetadata.dateLabel(post, "yyyy/MM/dd HH:mm:ss")
-                ?: resources.getString(R.string.befuck_cache_unknown_date)
-            val postLabel = "$owner\n$date"
-            card.addView(label(activity, postLabel), gapParams(activity, 0, 0, 0, 8))
-            post.caption?.takeIf { it.isNotBlank() }?.let { card.addView(label(activity, it), gapParams(activity, 0, 0, 0, 8)) }
-            val cardStatus = label(activity, "").apply { visibility = View.GONE }
-            val controls = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-            if (post.primary != null) {
-                controls.addView(
-                    downloadAction(
-                        activity,
-                        resources.getString(if (post.primary.isVideo) R.string.befuck_download_back_video else R.string.befuck_download_back),
-                    ) {
-                        downloadMedia(activity, resources, dialog, cardStatus, post, FeedMediaSelection.PRIMARY)
-                    },
-                    LinearLayout.LayoutParams(0, dp(activity, 44), 1f).apply { marginEnd = dp(activity, 5) },
-                )
-            }
-            if (post.secondary != null) {
-                controls.addView(
-                    downloadAction(
-                        activity,
-                        resources.getString(if (post.secondary.isVideo) R.string.befuck_download_front_video else R.string.befuck_download_front),
-                    ) {
-                        downloadMedia(activity, resources, dialog, cardStatus, post, FeedMediaSelection.SECONDARY)
-                    },
-                    LinearLayout.LayoutParams(0, dp(activity, 44), 1f).apply { marginEnd = dp(activity, 5) },
-                )
-            }
-            controls.addView(
-                downloadAction(activity, resources.getString(R.string.befuck_download_all)) {
-                    downloadMedia(activity, resources, dialog, cardStatus, post, FeedMediaSelection.ALL)
-                },
-                LinearLayout.LayoutParams(0, dp(activity, 44), 1f),
-            )
-            card.addView(controls)
-            card.addView(cardStatus, gapParams(activity, 0, 8, 0, 0))
-            list.addView(card, gapParams(activity, 0, 0, 0, 10))
-        }
-        }
-        dateButton.setOnClickListener {
-            val date = java.time.LocalDate.now()
-            android.app.DatePickerDialog(activity, { _, year, month, day ->
-                selectedDate = java.time.LocalDate.of(year, month + 1, day).toString()
-                dateButton.text = selectedDate
-                renderPosts()
-            }, date.year, date.monthValue - 1, date.dayOfMonth).show()
-        }
-        allDates.setOnClickListener {
-            selectedDate = null
-            dateButton.text = resources.getString(R.string.befuck_cache_date_filter)
-            renderPosts()
-        }
-        userFilter.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { renderPosts() }
-            override fun afterTextChanged(s: android.text.Editable?) = Unit
-        })
-        renderPosts()
-
-        val close = secondaryButton(activity, resources.getString(R.string.befuck_close)) { dialog.dismiss() }
-        column.addView(close, gapParams(activity, 0, 8, 0, 0))
-        dialog.setContentView(content)
-        dialog.show()
-        dialog.window?.let { window ->
-            window.setBackgroundDrawableResource(android.R.color.transparent)
-            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-        }
+        SavedPostsScreen.show(activity, resources)
     }
 
     private fun downloadAction(activity: Activity, text: String, action: () -> Unit): Button =
@@ -2053,12 +1707,12 @@ object BeFuckGalleryUi {
         return Bitmap.createScaledBitmap(bitmap, width, height, true)
     }
 
-    // ---- Design tokens: strictly monochrome, square, hairline ----
+    // ---- Design tokens: monochrome expressive surfaces ----
     private const val BG = 0xFF000000.toInt()
-    private const val SURFACE = 0xFF0B0B0B.toInt()
+    private const val SURFACE = ExpressiveUi.SURFACE
     private const val LINE = 0xFF2E2E2E
-    private const val MUTED = 0xFF8C8C8C.toInt()
-    private const val RADIUS_DP = 12f
+    private const val MUTED = ExpressiveUi.SECONDARY
+    private const val RADIUS_DP = 28f
     private const val GLYPH_CLOSE = 0
     private const val GLYPH_SETTINGS = 1
     private const val GLYPH_ARROW = 2
@@ -2069,41 +1723,20 @@ object BeFuckGalleryUi {
         background = rounded(activity, SURFACE, RADIUS_DP)
     }
 
+    private fun tablerDrawable(kind: Int, size: Int, color: Int) = TablerIconDrawable(
+        when (kind) { GLYPH_CLOSE -> TablerIcon.X; GLYPH_SETTINGS -> TablerIcon.SETTINGS_2; GLYPH_ARROW -> TablerIcon.CHEVRON_RIGHT; else -> TablerIcon.MAP_PIN }, size, color)
+
     private fun iconButton(activity: Activity, res: Int, desc: String?, onClick: () -> Unit) =
-        ImageButton(activity).apply {
-            setImageDrawable(GlyphDrawable(res, dp(activity, 22), Color.WHITE))
-            contentDescription = desc
-            scaleType = ImageView.ScaleType.CENTER
-            background = ripple(activity, BG, RADIUS_DP, 0x33FFFFFF)
-            setOnClickListener { onClick() }
-        }
+        ExpressiveUi.iconButton(activity, when (res) { GLYPH_CLOSE -> TablerIcon.X; GLYPH_SETTINGS -> TablerIcon.SETTINGS_2; GLYPH_ARROW -> TablerIcon.CHEVRON_RIGHT; else -> TablerIcon.MAP_PIN }, desc.orEmpty(), onClick)
 
     /** List row used in settings: label left, chevron right. */
     private fun rowAction(activity: Activity, text: String, danger: Boolean = false, action: () -> Unit) =
-        LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(activity, 52)
-            isClickable = true
-            isFocusable = true
-            background = RippleDrawable(
-                android.content.res.ColorStateList.valueOf(0x33FFFFFF), null, ColorDrawable(Color.WHITE),
-            )
-            setOnClickListener { action() }
-            addView(TextView(activity).apply {
-                this.text = text
-                textSize = 14f
-                setTextColor(Color.WHITE)
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(ImageView(activity).apply {
-                setImageDrawable(GlyphDrawable(GLYPH_ARROW, dp(activity, 20), if (danger) Color.WHITE else MUTED))
-            }, LinearLayout.LayoutParams(dp(activity, 20), dp(activity, 20)))
-        }
+        ExpressiveUi.row(activity, text, if (danger) TablerIcon.TRASH else TablerIcon.ADJUSTMENTS_HORIZONTAL, action = action)
 
-    private fun hairline(activity: Activity) = View(activity).apply { setBackgroundColor(LINE.toInt()) }
+    private fun hairline(activity: Activity) = View(activity)
 
     private fun ViewGroup.addHairline(activity: Activity) =
-        addView(hairline(activity), LinearLayout.LayoutParams(-1, dp(activity, 1)))
+        addView(hairline(activity), LinearLayout.LayoutParams(-1, dp(activity, 6)))
 
 
     private fun selectedMediaLabel(resources: Resources, media: GalleryMediaFile, front: Boolean): String {
@@ -2133,40 +1766,15 @@ object BeFuckGalleryUi {
         setTextColor(MUTED)
     }
 
-    /** Numbered mono caption, e.g. "01  MEDIA PAIR". */
-    private fun sectionLabel(activity: Activity, text: String, index: Int? = null) = TextView(activity).apply {
-        val number = index?.let { "%02d  ".format(it) }.orEmpty()
-        this.text = number + text.uppercase(Locale.ROOT)
-        textSize = 10.5f
-        letterSpacing = 0.14f
-        typeface = Typeface.create("monospace", Typeface.BOLD)
-        setTextColor(Color.WHITE)
-    }
+    private fun sectionLabel(activity: Activity, text: String, @Suppress("UNUSED_PARAMETER") index: Int? = null) =
+        ExpressiveUi.text(activity, text, 17f, bold = true)
 
-    private fun secondaryButton(activity: Activity, text: String, action: () -> Unit) = Button(activity).apply {
-        this.text = text
-        isAllCaps = false
-        textSize = 13f
-        stateListAnimator = null
-        setTextColor(Color.WHITE)
-        background = ripple(activity, BG, RADIUS_DP, 0x33FFFFFF)
-        setOnClickListener { action() }
-    }
-
-    private fun primaryButton(activity: Activity, text: String, action: () -> Unit) = Button(activity).apply {
-        this.text = text
-        isAllCaps = false
-        stateListAnimator = null
-        typeface = Typeface.DEFAULT_BOLD
-        letterSpacing = 0.04f
-        setTextColor(Color.BLACK)
-        background = ripple(activity, Color.WHITE, RADIUS_DP, 0x33000000, Color.WHITE)
-        setOnClickListener { action() }
-    }
+    private fun secondaryButton(activity: Activity, text: String, action: () -> Unit) = ExpressiveUi.button(activity, text, action = action)
+    private fun primaryButton(activity: Activity, text: String, action: () -> Unit) = ExpressiveUi.button(activity, text, true, action = action)
 
     private fun rounded(activity: Activity, color: Int, radiusDp: Float, stroke: Int? = LINE.toInt()) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = minOf(radiusDp, RADIUS_DP) * activity.resources.displayMetrics.density
+        cornerRadius = radiusDp * activity.resources.displayMetrics.density
         if (stroke != null) setStroke(dp(activity, 1), stroke)
     }
 
@@ -2211,49 +1819,3 @@ object BeFuckGalleryUi {
     }
 }
 
-/** Hand-drawn rounded line icons (resource ids from the injected module are not resolvable in the host app). */
-private class GlyphDrawable(private val kind: Int, private val sizePx: Int, private val color: Int) : android.graphics.drawable.Drawable() {
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-        strokeWidth = 1.9f; color = this@GlyphDrawable.color
-    }
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0xFF000000.toInt() }
-
-    override fun getIntrinsicWidth() = sizePx
-    override fun getIntrinsicHeight() = sizePx
-
-    override fun draw(canvas: android.graphics.Canvas) {
-        val s = bounds.width() / 24f
-        canvas.save()
-        canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
-        canvas.scale(s, s)
-        when (kind) {
-            0 -> { canvas.drawLine(6f, 6f, 18f, 18f, stroke); canvas.drawLine(18f, 6f, 6f, 18f, stroke) }
-            1 -> {
-                canvas.drawLine(4f, 8f, 20f, 8f, stroke); canvas.drawLine(4f, 16f, 20f, 16f, stroke)
-                canvas.drawCircle(9f, 8f, 2.6f, fill); canvas.drawCircle(9f, 8f, 2.6f, stroke)
-                canvas.drawCircle(15f, 16f, 2.6f, fill); canvas.drawCircle(15f, 16f, 2.6f, stroke)
-            }
-            2 -> {
-                canvas.drawLine(7f, 17f, 17f, 7f, stroke)
-                canvas.drawPath(android.graphics.Path().apply { moveTo(9f, 7f); lineTo(17f, 7f); lineTo(17f, 15f) }, stroke)
-            }
-            else -> {
-                canvas.drawPath(android.graphics.Path().apply {
-                    moveTo(12f, 21f)
-                    cubicTo(8f, 17f, 5.5f, 13.5f, 5.5f, 10f)
-                    arcTo(android.graphics.RectF(5.5f, 3.5f, 18.5f, 16.5f), 180f, 180f)
-                    cubicTo(18.5f, 13.5f, 16f, 17f, 12f, 21f)
-                    close()
-                }, stroke)
-                canvas.drawCircle(12f, 10f, 2.4f, stroke)
-            }
-        }
-        canvas.restore()
-    }
-
-    override fun setAlpha(alpha: Int) { stroke.alpha = alpha }
-    override fun setColorFilter(cf: android.graphics.ColorFilter?) { stroke.colorFilter = cf }
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
-}

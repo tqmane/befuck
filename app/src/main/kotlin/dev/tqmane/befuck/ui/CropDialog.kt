@@ -58,7 +58,7 @@ class TouchCropView @JvmOverloads constructor(
     private var pendingRegion: CropRegion? = null
     var drawImage = true
     var onTransformChanged: (() -> Unit)? = null
-    val hasCropRegion: Boolean get() = originalBitmap != null && !cropRect.isEmpty
+    val hasCropRegion: Boolean get() = originalBitmap?.isRecycled == false && !cropRect.isEmpty
 
     private var lastTouchX = 0f
     private var lastTouchY = 0f
@@ -268,6 +268,7 @@ class TouchCropView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled || originalBitmap == null) return false
         scaleDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
@@ -333,184 +334,109 @@ class TouchCropView @JvmOverloads constructor(
         canvas.drawRect(cropRect, framePaint)
     }
 
-    fun cropBitmap(targetWidth: Int = 1500, targetHeight: Int = 2000): Bitmap? {
-        val bitmap = originalBitmap ?: return null
-        if (cropRect.isEmpty) return null
-
-        val result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
-
-        val outputMatrix = Matrix(currentMatrix)
-        val scaleRatio = targetWidth / cropRect.width()
-        outputMatrix.postTranslate(-cropRect.left, -cropRect.top)
-        outputMatrix.postScale(scaleRatio, scaleRatio)
-
-        canvas.drawBitmap(bitmap, outputMatrix, Paint(Paint.FILTER_BITMAP_FLAG))
-        return result
+    internal class Snapshot(private val bitmap: Bitmap, private val matrix: Matrix, private val bounds: RectF) {
+        fun render(width: Int, height: Int): Bitmap {
+            require(width > 0 && height > 0 && width.toLong() * height <= 12_000_000L)
+            check(!bitmap.isRecycled && !bounds.isEmpty)
+            val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            try {
+                val transform = Matrix(matrix)
+                transform.postTranslate(-bounds.left, -bounds.top)
+                transform.postScale(width / bounds.width(), height / bounds.height())
+                Canvas(result).drawBitmap(bitmap, transform, Paint(Paint.FILTER_BITMAP_FLAG))
+                return result
+            } catch (failure: Throwable) { result.recycle(); throw failure }
+        }
     }
+    internal fun snapshot(): Snapshot? = originalBitmap?.takeIf { !it.isRecycled && !cropRect.isEmpty }
+        ?.let { Snapshot(it, Matrix(currentMatrix), RectF(cropRect)) }
+    fun cropBitmap(targetWidth: Int = 1500, targetHeight: Int = 2000): Bitmap? = snapshot()?.render(targetWidth, targetHeight)
+    fun clearImage() { originalBitmap = null; pendingRegion = null; bitmapRect.setEmpty(); isDragging = false; invalidate() }
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
 }
 
 /** Fullscreen modal dialog for 3:4 photo cropping. */
 object CropDialog {
-    fun show(
-        activity: Activity,
-        resources: Resources,
-        imageUri: Uri,
-        onCropped: (Bitmap) -> Unit,
-        onCancelled: () -> Unit = {},
-    ) {
-        val bitmap = decodeSampledBitmapFromUri(activity, imageUri, 2500, 2500)
-        if (bitmap == null) {
-            onCancelled()
-            return
-        }
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
 
-        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+    fun show(activity: Activity, resources: Resources, imageUri: Uri, onCropped: (Bitmap) -> Unit, onCancelled: () -> Unit = {}): Dialog {
+        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-
-        val root = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0F0F12.toInt())
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(ExpressiveUi.BACKGROUND) }
+        val header = LinearLayout(activity).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12)) }
+        header.addView(ExpressiveUi.iconButton(activity, TablerIcon.X, resources.getString(R.string.befuck_close)) { dialog.dismiss() }, LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 48)))
+        header.addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_crop_title), 22f, bold = true), LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(activity, 16) })
+        root.addView(header)
+        val status = ExpressiveUi.text(activity, resources.getString(R.string.befuck_preparing_image), 14f, ExpressiveUi.SECONDARY).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            setPadding(dp(activity, 20), 0, dp(activity, 20), dp(activity, 12))
         }
-
-        // Header Toolbar
-        val toolbar = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12))
-            setBackgroundColor(0xFF1B1B1F.toInt())
-        }
-
-        val cancelButton = TextView(activity).apply {
-            text = resources.getString(R.string.befuck_close)
-            setTextColor(0xFF8E8E93.toInt())
-            textSize = 16f
-            setPadding(dp(activity, 8), dp(activity, 8), dp(activity, 8), dp(activity, 8))
-            setOnClickListener {
-                dialog.dismiss()
-            }
-        }
-        toolbar.addView(cancelButton)
-
-        val title = TextView(activity).apply {
-            text = resources.getString(R.string.befuck_crop_title)
-            setTextColor(Color.WHITE)
-            textSize = 17f
-            gravity = Gravity.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-        toolbar.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-        val doneButton = TextView(activity).apply {
-            text = resources.getString(R.string.befuck_crop_done)
-            setTextColor(Color.WHITE)
-            textSize = 16f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(dp(activity, 8), dp(activity, 8), dp(activity, 8), dp(activity, 8))
-        }
-        toolbar.addView(doneButton)
-        root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        // Center Crop View
-        val cropView = TouchCropView(activity).apply {
-            setImageBitmap(bitmap)
-        }
-        root.addView(cropView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-
-        // Bottom Controls
-        val bottomBar = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(activity, 16), dp(activity, 14), dp(activity, 16), dp(activity, 14))
-            setBackgroundColor(0xFF1B1B1F.toInt())
-        }
-
-        val rotateButton = Button(activity).apply {
-            text = resources.getString(R.string.befuck_crop_rotate)
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            background = rounded(activity, 0xFF29292E.toInt(), 10f)
-            setOnClickListener { cropView.rotate90() }
-        }
-        bottomBar.addView(rotateButton, LinearLayout.LayoutParams(dp(activity, 110), dp(activity, 48)).apply {
-            marginEnd = dp(activity, 16)
-        })
-
-        val resetButton = Button(activity).apply {
-            text = resources.getString(R.string.befuck_crop_reset)
-            setTextColor(Color.WHITE)
-            textSize = 14f
-            background = rounded(activity, 0xFF29292E.toInt(), 10f)
-            setOnClickListener { cropView.reset() }
-        }
-        bottomBar.addView(resetButton, LinearLayout.LayoutParams(dp(activity, 110), dp(activity, 48)))
-
-        root.addView(bottomBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
+        root.addView(status)
+        val crop = TouchCropView(activity)
+        root.addView(crop, LinearLayout.LayoutParams(-1, 0, 1f))
+        val footer = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 12)) }
+        val controls = LinearLayout(activity)
+        val rotate = ExpressiveUi.button(activity, resources.getString(R.string.befuck_crop_rotate), icon = TablerIcon.ROTATE_CLOCKWISE) { crop.rotate90() }
+        val reset = ExpressiveUi.button(activity, resources.getString(R.string.befuck_crop_reset), icon = TablerIcon.REFRESH) { crop.reset() }
+        controls.addView(rotate, LinearLayout.LayoutParams(0, -2, 1f))
+        controls.addView(reset, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(activity, 8) })
+        footer.addView(controls)
+        val done = ExpressiveUi.button(activity, resources.getString(R.string.befuck_crop_done), true, TablerIcon.CHECK) {}
+        footer.addView(done, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 10) })
+        root.addView(footer)
+        var closed = false
         var accepted = false
+        var exporting = false
+        var bitmap: Bitmap? = null
+        fun release() { crop.clearImage(); bitmap?.recycle(); bitmap = null }
+        fun availability() {
+            val ready = !closed && !exporting && bitmap != null && crop.hasCropRegion
+            rotate.isEnabled = ready; reset.isEnabled = ready; done.isEnabled = ready
+        }
+        crop.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> availability() }
         dialog.setOnDismissListener {
-            bitmap.recycle()
+            closed = true; crop.clearImage()
+            if (!exporting) release()
             if (!accepted) onCancelled()
         }
-        doneButton.setOnClickListener {
-            val cropped = cropView.cropBitmap(1500, 2000)
-            accepted = cropped != null
-            dialog.dismiss()
-            if (cropped != null) {
-                onCropped(cropped)
-            }
-        }
-
-        dialog.setContentView(root)
-        dialog.show()
-        dialog.window?.let { window ->
-            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-            if (Build.VERSION.SDK_INT >= 30) {
-                window.setDecorFitsSystemWindows(false)
-                root.setOnApplyWindowInsetsListener { view, insets ->
-                    val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                    view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-                    insets
-                }
-                root.requestApplyInsets()
-            } else {
-                root.fitsSystemWindows = true
-            }
-        }
-    }
-
-    private fun decodeSampledBitmapFromUri(context: Context, uri: Uri, reqWidth: Int, reqHeight: Int): Bitmap? {
-        return runCatching {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-
-            var inSampleSize = 1
-            if (options.outHeight > reqHeight || options.outWidth > reqWidth) {
-                val halfHeight = options.outHeight / 2
-                val halfWidth = options.outWidth / 2
-                while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
-                    inSampleSize *= 2
+        done.setOnClickListener {
+            if (closed || exporting) return@setOnClickListener
+            val snapshot = crop.snapshot() ?: return@setOnClickListener
+            exporting = true; crop.isEnabled = false; availability()
+            status.text = resources.getString(R.string.befuck_preparing_image)
+            worker.execute {
+                val result = runCatching { snapshot.render(1500, 2000) }
+                main.post {
+                    exporting = false
+                    if (closed || activity.isDestroyed || activity.isFinishing) {
+                        result.getOrNull()?.recycle(); release()
+                        if (!closed) dialog.dismiss()
+                    } else result.onSuccess { output ->
+                        accepted = true; dialog.dismiss(); onCropped(output)
+                    }.onFailure {
+                        crop.isEnabled = true; status.text = resources.getString(R.string.befuck_image_prepare_error); availability()
+                    }
                 }
             }
-
-            val decodeOptions = BitmapFactory.Options().apply {
-                this.inSampleSize = inSampleSize
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            }
-            val sampled = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, decodeOptions) }
-            sampled
-        }.getOrNull()
-    }
-
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
-
-    private fun rounded(context: Context, color: Int, radiusDp: Float): GradientDrawable =
-        GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = radiusDp * context.resources.displayMetrics.density
         }
+        availability()
+        ExpressiveUi.showFullScreen(dialog, root)
+        val appContext = activity.applicationContext
+        worker.execute {
+            val result = runCatching { PhotoDecoder.decode(appContext, imageUri) }
+            main.post {
+                if (closed || activity.isDestroyed || activity.isFinishing) {
+                    result.getOrNull()?.recycle()
+                    if (!closed) dialog.dismiss()
+                } else result.onSuccess { decoded ->
+                    bitmap = decoded; crop.setImageBitmap(decoded)
+                    status.text = resources.getString(R.string.befuck_crop_hint); availability()
+                }.onFailure { status.text = resources.getString(R.string.befuck_image_prepare_error) }
+            }
+        }
+        return dialog
+    }
+    private fun dp(context: Context, value: Int) = ExpressiveUi.dp(context, value)
 }

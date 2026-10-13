@@ -32,6 +32,7 @@ object FeedMediaDownloader {
     private const val MAX_MEDIA_BYTES = 512L * 1024L * 1024L
     private const val MAX_REDIRECTS = 5
     private val executor = Executors.newFixedThreadPool(2)
+    private val jobs = DownloadJobs()
 
     private class UnauthorizedTrustedHost(val host: String) : IOException("Media server returned HTTP 401")
     private data class DownloadedMedia(val bytes: Long, val responseMimeType: String?)
@@ -48,32 +49,29 @@ object FeedMediaDownloader {
     fun downloadRealMoji(context: Context, media: FeedPostMedia, completion: Consumer<FeedMediaDownloadResult>) =
         enqueue(context, media, FeedMediaSelection.PRIMARY, completion, realMoji = true)
 
-    private fun enqueue(
-        context: Context,
-        post: FeedPostMedia,
-        selection: FeedMediaSelection,
-        completion: Consumer<FeedMediaDownloadResult>,
-        realMoji: Boolean,
-    ) {
-        executor.execute {
+    private fun enqueue(context: Context, post: FeedPostMedia, selection: FeedMediaSelection,
+                        completion: Consumer<FeedMediaDownloadResult>, realMoji: Boolean) {
+        val key = "${post.postId}:$selection:$realMoji"
+        if (!jobs.join(key, completion)) return
+        val application = context.applicationContext ?: context
+        runCatching { executor.execute {
             var completed = 0
             var totalBytes = 0L
-            try {
+            val result = try {
                 val selected = selectMedia(post, selection)
                 require(selected.isNotEmpty()) { "This post has no media for that selection" }
                 for ((kind, item) in selected) {
                     val metadata = if (realMoji) post else FeedPostMediaCache.get(post.postId) ?: post
-                    val result = downloadOne(context.applicationContext, metadata, if (realMoji) "realmoji" else kind, item)
+                    totalBytes += downloadOne(application, metadata, if (realMoji) "realmoji" else kind, item)
                     completed++
-                    totalBytes += result
                 }
-                Log.i(TAG, "Saved $completed post media item(s), bytes=$totalBytes")
-                completion.accept(FeedMediaDownloadResult(true, completed, totalBytes))
+                FeedMediaDownloadResult(true, completed, totalBytes)
             } catch (failure: Throwable) {
                 Log.e(TAG, "Media download failed after $completed item(s)", failure)
-                completion.accept(FeedMediaDownloadResult(false, completed, totalBytes, failure))
+                FeedMediaDownloadResult(false, completed, totalBytes, failure)
             }
-        }
+            jobs.complete(key, result)
+        } }.onFailure { jobs.complete(key, FeedMediaDownloadResult(false, 0, 0L, it)) }
     }
 
     private fun selectMedia(post: FeedPostMedia, selection: FeedMediaSelection): List<Pair<String, FeedMediaItem>> {
@@ -122,6 +120,9 @@ object FeedMediaDownloader {
         }
         try {
             val copied = copyUrlToOutput(media.url) { FileOutputStream(temporary) }
+            if (copied.responseMimeType?.let { it.startsWith("image/") || it.startsWith("video/") } == true) {
+                require(copied.responseMimeType.startsWith(if (isVideo) "video/" else "image/")) { "Media kind does not match its response" }
+            }
             val detectedMime = copied.responseMimeType
                 ?.takeIf { it.startsWith(if (isVideo) "video/" else "image/") }
                 ?: mime
@@ -184,6 +185,7 @@ object FeedMediaDownloader {
                 connection.readTimeout = 90_000
                 connection.instanceFollowRedirects = false
                 connection.setRequestProperty("Accept", "image/*, video/mp4, */*")
+                connection.setRequestProperty("Accept-Encoding", "identity")
                 if (authorization != null && isTrustedBeRealHost(current.host)) {
                     connection.setRequestProperty("Authorization", authorization)
                 }
@@ -200,29 +202,9 @@ object FeedMediaDownloader {
                     redirects++
                     continue
                 }
-                if (status !in 200..299) throw IOException("Media server returned HTTP $status")
-                val length = connection.contentLengthLong
-                require(length < 0L || length <= MAX_MEDIA_BYTES) { "Media is larger than the 512 MiB download limit" }
-                val responseMimeType = connection.contentType
-                    ?.substringBefore(';')
-                    ?.trim()
-                    ?.lowercase(Locale.ROOT)
-                val output = openOutput()
-                var total = 0L
-                connection.inputStream.use { input ->
-                    output.use { stream ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            total += count
-                            require(total <= MAX_MEDIA_BYTES) { "Media is larger than the 512 MiB download limit" }
-                            stream.write(buffer, 0, count)
-                        }
-                        stream.flush()
-                    }
-                }
-                return DownloadedMedia(total, responseMimeType)
+                if (status != HttpURLConnection.HTTP_OK) throw IOException("Media server returned HTTP $status")
+                val copied = MediaResponseCopy.copy(connection, MAX_MEDIA_BYTES, openOutput)
+                return DownloadedMedia(copied.bytes, copied.mimeType)
             } finally {
                 connection.disconnect()
             }
@@ -244,6 +226,10 @@ object FeedMediaDownloader {
     private fun extensionFor(mimeType: String): String = when (mimeType.lowercase(Locale.ROOT)) {
         "image/webp" -> "webp"
         "image/png" -> "png"
+        "image/avif" -> "avif"
+        "image/heic" -> "heic"
+        "image/heif" -> "heif"
+        "image/gif" -> "gif"
         "video/quicktime" -> "mov"
         "video/webm" -> "webm"
         else -> if (mimeType.startsWith("video/")) "mp4" else "jpg"
