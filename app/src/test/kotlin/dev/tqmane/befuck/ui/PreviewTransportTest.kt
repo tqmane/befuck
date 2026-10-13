@@ -92,7 +92,7 @@ class PreviewTransportTest {
         }
         // responseCode may be read repeatedly; count only ensures cache avoids new requests below.
         val source = PreviewRanges("https://example.invalid/video", t, PreviewTicket())
-        assertEquals(300000, source.size)
+        assertEquals(300000L, source.getSize())
         val buffer = ByteArray(20)
         assertEquals(20, source.readAt(10,buffer,0,20)); assertArrayEquals(bytes.copyOfRange(10,30),buffer)
         val before = calls; source.readAt(20,buffer,0,20); assertEquals(before,calls)
@@ -105,7 +105,7 @@ class PreviewTransportTest {
             Response(URL("https://example.invalid/v"),200,byteArrayOf(1),"video/mp4",declared=50L*1024*1024))
         variants.forEach { response ->
             val source = PreviewRanges(response.url.toString(),PreviewTransport(null) { response },PreviewTicket())
-            try { assertThrows(Exception::class.java) { source.size } } finally { source.close() }
+            try { assertThrows(Exception::class.java) { source.getSize() } } finally { source.close() }
         }
     }
 }

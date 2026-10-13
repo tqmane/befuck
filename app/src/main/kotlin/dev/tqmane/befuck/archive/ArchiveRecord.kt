@@ -43,7 +43,7 @@ internal data class ArchiveRecord(
             val variants = listOf("back" to post.primary, "front" to post.secondary, "bts" to post.bts).mapNotNull { (slot, item) ->
                 item?.let {
                     val key = MediaKey(slot, it.url)
-                    key to ArchiveMedia(key, at, at, fields(mapOf("mime_type" to it.mimeType?.lowercase(java.util.Locale.ROOT)?.takeIf { mime -> mime.startsWith("image/") || mime.startsWith("video/") }, "width" to it.width?.toString(), "height" to it.height?.toString())))
+                    key to ArchiveMedia(key, at, at, fields(mapOf("mime_type" to (it.mimeType?.trim()?.lowercase(java.util.Locale.ROOT)?.takeIf { mime -> mime.startsWith("image/") || mime.startsWith("video/") } ?: if (it.isVideo) "video/mp4" else null), "width" to it.width?.toString(), "height" to it.height?.toString())))
                 }
             }.toMap()
             return ArchiveRecord(account, post.postId, at, at, data, variants)

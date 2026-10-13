@@ -55,7 +55,8 @@ internal class NetworkPreviewSource(context: Context, private val guard: () -> U
     private fun <T> request(callback: (Result<T>) -> Unit, discard: (T) -> Unit, work: (PreviewTicket) -> T): PreviewCancel {
         val ticket = PreviewTicket({ previewCheck(!closed); guard() }, 120)
         lateinit var task: FutureTask<Unit>
-        val handle = PreviewCancel { ticket.cancel(); task.cancel(true); worker.remove(task) }
+        lateinit var handle: PreviewCancel
+        handle = PreviewCancel { ticket.cancel(); task.cancel(true); worker.remove(task); requests.remove(handle) }
         task = FutureTask<Unit> {
             val result = runCatching { ticket.check(); work(ticket) }
             main.post {

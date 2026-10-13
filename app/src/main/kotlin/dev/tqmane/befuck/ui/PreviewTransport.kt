@@ -114,7 +114,7 @@ internal class PreviewRanges(private val url: String, private val transport: Pre
     private var transferred = 0L
     private var etag: String? = null
     @Volatile private var closed = false
-    @Synchronized override fun getSize(): Long { if (size < 0) fetch(0); return size }
+    @Synchronized override fun getSize(): Long { previewCheck(!closed); ticket.check(); if (size < 0) fetch(0); return size }
     @Synchronized override fun readAt(position: Long, buffer: ByteArray, offset: Int, count: Int): Int {
         previewCheck(!closed && position >= 0 && offset >= 0 && count >= 0 && offset <= buffer.size - count)
         ticket.check()
@@ -176,5 +176,5 @@ internal class PreviewRanges(private val url: String, private val transport: Pre
             bytes
         }
     }
-    override fun close() { closed = true; ticket.cancel(); synchronized(this) { blocks.clear(); whole = null } }
+    override fun close() { closed = true; synchronized(this) { blocks.clear(); whole = null } }
 }

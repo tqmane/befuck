@@ -42,7 +42,8 @@ internal object SavedPostsScreen {
 
     fun show(activity: Activity, resources: Resources,
              loadPosts: () -> List<FeedPostMedia> = { FeedPostMediaCache.recent() },
-             execute: Executor = reads, clock: Clock = Clock.systemDefaultZone()): Dialog {
+             execute: Executor = reads, clock: Clock = Clock.systemDefaultZone(),
+             previewSource: PreviewSource? = null, previewActions: PostMediaActions? = null): Dialog {
         var closeNow: () -> Unit = {}
         val dialog = object : Dialog(activity, android.R.style.Theme_Black_NoTitleBar) {
             override fun dismiss() {
@@ -104,7 +105,7 @@ internal object SavedPostsScreen {
         }
         controls.addView(legacyNotice)
         root.addView(controls)
-        val scroll = ScrollView(activity)
+        val scroll = ScrollView(activity).apply { tag = "saved-post-scroll" }
         val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(activity, 16), dp(activity, 4), dp(activity, 16), dp(activity, 24)) }
         scroll.addView(column)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -118,30 +119,24 @@ internal object SavedPostsScreen {
         column.addView(dayBar)
         val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; tag = "saved-day-posts" }
         column.addView(list)
+        column.addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_preview_network_notice), 12f, ExpressiveUi.SECONDARY),
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 12) })
         fun active() = !closed && !activity.isDestroyed && !activity.isFinishing && dev.tqmane.befuck.archive.ArchiveAccounts.snapshot() == accountScope
+        val previews = SavedPreviewSession(activity, resources, root, ::active,
+            previewSource ?: NetworkPreviewSource(activity, guard = { previewCheck(active()) }),
+            previewActions ?: PostMediaActions(::active) { post, side, done ->
+                FeedMediaDownloader.download(activity.applicationContext, post, side, Consumer { result -> main.post { done(result) } })
+            })
         fun tab(button: MaterialButton, selected: Boolean) {
             button.isSelected = selected
             button.backgroundTintList = android.content.res.ColorStateList.valueOf(if (selected) Color.WHITE else ExpressiveUi.CONTAINER)
             val color = android.content.res.ColorStateList.valueOf(if (selected) Color.BLACK else Color.WHITE)
             button.setTextColor(color); button.iconTint = color
         }
-        fun save(post: FeedPostMedia, selection: FeedMediaSelection, button: Button, cardStatus: TextView) {
-            button.isEnabled = false
-            cardStatus.visibility = View.VISIBLE
-            cardStatus.text = resources.getString(R.string.befuck_download_in_progress)
-            FeedMediaDownloader.download(activity, post, selection, Consumer { result -> main.post {
-                if (!active()) return@post
-                button.isEnabled = true
-                cardStatus.text = when {
-                    result.success -> resources.getString(R.string.befuck_download_complete, result.completedCount)
-                    result.completedCount > 0 -> resources.getString(R.string.befuck_saved_partial, result.completedCount)
-                    else -> resources.getString(R.string.befuck_download_failed)
-                }
-            } })
-        }
         fun renderPosts() {
             if (!active()) return
             val posts = model.visible
+            previews.clearRows()
             list.removeAllViews()
             calendarArea.visibility = if (model.mode == SavedCalendarModel.Mode.CALENDAR) View.VISIBLE else View.GONE
             tab(calendarTab, model.mode == SavedCalendarModel.Mode.CALENDAR); tab(allTab, model.mode == SavedCalendarModel.Mode.ALL)
@@ -194,20 +189,26 @@ internal object SavedPostsScreen {
                 }
                 val cardStatus = ExpressiveUi.text(activity, "", 13f, ExpressiveUi.SECONDARY).apply { visibility = View.GONE; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE }
                 val actions = LinearLayout(activity).apply { orientation = if (activity.resources.configuration.fontScale >= 1.5f) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL }
-                listOf(post.primary to FeedMediaSelection.PRIMARY, post.secondary to FeedMediaSelection.SECONDARY).forEach { (media, selection) ->
-                    if (media != null) {
-                        val label = resources.getString(if (selection == FeedMediaSelection.PRIMARY) R.string.befuck_download_back else R.string.befuck_download_front)
-                        val button = action(uiContext, label, false, if (media.isVideo) TablerIcon.VIDEO else TablerIcon.PHOTO) {}
-                        button.contentDescription = resources.getString(R.string.befuck_saved_save_camera, owner, label)
-                        button.setOnClickListener { save(post, selection, button, cardStatus) }
-                        val params = if (actions.orientation == LinearLayout.VERTICAL) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)
-                        if (actions.childCount > 0) { if (actions.orientation == LinearLayout.VERTICAL) params.topMargin = dp(activity, 8) else params.marginStart = dp(activity, 8) }
-                        actions.addView(button, params)
-                    }
+                listOf(FeedMediaSelection.PRIMARY, FeedMediaSelection.SECONDARY).forEachIndexed { index, side ->
+                    val params = if (actions.orientation == LinearLayout.VERTICAL) LinearLayout.LayoutParams(-1, -2) else LinearLayout.LayoutParams(0, -2, 1f)
+                    if (index > 0) { if (actions.orientation == LinearLayout.VERTICAL) params.topMargin = dp(activity, 12) else params.marginStart = dp(activity, 12) }
+                    actions.addView(previews.tile(post, side), params)
                 }
                 card.addView(actions, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 16) })
                 val all = action(uiContext, resources.getString(R.string.befuck_saved_save_all), true, TablerIcon.DOWNLOAD) {}
-                all.setOnClickListener { save(post, FeedMediaSelection.ALL, all, cardStatus) }
+                all.setOnClickListener { previews.downloads.save(post, FeedMediaSelection.ALL) }
+                previews.watch {
+                    all.isEnabled = active() && !previews.downloads.busy(post.postId, FeedMediaSelection.ALL)
+                    val state = previews.downloads.last?.takeIf { it.postId == post.postId }
+                    cardStatus.visibility = if (state == null) View.GONE else View.VISIBLE
+                    cardStatus.text = when {
+                        state == null -> ""
+                        state.result == null -> resources.getString(R.string.befuck_download_in_progress)
+                        state.result.success -> resources.getString(R.string.befuck_download_complete, state.result.completedCount)
+                        state.result.completedCount > 0 -> resources.getString(R.string.befuck_saved_partial, state.result.completedCount)
+                        else -> resources.getString(R.string.befuck_download_failed)
+                    }
+                }
                 card.addView(all, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 8) })
                 card.addView(cardStatus, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 8) })
                 list.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(activity, 12) })
@@ -257,7 +258,7 @@ internal object SavedPostsScreen {
         calendarTab.setOnClickListener { model.query = search.text.toString(); model.showCalendar(); calendar.render(); visibleLimit = PAGE; renderPosts(); scroll.scrollTo(0, 0) }
         closeNow = {
             if (!closed) {
-                closed = true; ++generation; task?.cancel(true); main.removeCallbacks(renderLater)
+                closed = true; ++generation; task?.cancel(true); main.removeCallbacks(renderLater); previews.close()
             }
         }
         val unsubscribeAccount = dev.tqmane.befuck.archive.ArchiveAccounts.subscribe {
@@ -267,7 +268,7 @@ internal object SavedPostsScreen {
         closeNow = { previousClose(); unsubscribeAccount() }
         dialog.setOnDismissListener { closeNow() }
         BoundedScreen.show(activity, dialog, root)
-        if (dialog.isShowing) { renderPosts(); load() }
+        if (dialog.isShowing) { renderPosts(); load(); previews.update() } else previews.close()
         return dialog
     }
 

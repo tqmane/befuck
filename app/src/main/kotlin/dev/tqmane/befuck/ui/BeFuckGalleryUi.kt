@@ -150,6 +150,7 @@ object BeFuckGalleryUi {
         FeedPostMediaCache.initialize(activity.applicationContext)
         dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols, force = true)
         BeFakeLocationDialog.onActivityResume(activity)
+        SavedPreviewSession.resume(activity)
         if (resources == null) {
             android.util.Log.e("BeFuck/UI", "Module resources are unavailable; not adding the gallery entry")
             return
@@ -168,6 +169,7 @@ object BeFuckGalleryUi {
 
     @JvmStatic
     fun onActivityPause(activity: Activity) {
+        SavedPreviewSession.pause(activity)
         BeFakeLocationDialog.onActivityPause(activity)
         sessions[activity]?.videoEditor?.pausePreview()
         entryTrackers.remove(activity)?.let(mainThread::removeCallbacks)
@@ -181,6 +183,7 @@ object BeFuckGalleryUi {
 
     @JvmStatic
     fun onActivityDestroy(activity: Activity) {
+        SavedPreviewSession.destroy(activity)
         ArchiveBackupUi.onActivityDestroy(activity)
         DialogOwners.destroy(activity)
         pickerOwners.remove(activity)

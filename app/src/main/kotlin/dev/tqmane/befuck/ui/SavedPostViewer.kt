@@ -236,7 +236,7 @@ internal class SavedPostViewer(private val activity: Activity, private val label
         if (!valid() || !prepared) return
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
-            .setOnAudioFocusChangeListener({ change -> if (change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pausePlayer() }, main).build()
+            .setOnAudioFocusChangeListener({ change -> if (change < 0) pausePlayer() }, main).build()
         if (audio != null && audio.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             state.text = labels.getString(R.string.befuck_preview_audio_unavailable); return
         }

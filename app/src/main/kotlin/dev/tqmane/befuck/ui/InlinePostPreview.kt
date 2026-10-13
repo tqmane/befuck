@@ -72,7 +72,7 @@ internal class InlinePostPreview(activity: Activity, labels: Resources, private 
         image.setImageDrawable(null)
         if (!value || media == null || !guard()) return
         status.visibility = VISIBLE
-        status.setText(R.string.befuck_preview_loading) // Replaced with module-resolved text below at integration.
+        status.text = loadingText
         request = source.image(media, 512) { result ->
             if (ended || !active || ticket != generation || !guard()) return@image
             result.onSuccess { image.setImageBitmap(it); status.visibility = GONE }
