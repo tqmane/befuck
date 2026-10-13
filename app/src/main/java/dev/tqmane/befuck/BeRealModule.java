@@ -200,7 +200,7 @@ public final class BeRealModule extends XposedModule {
             smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
             installPreludeNativeCompatibility(context, classLoader);
             installRepackagedStartupCompatibility(context, classLoader);
-            RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode);
+            RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
             installComposeTracingContextGuard(classLoader);
             installAuthFailureDiagnostics(classLoader);
             installSmsRequestPayloadRepair(classLoader);

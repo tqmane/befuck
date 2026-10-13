@@ -41,6 +41,8 @@ Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** (`com.ber
 
 Saved files location: `Pictures/BeFuck` or `Movies/BeFuck`.
 
+After a BeReal or module update, symbol signatures are rebuilt automatically on the next launch. Saved posts, SQLite backups and feature settings are retained.
+
 ## Build
 
 Requires JDK 17+ and Android SDK.

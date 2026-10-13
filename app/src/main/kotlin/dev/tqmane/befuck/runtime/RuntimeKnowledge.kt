@@ -41,7 +41,7 @@ object RuntimeKnowledge {
 
     @JvmStatic
     @Synchronized
-    fun initialize(host: Context, classLoader: ClassLoader, name: String?, code: Long) {
+    fun initialize(host: Context, classLoader: ClassLoader, name: String?, code: Long, module: android.content.pm.ApplicationInfo) {
         require(code >= 0L) { "Cannot scope runtime knowledge without a version code" }
         context = host.applicationContext ?: host
         loader = classLoader
@@ -49,6 +49,11 @@ object RuntimeKnowledge {
         versionCode = code
         val settings = host.getSharedPreferences("befuck_runtime", Context.MODE_PRIVATE)
         prefs = settings
+        if (RuntimeSymbolCache.invalidateIfChanged(settings, RuntimeSymbolCache.identity(host.applicationInfo, module, name, code))) {
+            BeRealSymbolResolver.clearCache()
+            Log.i(TAG, "Invalidated symbol signatures after an application update")
+            event("symbols_invalidated", JSONObject())
+        }
         val previous = settings.getLong("version_code", -1L)
         if (previous != code) {
             val edit = settings.edit()

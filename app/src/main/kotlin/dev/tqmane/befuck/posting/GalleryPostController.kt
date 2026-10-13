@@ -51,7 +51,7 @@ object GalleryPostController {
         val once = AtomicBoolean(false)
         val main = android.os.Handler(android.os.Looper.getMainLooper())
         fun deliver(uid: String?) { if (once.compareAndSet(false, true)) completion.accept(uid) }
-        val timeout = Runnable { deliver(null) }
+        val timeout = Runnable { Log.w(TAG, "Current-account provider timed out; archive identity remains unavailable"); deliver(null) }
         main.postDelayed(timeout, 15000L)
         executor.execute {
             try {
@@ -63,9 +63,16 @@ object GalleryPostController {
                 invokeSuspend(receiver, method, emptyArray(), method.parameterTypes.single(), context) { user, failure ->
                     main.removeCallbacks(timeout)
                     val value = if (failure == null && user != null && uid.declaringClass.isInstance(user)) runCatching { uid.get(user) as? String }.getOrNull() else null
+                    if (failure != null || user != null && !uid.declaringClass.isInstance(user)) {
+                        Log.w(TAG, "Current-account provider did not return the expected current-user model")
+                    }
                     deliver(value?.takeIf(String::isNotBlank))
                 }
-            } catch (_: Exception) { main.removeCallbacks(timeout); deliver(null) }
+            } catch (failure: Exception) {
+                main.removeCallbacks(timeout)
+                Log.w(TAG, "Current-account provider failed (${failure.javaClass.simpleName}); archive identity remains unavailable")
+                deliver(null)
+            }
         }
     }
 

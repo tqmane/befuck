@@ -41,6 +41,8 @@ BeReal의 기능을 확장하는 Xposed 모듈입니다.
 
 저장 위치: `Pictures/BeFuck` 또는 `Movies/BeFuck`.
 
+BeReal 또는 모듈을 업데이트하면 다음 실행 시 심볼 캐시를 자동으로 다시 생성합니다. 저장한 게시물, SQLite 백업과 기능 설정은 유지됩니다.
+
 ## 빌드
 
 JDK 17 이상 및 Android SDK가 필요합니다.
