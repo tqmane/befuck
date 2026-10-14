@@ -41,6 +41,8 @@ BeReal 的 Xposed 功能增强模块。
 
 保存路径：`Pictures/BeFuck` 或 `Movies/BeFuck`。
 
+更新 BeReal 或模块后，下次启动会自动重新生成符号缓存。已保存帖子、SQLite 备份和功能设置会保留。
+
 ## 构建
 
 需要 JDK 17+ 和 Android SDK。

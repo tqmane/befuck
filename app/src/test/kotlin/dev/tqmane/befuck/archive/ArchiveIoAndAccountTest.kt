@@ -34,4 +34,39 @@ class ArchiveIoAndAccountTest {
         assertThrows(ArchiveFailure::class.java) { ArchiveAccounts.requireScope(lease) }
         ArchiveAccounts.invalidate()
     }
+    @Test fun explicitOpenWaitsForAndJoinsTheCurrentAccountRead() {
+        ArchiveAccounts.invalidate()
+        var read: java.util.function.Consumer<String?>? = null
+        var reads = 0
+        val results = arrayListOf<ArchiveAccounts.Scope>()
+        val source: (java.util.function.Consumer<String?>) -> Unit = { reads++; read = it }
+        ArchiveAccounts.resolve(true, 10000, source) { results += it }
+        ArchiveAccounts.resolve(true, 10001, source) { results += it }
+        assertEquals(1, reads)
+        assertTrue(results.isEmpty())
+        read!!.accept("current-viewer")
+        assertEquals(listOf(ArchiveAccounts.snapshot(), ArchiveAccounts.snapshot()), results)
+        assertEquals("current-viewer", results.first().uid)
+        ArchiveAccounts.invalidate()
+    }
+    @Test fun invalidationCancelsPendingOpenAndLateProviderCannotSupplyAnotherAccount() {
+        ArchiveAccounts.invalidate()
+        var read: java.util.function.Consumer<String?>? = null
+        val results = arrayListOf<ArchiveAccounts.Scope>()
+        ArchiveAccounts.resolve(true, 10000, { read = it }) { results += it }
+        ArchiveAccounts.invalidate()
+        assertEquals(listOf(ArchiveAccounts.snapshot()), results)
+        assertNull(results.single().uid)
+        read!!.accept("stale-viewer")
+        assertNull(ArchiveAccounts.snapshot().uid)
+        assertEquals(1, results.size)
+    }
+    @Test fun knownAccountCanBeReturnedWithoutStartingAnotherRead() {
+        ArchiveAccounts.invalidate()
+        ArchiveAccounts.accept(ArchiveAccounts.snapshot().generation, "current-viewer")
+        var returned: ArchiveAccounts.Scope? = null
+        ArchiveAccounts.resolve(false, 10000, { fail("Known account was unnecessarily reread") }) { returned = it }
+        assertEquals(ArchiveAccounts.snapshot(), returned)
+        ArchiveAccounts.invalidate()
+    }
 }

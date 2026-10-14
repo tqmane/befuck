@@ -35,6 +35,8 @@ The host's already-resolved current-user provider and UID field identify the act
 
 Authentication-header changes invalidate the in-memory account attribution. The home/activity lifecycle resolves it again through the current-user provider. No bearer token is written to the archive or backup. Open archive screens, queued callbacks and restore/export leases reject an account-generation change. If identity cannot be resolved, export/import are unavailable rather than guessing from the backup or author name.
 
+Opening saved posts first completes or joins the current-account read, so the screen does not freeze an unresolved account scope while the provider is still loading. A pending open is cancelled when the activity pauses. Provider failures report only the failure category, never account IDs, tokens or the current-user object. The 3.97.1 APK's provider was traced through its local DataStore serializer and non-null user flow; it emits the same `User` model as the resolved UID field. Physical-device provider readiness still needs qualification.
+
 The old JSON cache had no viewer-account identity. It migrates into an **unassigned** partition, as do observations made before a current account is safely available. No user UID is inferred from the author. A visible notice and explicit **Associate unassigned old data** confirmation let the owner associate those rows with the current account. This operation merges matching records and removes the unassigned copies in one transaction; the original legacy recovery table remains locally. Review the warning especially if the installation previously used multiple accounts. Merely opening the backup screen does not associate anything.
 
 ## Snapshot and validation safety

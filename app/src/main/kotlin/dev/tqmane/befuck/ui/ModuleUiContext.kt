@@ -40,6 +40,8 @@ internal object MaterialControls {
                icon: TablerIcon? = null, action: () -> Unit): MaterialButton = MaterialButton(
         context as? ModuleUiContext ?: ModuleUiContext(context, resources)
     ).apply {
+        // The public getter extracts the default model, replacing Expressive's pressed corner morph.
+        shapeAppearanceModel = shapeAppearanceModel
         text = label; isAllCaps = false; textSize = 14f; minWidth = 0; minimumWidth = 0
         minHeight = ExpressiveUi.dp(context, 48); minimumHeight = ExpressiveUi.dp(context, 48)
         insetTop = 0; insetBottom = 0

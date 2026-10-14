@@ -7,12 +7,16 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
+import dev.tqmane.befuck.archive.ArchiveAccounts
 import dev.tqmane.befuck.posting.GalleryMediaFile
+import dev.tqmane.befuck.symbols.ResolvedSymbols
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,6 +25,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowDialog
+import org.robolectric.Shadows.shadowOf
 import java.io.File
 
 @RunWith(org.robolectric.RobolectricTestRunner::class)
@@ -35,6 +40,44 @@ class ScreenLifecycleTest {
     }
     private fun assign(target: Any, field: String, value: Any?) {
         target.javaClass.getDeclaredField(field).apply { isAccessible = true }.set(target, value)
+    }
+    @Test fun lateAccountResultCannotReopenSavedPostsAfterItsGalleryWasClosed() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        ArchiveAccounts.invalidate()
+        var pending: java.util.function.Consumer<String?>? = null
+        ArchiveAccounts.resolve(true, 10000, { pending = it })
+        // Only a pending current-account read is exercised; no host classes or network are needed.
+        val constructor = ResolvedSymbols::class.java.declaredConstructors.single()
+        val symbols = constructor.newInstance(*constructor.parameterTypes.map { type ->
+            when (type) {
+                String::class.java -> "fixture"
+                Boolean::class.javaPrimitiveType -> false
+                Map::class.java -> emptyMap<String, Any>()
+                List::class.java -> emptyList<Any>()
+                else -> null
+            }
+        }.toTypedArray()) as ResolvedSymbols
+        try {
+            BeFuckGalleryUi.open(activity, activity.resources, symbols)
+            val oldDialog = ShadowDialog.getLatestDialog()
+            val entry = children(content(oldDialog)).filterIsInstance<TextView>().single {
+                it.text.toString() == activity.getString(dev.tqmane.befuck.R.string.befuck_download_recent)
+            }.parent.parent as View
+            assertTrue(entry.performClick())
+            oldDialog.dismiss()
+            shadowOf(Looper.getMainLooper()).idle()
+            BeFuckGalleryUi.open(activity, activity.resources, symbols)
+            val replacement = ShadowDialog.getLatestDialog()
+            pending!!.accept("current-viewer")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertSame(replacement, ShadowDialog.getLatestDialog())
+            assertTrue(replacement.isShowing)
+        } finally {
+            BeFuckGalleryUi.onActivityDestroy(activity)
+            ArchiveAccounts.invalidate()
+            controller.pause().stop().destroy()
+        }
     }
     @Test fun latePickerResultFromDismissedGalleryDoesNotOpenEditorInNewGallery() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()

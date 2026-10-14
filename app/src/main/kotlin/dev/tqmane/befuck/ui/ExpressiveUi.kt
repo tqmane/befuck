@@ -39,7 +39,8 @@ internal object ExpressiveUi {
         stroke?.let { setStroke(dp(context, 1), it) }
     }
     fun ripple(context: Context, color: Int = CONTAINER, radius: Float = CORNER, stroke: Int? = null) =
-        RippleDrawable(ColorStateList.valueOf(if (color == Color.WHITE) 0x24000000 else 0x33FFFFFF), shape(context, color, radius, stroke), null)
+        RippleDrawable(ColorStateList.valueOf(if (color == Color.WHITE) 0x24000000 else 0x33FFFFFF),
+            shape(context, color, radius, stroke), shape(context, Color.WHITE, radius))
     fun text(context: Context, value: CharSequence, size: Float = 14f, color: Int = Color.WHITE, bold: Boolean = false) = TextView(context).apply {
         text = value; textSize = size; setTextColor(color)
         typeface = Typeface.create("sans-serif", if (bold) Typeface.BOLD else Typeface.NORMAL)

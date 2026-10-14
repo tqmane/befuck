@@ -41,6 +41,8 @@ BeRealの機能を拡張するXposedモジュールです。
 
 保存先：端末の `Pictures/BeFuck` または `Movies/BeFuck`
 
+BeRealまたはモジュールの更新後は、次回起動時にシンボルキャッシュを自動で再生成します。保存した投稿・SQLiteバックアップ・機能設定は保持します。
+
 ## ビルド
 
 JDK 17以上とAndroid SDKが必要です。

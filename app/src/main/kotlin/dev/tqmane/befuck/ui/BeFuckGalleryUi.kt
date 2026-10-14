@@ -91,6 +91,7 @@ object BeFuckGalleryUi {
     private var activeActivity = WeakReference<Activity>(null)
     private val importer = Executors.newSingleThreadExecutor()
     private val mainThread = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pendingSavedScreens = WeakHashMap<Activity, Any>()
     private val inlineOverlayCreatedLogOnce = AtomicBoolean(false)
 
     private class EntryTracker(
@@ -169,6 +170,7 @@ object BeFuckGalleryUi {
 
     @JvmStatic
     fun onActivityPause(activity: Activity) {
+        pendingSavedScreens.remove(activity)
         SavedPreviewSession.pause(activity)
         BeFakeLocationDialog.onActivityPause(activity)
         sessions[activity]?.videoEditor?.pausePreview()
@@ -946,7 +948,7 @@ object BeFuckGalleryUi {
             })
         }
         column.addView(mediaRow, gapParams(activity, 0, 0, 0, 16))
-        column.addView(ExpressiveUi.row(activity, resources.getString(R.string.befuck_download_recent), TablerIcon.FOLDER) { openDownloadDialog(activity, resources) }, gapParams(activity, 0, 0, 0, 24))
+        column.addView(ExpressiveUi.row(activity, resources.getString(R.string.befuck_download_recent), TablerIcon.FOLDER) { openDownloadDialog(activity, resources, symbols) }, gapParams(activity, 0, 0, 0, 24))
         fun group(): LinearLayout = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL; background = ExpressiveUi.shape(activity)
             setPadding(dp(activity, 16), dp(activity, 16), dp(activity, 16), dp(activity, 16))
@@ -1036,7 +1038,10 @@ object BeFuckGalleryUi {
         sessions[activity] = session
         updatePostAvailability(session)
         dialog.setOnDismissListener {
-            if (sessions[activity] === session) sessions.remove(activity)
+            if (sessions[activity] === session) {
+                sessions.remove(activity)
+                pendingSavedScreens.remove(activity)
+            }
             session.photoEditor?.dismiss(); session.videoEditor?.dismiss()
             BeFakeLocationDialog.onActivityDestroy(activity)
             session.frontPreview.setImageDrawable(null); session.backPreview.setImageDrawable(null)
@@ -1350,8 +1355,29 @@ object BeFuckGalleryUi {
     }
 
 
-    private fun openDownloadDialog(activity: Activity, resources: Resources) {
-        SavedPostsScreen.show(activity, resources)
+    private fun openDownloadDialog(activity: Activity, resources: Resources, symbols: ResolvedSymbols?) {
+        if (pendingSavedScreens.containsKey(activity)) return
+        val owner = sessions[activity] ?: return
+        if (!owner.dialog.isShowing) return
+        if (symbols == null) { SavedPostsScreen.show(activity, resources); return }
+        val ticket = Any()
+        val before = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot()
+        pendingSavedScreens[activity] = ticket
+        dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols, force = true) { scope ->
+            mainThread.post {
+                if (pendingSavedScreens[activity] !== ticket) return@post
+                pendingSavedScreens.remove(activity)
+                if (sessions[activity] === owner && owner.dialog.isShowing && !activity.isDestroyed && !activity.isFinishing &&
+                    dev.tqmane.befuck.archive.ArchiveAccounts.snapshot() == scope) {
+                    if (scope.uid == null && scope.generation != before.generation) {
+                        // Initial API headers can arrive while the first local-user read is pending.
+                        if (before.uid == null) openDownloadDialog(activity, resources, symbols)
+                        return@post
+                    }
+                    SavedPostsScreen.show(activity, resources)
+                }
+            }
+        }
     }
 
     private fun downloadAction(activity: Activity, text: String, action: () -> Unit): Button =

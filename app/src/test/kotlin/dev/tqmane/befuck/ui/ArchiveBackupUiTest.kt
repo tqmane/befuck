@@ -149,6 +149,29 @@ class ArchiveBackupUiTest {
         FeedPostMediaCache.captureCurrentUser(Author("not-the-viewer","Example"))
         assertEquals(before,ArchiveAccounts.snapshot())
     }
+    @Test fun confirmedAssociationMovesLegacyRowsAndRemovesTheSavedScreenNotice() = fixture { activity,store ->
+        store.merge(listOf(record("")), "")
+        val saved = SavedPostsScreen.show(activity, activity.resources, execute = java.util.concurrent.Executor { it.run() })
+        shadowOf(Looper.getMainLooper()).idle()
+        val notice = views(root(saved)).filterIsInstance<TextView>().single {
+            it.text.toString() == activity.getString(R.string.befuck_archive_unassigned_notice)
+        }
+        assertEquals(View.VISIBLE, notice.visibility)
+        assertTrue(views(root(saved)).single { it.tag == "archive-backup-entry" }.performClick())
+        drain()
+        val backup = ShadowDialog.getLatestDialog()
+        assertEquals(1, store.count(""))
+        assertEquals(0, store.count("account"))
+        click(backup, activity.getString(R.string.befuck_archive_associate))
+        assertEquals(1, store.count(""))
+        click(ShadowDialog.getLatestDialog(), activity.getString(R.string.befuck_archive_associate_confirm))
+        drain()
+        assertEquals(0, store.count(""))
+        assertEquals(1, store.count("account"))
+        assertEquals(View.GONE, notice.visibility)
+        assertTrue(views(root(backup)).any { it.tag == "archive-associate" && !it.isEnabled })
+        saved.dismiss()
+    }
     @Test fun backupScreenRendersActualControlsAndClosesOnOwnerDestruction() = fixture { activity,store ->
         store.merge(listOf(record()),"account")
         ArchiveBackupUi.show(activity,activity.resources);drain();val dialog=ShadowDialog.getLatestDialog();val root=root(dialog)
