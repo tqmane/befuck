@@ -129,6 +129,13 @@
     <string name="befuck_location_provider_hint">장소 검색 시 입력한 텍스트를 설정된 HTTPS 지오코딩 서비스로 전송합니다. 기본값은 공개 OpenStreetMap Nominatim 서비스입니다. 자주 사용하거나 공유 시에는 트래픽을 허용하는 호환 서비스를 설정하세요.</string>
     <string name="befuck_location_provider_invalid">쿼리, 프래그먼트, 인증 정보가 포함되지 않은 HTTPS URL을 입력하세요.</string>
     <string name="befuck_location_map_loading">지도를 불러오는 중…</string>
+    <string name="befuck_post_map_title">게시물 위치</string>
+    <string name="befuck_post_map_current">현재 위치 표시</string>
+    <string name="befuck_post_map_no_current">현재 위치를 아직 가져오지 못했습니다.</string>
+    <string name="befuck_post_map_photo">사진 핀 미리보기 전환</string>
+    <string name="befuck_post_map_waiting">게시물 위치를 불러오는 중…</string>
+    <string name="befuck_post_map_approximate">대략적인 위치 · 반경 5km. 지도는 OpenFreeMap에서 제공합니다.</string>
+    <string name="befuck_post_map_hint">지도는 OpenFreeMap에서 제공합니다. 사진 핀을 탭하면 미리보기가 바뀝니다.</string>
     <string name="befuck_location_search">검색</string>
     <string name="befuck_location_selected_label">선택한 위치</string>
     <string name="befuck_location_search_results">검색 결과 선택</string>

@@ -1,11 +1,13 @@
 package dev.tqmane.befuck.symbols
 
+import dev.tqmane.befuck.download.PostLocation
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.FindClass
 import org.luckypray.dexkit.query.FindMethod
 import org.luckypray.dexkit.query.matchers.ClassMatcher
 import org.luckypray.dexkit.query.matchers.MethodMatcher
 import org.luckypray.dexkit.query.matchers.MethodsMatcher
+import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -36,6 +38,9 @@ data class FeedMediaSymbols(
     val dualMediaSecondaryField: Field?,
     val blurredMediaRenderMethod: Method?,
     val blurredOverlayComposableMethod: Method?,
+    val corePostLocationSymbols: CorePostLocationSymbols? = null,
+    val mapPlaceholderLocationSymbols: MapPlaceholderLocationSymbols? = null,
+    val friendGraphSymbols: FriendGraphSymbols? = null,
 ) {
     val canCaptureFeedMedia: Boolean
         get() = postModelClass != null && postDeserializerMethod != null && postIdField != null &&
@@ -49,6 +54,65 @@ data class FeedMediaSymbols(
 
     val canUnblurLocally: Boolean
         get() = blurredMediaRenderMethod != null && blurredOverlayComposableMethod != null
+}
+
+/** Raw CorePost coordinates are read only after the post's author is safe to locate exactly. */
+class CorePostLocationSymbols internal constructor(
+    private val coreClass: Class<*>,
+    private val owner: Field,
+    private val ownerUid: Field,
+    private val point: Field,
+    private val latitude: Field,
+    private val longitude: Field,
+    private val postId: Field? = null,
+    private val nativeFriendStatus: Field? = null,
+) {
+    /** Host models are observed once constructed, not when a post map is opened. */
+    val constructors: List<Constructor<*>> get() = coreClass.declaredConstructors
+        .filter { !it.isSynthetic && it.parameterCount in 3..64 }
+        .map { it.apply { isAccessible = true } }
+
+    /** Author and post identity alone; reading this never touches location coordinates. */
+    fun identity(model: Any?): Pair<String, String>? = runCatching {
+        if (model == null || !coreClass.isInstance(model)) return@runCatching null
+        val id = (postId?.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 }
+            ?: return@runCatching null
+        val author = owner.get(model) ?: return@runCatching null
+        val uid = (ownerUid.get(author) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 }
+            ?: return@runCatching null
+        id to uid
+    }.getOrNull()
+
+    fun snapshot(model: Any, viewerUid: String?, friendUids: Set<String> = emptySet(),
+        allowNativeAccepted: Boolean = false): PostLocation? = runCatching {
+        if (viewerUid.isNullOrBlank() || !coreClass.isInstance(model)) return@runCatching null
+        val author = owner.get(model) ?: return@runCatching null
+        val uid = (ownerUid.get(author) as? String)?.takeIf(String::isNotBlank) ?: return@runCatching null
+        // Host-native Accepted is permitted only before a complete Friends graph exists.
+        if (uid != viewerUid && uid !in friendUids &&
+            (!allowNativeAccepted || (nativeFriendStatus?.get(author) as? Enum<*>)?.name != "Accepted"))
+            return@runCatching null
+        val location = point.get(model) ?: return@runCatching null
+        PostLocation.create(latitude.getDouble(location), longitude.getDouble(location), approximate = false)
+    }.getOrNull()
+}
+
+/** The host has already resolved the same friendship flag that its full map will use. */
+class MapPlaceholderLocationSymbols internal constructor(
+    val constructors: List<Constructor<*>>,
+    private val postId: Field,
+    private val isFriend: Field,
+    private val latitude: Field,
+    private val longitude: Field,
+) {
+    fun snapshot(model: Any, canLocatePost: (String) -> Boolean): Pair<String, PostLocation>? = runCatching {
+        if (!postId.declaringClass.isInstance(model) || !isFriend.getBoolean(model)) return@runCatching null
+        val id = (postId.get(model) as? String)?.takeIf(String::isNotBlank) ?: return@runCatching null
+        if (!canLocatePost(id)) return@runCatching null
+        val location = PostLocation.create(latitude.getDouble(model), longitude.getDouble(model), approximate = false)
+            ?: return@runCatching null
+        id to location
+    }.getOrNull()
 }
 
 /** Resolves feed-media capture and local-only blur presentation hooks from semantic anchors. */
@@ -138,12 +202,102 @@ object FeedMediaSymbolResolver {
             dualMediaSecondaryField = dualMediaFields.second,
             blurredMediaRenderMethod = blur.blurredMediaMethod,
             blurredOverlayComposableMethod = blur.blurredOverlayMethod,
+            corePostLocationSymbols = resolveCorePostLocation(bridge, classLoader, logger, diagnostics),
+            mapPlaceholderLocationSymbols = resolveMapPlaceholderLocation(bridge, classLoader, logger, diagnostics),
+            friendGraphSymbols = FriendGraphSymbols.resolve(bridge, classLoader),
         )
         emit(
             logger,
             "[SymbolResolver] Feed media capture=${if (result.canCaptureFeedMedia) "ready" else "disabled"}; visible-model capture=${if (result.canCaptureVisibleFeedMedia) "ready" else "disabled"}; local unblur=${if (result.canUnblurLocally) "ready" else "disabled"}",
         )
         return result
+    }
+
+    private fun resolveCorePostLocation(
+        bridge: DexKitBridge,
+        classLoader: ClassLoader,
+        logger: Consumer<String>,
+        diagnostics: MutableList<String>,
+    ): CorePostLocationSymbols? = try {
+        fun semantic(label: String, vararg anchors: String): Class<*>? = loadClass(
+            findUniqueSemanticClass(bridge, label, anchors.toList(), logger, diagnostics),
+            classLoader, label, logger, diagnostics)
+        val core = semantic("CorePost location", "CorePost(id=", ", owner=", ", location=")
+        if (core == null) null else {
+            val modelData = requireNotNull(bridge.getClassData(core))
+            val rendered = modelData.findMethod(FindMethod.create().matcher(
+                MethodMatcher.create().name("toString").returnType(String::class.java).paramCount(0),
+            )).single { it.usingStrings.containsAll(listOf("CorePost(id=", ", owner=", ", location=")) }
+            // Verify the first toString String-field read corresponds to CorePost(id=.
+            // Do not depend on R8's obfuscated field name, or parse a data-bearing string.
+            val id = requireNotNull(rendered.usingFields.firstOrNull { usage ->
+                usage.usingType.isRead() && usage.field.declaredClassName == core.name &&
+                    !Modifier.isStatic(usage.field.modifiers) && usage.field.typeName == String::class.java.name
+            }?.field?.getFieldInstance(classLoader)) { "CorePost.id is unproven" }
+                .apply { isAccessible = true }
+            require(id.declaringClass == core && id.type == String::class.java)
+            // Several unrelated host types stringify as Location(longitude=...). Resolve
+            // through CorePost's actual field types, then validate each selected type's semantics.
+            fun member(label: String, shapes: Map<String, Class<*>>, anchors: List<String>): Field {
+                val candidates = core.declaredFields.filter { field ->
+                    !Modifier.isStatic(field.modifiers) && shapes.all { (name, type) ->
+                        declaredFieldOrNull(field.type, name)?.type == type
+                    } && runCatching {
+                        bridge.getClassData(field.type)?.findMethod(FindMethod.create().matcher(
+                            MethodMatcher.create().name("toString").returnType(String::class.java).paramCount(0),
+                        ))?.any { it.usingStrings.containsAll(anchors) } == true
+                    }.getOrDefault(false)
+                }
+                require(candidates.size == 1) { "$label candidateCount=${candidates.size}" }
+                return candidates.single().apply { isAccessible = true }
+            }
+            val ownerField = member("CorePost.owner", mapOf("uid" to String::class.java),
+                listOf("BasicUser(uid=", ", userName=", ", status=", ", friendshipDate="))
+            val pointField = member("CorePost.location", mapOf("latitude" to Double::class.javaPrimitiveType!!,
+                "longitude" to Double::class.javaPrimitiveType!!), listOf("Location(longitude=", ", latitude="))
+            val uid = declaredField(ownerField.type, "uid")
+            val latitude = declaredField(pointField.type, "latitude")
+            val longitude = declaredField(pointField.type, "longitude")
+            require(uid.type == String::class.java)
+            require(latitude.type == Double::class.javaPrimitiveType && longitude.type == Double::class.javaPrimitiveType)
+            require(!Modifier.isStatic(uid.modifiers) && !Modifier.isStatic(latitude.modifiers) && !Modifier.isStatic(longitude.modifiers))
+            // Only the audited BasicUser status enum can grant pre-query access.
+            val nativeStatus = declaredFieldOrNull(ownerField.type, "status")?.takeIf { field ->
+                !Modifier.isStatic(field.modifiers) && field.type.isEnum &&
+                    field.type.enumConstants?.filterIsInstance<Enum<*>>()?.map { it.name }?.toSet() ==
+                    setOf("Accepted", "Canceled", "Pending", "Rejected", "Sent", "Blacklisted", "Unknown")
+            }
+            CorePostLocationSymbols(core, ownerField, uid, pointField, latitude, longitude, id, nativeStatus)
+        }
+    } catch (failure: Throwable) {
+        diagnostics += "CorePost location resolution failed: ${failure.javaClass.simpleName}"
+        null
+    }
+
+    private fun resolveMapPlaceholderLocation(
+        bridge: DexKitBridge,
+        classLoader: ClassLoader,
+        logger: Consumer<String>,
+        diagnostics: MutableList<String>,
+    ): MapPlaceholderLocationSymbols? = try {
+        val data = findUniqueSemanticClass(bridge, "MapPlaceholder location",
+            listOf("MapPlaceholder(primaryUrl=", ", isFriend=", ", postId=", ", latitude=", ", longitude="), logger, diagnostics)
+        val owner = loadClass(data, classLoader, "MapPlaceholder location", logger, diagnostics)
+        if (owner == null) null else {
+            val id = declaredField(owner, "postId")
+            val friend = declaredField(owner, "isFriend")
+            val latitude = declaredField(owner, "latitude")
+            val longitude = declaredField(owner, "longitude")
+            require(id.type == String::class.java && friend.type == Boolean::class.javaPrimitiveType)
+            require(latitude.type == Double::class.javaPrimitiveType && longitude.type == Double::class.javaPrimitiveType)
+            require(listOf(id, friend, latitude, longitude).none { Modifier.isStatic(it.modifiers) })
+            val constructors = owner.declaredConstructors.map { it.apply { isAccessible = true } }
+            require(constructors.isNotEmpty())
+            MapPlaceholderLocationSymbols(constructors, id, friend, latitude, longitude)
+        }
+    } catch (failure: Throwable) {
+        diagnostics += "MapPlaceholder location resolution failed: ${failure.javaClass.simpleName}"
+        null
     }
 
     private data class PostFields(

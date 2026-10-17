@@ -61,7 +61,9 @@ import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
 import dev.tqmane.befuck.posting.BeFakeUploadController;
 import dev.tqmane.befuck.download.FeedPostMediaCache;
+import dev.tqmane.befuck.archive.ArchiveAccounts;
 import dev.tqmane.befuck.symbols.FeedMediaSymbols;
+import dev.tqmane.befuck.symbols.FriendGraphSymbols;
 import dev.tqmane.befuck.ui.BeFuckGalleryUi;
 
 public final class BeRealModule extends XposedModule {
@@ -188,8 +190,16 @@ public final class BeRealModule extends XposedModule {
         }
 
         mappings = KnownMappings.find(versionName, versionCode);
+        try {
+            moduleResources = loadModuleResources(context);
+        } catch (Throwable error) {
+            error("Could not load BeFuck resources", error);
+        }
         if (mappings == null) {
-            info("No mapping for BeReal " + versionName + " (" + versionCode + ")");
+            // The post map resolves its own validated host contract. It must not be
+            // blocked by the version tables used by unrelated module features.
+            installRepackagedPostMap(context, classLoader, versionName, versionCode);
+            info("No mapping for other BeReal features: " + versionName + " (" + versionCode + ")");
             return;
         }
 
@@ -197,7 +207,6 @@ public final class BeRealModule extends XposedModule {
             ApplicationInfo appInfo = targetApplicationInfo != null
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
-            moduleResources = loadModuleResources(context);
             smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
             installPreludeNativeCompatibility(context, classLoader);
             installRepackagedStartupCompatibility(context, classLoader);
@@ -222,7 +231,30 @@ public final class BeRealModule extends XposedModule {
             error("BeFuck SymbolResolver failed; affected hooks will use explicit known-version fallback only", error);
         }
 
+        installRepackagedPostMap(context, classLoader, versionName, versionCode);
         installRuntimeHooks(classLoader, resolvedSymbols);
+    }
+
+    private void installRepackagedPostMap(Context host, ClassLoader loader, String versionName, long versionCode) {
+        try {
+            if (moduleResources == null) return;
+            ApplicationInfo installed = host.getPackageManager().getApplicationInfo(
+                    TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
+            if (installed.metaData == null || !installed.metaData.containsKey("npatch")) return;
+            dev.tqmane.befuck.symbols.PostMapSymbols symbols =
+                    dev.tqmane.befuck.symbols.PostMapSymbolResolver.resolve(
+                            host, loader, getModuleApplicationInfo(), versionName, versionCode, message -> info(message));
+            if (symbols == null) {
+                info("NPatch post map replacement unavailable for this host symbol shape");
+                return;
+            }
+            hook(symbols.getRender()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> dev.tqmane.befuck.ui.NpatchPostMap.compose(
+                            symbols, chain.getThisObject(), chain.getArg(1), moduleResources));
+            info("Installed NPatch post map using OpenStreetMap/OpenFreeMap; Google API identity unchanged");
+        } catch (Throwable failure) {
+            error("Could not install NPatch post map replacement", failure);
+        }
     }
 
     private void installRepackagedStartupCompatibility(Context host, ClassLoader loader) {
@@ -1086,6 +1118,91 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
+    private void installFriendLocationCapture(FeedMediaSymbols media) {
+        FriendGraphSymbols graph = media.getFriendGraphSymbols();
+        if (graph == null) return;
+        try {
+            hook(graph.getQuery()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> {
+                        ArchiveAccounts.Scope scope = ArchiveAccounts.INSTANCE.snapshot();
+                        if (scope.getUid() == null) return chain.proceed();
+                        FriendGraphSymbols.Observation observation;
+                        try {
+                            observation = graph.observe(chain.getArg(0), scope.getUid());
+                        } catch (Throwable unavailable) {
+                            return chain.proceed();
+                        }
+                        if (observation == null) return chain.proceed();
+                        Object[] args = chain.getArgs().toArray();
+                        args[0] = observation.getConnection();
+                        long token = FeedPostMediaCache.beginFriendSnapshot();
+                        // The observer forwards the existing query; its original result and
+                        // exceptions stay with the host. Only a proven complete Friends set
+                        // can authorize exact coordinates in subsequent archive captures.
+                        Object result = chain.proceed(args);
+                        try {
+                            Set<String> friends = observation.friendUids(result);
+                            if (friends != null) {
+                                FeedPostMediaCache.captureFriendUids(scope.getUid(), scope.getGeneration(), token, friends);
+                            }
+                        } catch (Throwable ignored) {
+                            info("Skipped an unavailable friend-location observation");
+                        }
+                        return result;
+                    });
+            info("Observing the host's complete Friends graph for saved post locations");
+        } catch (Throwable failure) {
+            error("Could not observe friend location visibility", failure);
+        }
+    }
+
+    /** Run independently of optional version-mapped User/media models. */
+    private boolean installCorePostModelCapture(FeedMediaSymbols media, String versionName) {
+        dev.tqmane.befuck.symbols.CorePostLocationSymbols reader = media.getCorePostLocationSymbols();
+        if (reader == null) return false;
+        try {
+            List<Constructor<?>> constructors = new ArrayList<>(reader.getConstructors());
+            if (constructors.isEmpty() || constructors.size() > 8) return false;
+            for (Constructor<?> constructor : constructors) {
+                hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            try {
+                                FeedPostMediaCache.captureCorePostModel(chain.getThisObject(), reader);
+                                if (KnownMappings.isSupportedVersion(versionName))
+                                    FeedPostMediaCache.captureCorePost(chain.getThisObject(), media);
+                            } catch (Throwable failure) {
+                                info("Skipped CorePost observation: " + failure.getClass().getSimpleName());
+                            }
+                            return result;
+                        });
+            }
+            info("Installed CorePost location observations for feed-loaded models");
+            return true;
+        } catch (Throwable failure) {
+            info("CorePost observation unavailable: " + failure.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private void installLegacyCorePostCapture(ClassLoader loader, FeedMediaSymbols media) {
+        try {
+            Class<?> core = mappings.type(HostClass.CorePost, loader);
+            for (Constructor<?> constructor : core.getDeclaredConstructors()) {
+                if (constructor.getParameterCount() != 28) continue;
+                hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            FeedPostMediaCache.captureCorePost(chain.getThisObject(), media);
+                            return result;
+                        });
+            }
+            info("Installed legacy feed-model capture without requiring User/media hooks");
+        } catch (Throwable failure) {
+            info("Legacy CorePost capture unavailable: " + failure.getClass().getSimpleName());
+        }
+    }
+
     private void installFeedMediaCaptureAndUnblur(ClassLoader classLoader, ResolvedSymbols symbols) {
         FeedMediaSymbols media = symbols == null ? null : symbols.getFeedMediaSymbols();
         info("Installing feed media hooks; capture=" + (media != null && media.getCanCaptureFeedMedia())
@@ -1094,6 +1211,11 @@ public final class BeRealModule extends XposedModule {
             info("[SymbolResolver] Feed media capture and local unblur disabled: media symbols unresolved");
             return;
         }
+
+        installFriendLocationCapture(media);
+        boolean semanticCoreHooked = installCorePostModelCapture(media, symbols.getVersionName());
+        if (!semanticCoreHooked && KnownMappings.isSupportedVersion(symbols.getVersionName()))
+            installLegacyCorePostCapture(classLoader, media);
 
         if (KnownMappings.isSupportedVersion(symbols.getVersionName())) {
             try {
@@ -1120,17 +1242,8 @@ public final class BeRealModule extends XposedModule {
                                 return result;
                             });
                 }
+                // CorePost constructors have already been observed independently above.
                 Class<?> corePost = mappings.type(HostClass.CorePost, classLoader);
-                for (Constructor<?> constructor : corePost.getDeclaredConstructors()) {
-                    if (constructor.getParameterCount() != 28) continue;
-                    hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                            .intercept(chain -> {
-                                Object result = chain.proceed();
-                                FeedPostMediaCache.captureCorePost(chain.getThisObject());
-                                return result;
-                            });
-                }
-                info("Capturing CorePost URLs, owner and original timestamps from all loaded feed models");
                 Class<?> unsentRepository = mappings.type(HostClass.UnsentPostRepository, classLoader);
                 Class<?> postRepository = mappings.type(HostClass.PostRepository, classLoader);
                 Class<?> createContinuation = mappings.type(HostClass.CreatePostContinuation, classLoader);
@@ -1161,6 +1274,22 @@ public final class BeRealModule extends XposedModule {
                 }
             } catch (Throwable error) {
                 error("Could not capture CorePost metadata", error);
+            }
+        }
+
+        if (media.getMapPlaceholderLocationSymbols() != null) {
+            try {
+                for (Constructor<?> constructor : media.getMapPlaceholderLocationSymbols().getConstructors()) {
+                    hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                            .intercept(chain -> {
+                                Object result = chain.proceed();
+                                FeedPostMediaCache.captureMapPlaceholder(chain.getThisObject(), media);
+                                return result;
+                            });
+                }
+                info("Capturing post locations authorized by the host's map friendship state");
+            } catch (Throwable failure) {
+                error("Could not capture map location metadata", failure);
             }
         }
 

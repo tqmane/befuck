@@ -102,16 +102,18 @@ internal class ArchiveStore private constructor(internal val db: SQLiteDatabase)
     override fun close() = synchronized(lock) { db.close() }
 
     companion object {
-        const val SCHEMA_VERSION = 2
-        const val BACKUP_VERSION = 1
+        const val SCHEMA_VERSION = 3
+        const val BACKUP_VERSION = 2
         const val APPLICATION_ID = 0x42464152
         const val FORMAT = "BeFuck saved post URLs"
         const val MAX_POSTS = 50000
         const val MAX_URLS = 300000
         const val MAX_BYTES = 64L * 1024 * 1024
         private fun columns(fields: Map<String, String>) = fields.entries.joinToString(",") { (name, type) -> "$name $type,${name}_observed_at INTEGER" }
-        val POSTS_SQL = "CREATE TABLE archive_posts (account_uid TEXT NOT NULL,post_id TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL," +
-            columns(ArchiveRecord.POST_FIELDS) + ",posted_ms INTEGER,taken_ms INTEGER,PRIMARY KEY(account_uid,post_id))"
+        private fun postsSql(fields: Map<String, String>) = "CREATE TABLE archive_posts (account_uid TEXT NOT NULL,post_id TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL," +
+            columns(fields) + ",posted_ms INTEGER,taken_ms INTEGER,PRIMARY KEY(account_uid,post_id))"
+        val POSTS_V2_SQL = postsSql(ArchiveRecord.POST_FIELDS_V2)
+        val POSTS_SQL = postsSql(ArchiveRecord.POST_FIELDS)
         val MEDIA_SQL = "CREATE TABLE archive_media (account_uid TEXT NOT NULL,post_id TEXT NOT NULL,slot TEXT NOT NULL,url TEXT NOT NULL,first_seen INTEGER NOT NULL,last_seen INTEGER NOT NULL," +
             columns(ArchiveRecord.MEDIA_FIELDS) + ",PRIMARY KEY(account_uid,post_id,slot,url),FOREIGN KEY(account_uid,post_id) REFERENCES archive_posts(account_uid,post_id))"
         const val BACKUP_INFO_SQL = "CREATE TABLE backup_info (format TEXT NOT NULL,version INTEGER NOT NULL,account_uid TEXT NOT NULL,exported_at INTEGER NOT NULL,post_count INTEGER NOT NULL,url_count INTEGER NOT NULL)"
@@ -131,19 +133,25 @@ internal class ArchiveStore private constructor(internal val db: SQLiteDatabase)
                 if (db.version < SCHEMA_VERSION) {
                     db.beginTransaction()
                     try {
-                        createSchema(db)
-                        val hasLegacy = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'", null).use { it.moveToFirst() }
-                        if (hasLegacy) {
-                            db.rawQuery("SELECT id,captured,data FROM posts", null).use { cursor ->
-                                while (cursor.moveToNext()) {
-                                    // Abort and retain the entire old DB on a malformed row, rather than silently losing records.
-                                    val post = FeedPostMediaCache.fromJson(JSONObject(cursor.getString(2)))
-                                    archiveCheck(post.postId == cursor.getString(0), "migration")
-                                    val record = ArchiveRecord.observe("", post.copy(capturedAtMillis = cursor.getLong(1)))
-                                    ArchiveMerge.validate(record); write(db, record)
+                        if (db.version < 2) {
+                            createSchema(db)
+                            val hasLegacy = db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'", null).use { it.moveToFirst() }
+                            if (hasLegacy) {
+                                db.rawQuery("SELECT id,captured,data FROM posts", null).use { cursor ->
+                                    while (cursor.moveToNext()) {
+                                        // Abort and retain the entire old DB on a malformed row, rather than silently losing records.
+                                        val post = FeedPostMediaCache.fromJson(JSONObject(cursor.getString(2)))
+                                        archiveCheck(post.postId == cursor.getString(0), "migration")
+                                        val record = ArchiveRecord.observe("", post.copy(capturedAtMillis = cursor.getLong(1)))
+                                        ArchiveMerge.validate(record); write(db, record)
+                                    }
                                 }
+                                db.execSQL("ALTER TABLE posts RENAME TO legacy_posts_v1")
                             }
-                            db.execSQL("ALTER TABLE posts RENAME TO legacy_posts_v1")
+                        } else {
+                            // Existing relational archives keep every post, URL variant and observation time.
+                            db.execSQL("ALTER TABLE archive_posts ADD COLUMN location TEXT")
+                            db.execSQL("ALTER TABLE archive_posts ADD COLUMN location_observed_at INTEGER")
                         }
                         db.version = SCHEMA_VERSION
                         db.setTransactionSuccessful()
@@ -156,7 +164,7 @@ internal class ArchiveStore private constructor(internal val db: SQLiteDatabase)
         internal fun readOne(db: SQLiteDatabase, account: String, id: String): ArchiveRecord? {
             val header = db.rawQuery("SELECT * FROM archive_posts WHERE account_uid=? AND post_id=?", arrayOf(account, id)).use { c ->
                 if (!c.moveToFirst()) null else {
-                    val fields = c.fields(ArchiveRecord.POST_FIELDS)
+                    val fields = c.fields(if (db.version == 2) ArchiveRecord.POST_FIELDS_V2 else ArchiveRecord.POST_FIELDS)
                     for ((raw, millis) in listOf("posted_at" to "posted_ms", "taken_at" to "taken_ms")) {
                         val expected = PostMediaMetadata.parseTimestamp(fields[raw]?.value)
                         val index = c.getColumnIndexOrThrow(millis)

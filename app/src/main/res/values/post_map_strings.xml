@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_post_map_permission_settings">Allow location access in BeReal’s system app settings to show your current location.</string>
+</resources>

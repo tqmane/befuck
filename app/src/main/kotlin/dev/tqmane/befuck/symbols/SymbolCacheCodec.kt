@@ -9,9 +9,13 @@ import java.lang.reflect.Modifier
 
 /** Names and full signatures only; native objects and credentials are never serialized. */
 internal object SymbolCacheCodec {
-    const val SCHEMA = 1
+    // Old presets/records are rescanned once so a newly added reader cannot stay silently absent.
+    const val SCHEMA = 4
     private val rootKeys = listOf("packageName", "versionName", "sourceIdentity", "dexKitAvailable", "stringFields", "cameraCountdownComposableMethod", "feedMediaSymbols", "timelineBlurredCardComposableMethod", "pullDownGridCardComposableMethod", "pullDownGridMediaComposableMethod", "homeGridPostTileComposableMethod", "homeFeedCanBlurMapperMethod", "homeFeedItemEmitterMethod", "friendsOfFriendsFeedItemEmitterMethod", "postDomainModelClass", "postDomainModelConstructor", "postDomainModelFieldOrder", "postContentsClass", "postContentsConstructor", "postContentsFieldOrder", "postMediaClass", "postMediaConstructor", "postCoreDraftClass", "postCoreDraftConstructor", "sendPostCoroutineConstructor", "sendPostRepositoryInterface", "postUploadWorkerClass", "sendDraftMethod", "friendsVisibility", "friendOfFriendsVisibility", "globalVisibility", "currentUserProviderClass", "currentUserProviderMethod", "currentUserUidField", "cameraViewModelClass", "cameraFacingEnumClass", "cameraBindConcurrentMethod", "cameraOriginParserMethods", "locationRepositoryClass", "locationRequestMethod", "locationClientGetter", "diagnostics")
-    private val feedKeys = listOf("postModelClass", "postDeserializerMethod", "postIdField", "postTakenAtField", "postCaptionField", "postPrimaryField", "postPrimaryMediaField", "postSecondaryField", "postSecondaryMediaField", "postBtsMediaField", "mediaUrlField", "mediaWidthField", "mediaHeightField", "mediaTypeField", "postFeedCardComposableMethod", "postDataIdField", "postDataIsMineField", "viewStatePostDataField", "viewStateDualMediaField", "viewStateRealSponsoredPostUiStateField", "dualMediaPrimaryField", "dualMediaSecondaryField", "blurredMediaRenderMethod", "blurredOverlayComposableMethod")
+    private val feedKeys = listOf("postModelClass", "postDeserializerMethod", "postIdField", "postTakenAtField", "postCaptionField", "postPrimaryField", "postPrimaryMediaField", "postSecondaryField", "postSecondaryMediaField", "postBtsMediaField", "mediaUrlField", "mediaWidthField", "mediaHeightField", "mediaTypeField", "postFeedCardComposableMethod", "postDataIdField", "postDataIsMineField", "viewStatePostDataField", "viewStateDualMediaField", "viewStateRealSponsoredPostUiStateField", "dualMediaPrimaryField", "dualMediaSecondaryField", "blurredMediaRenderMethod", "blurredOverlayComposableMethod", "corePostLocationSymbols", "mapPlaceholderLocationSymbols", "friendGraphSymbols")
+    private val coreLocationKeys = listOf("coreClass", "owner", "ownerUid", "point", "latitude", "longitude", "postId", "nativeFriendStatus")
+    private val mapPlaceholderLocationKeys = listOf("constructors", "postId", "isFriend", "latitude", "longitude")
+    private val friendGraphKeys = listOf("query", "connectionType", "statementType", "friendsConverter", "friendsType")
 
     fun encode(symbols: ResolvedSymbols): JSONObject = record(symbols, rootKeys, "symbols")
 
@@ -46,6 +50,9 @@ internal object SymbolCacheCodec {
         })
         is ResolvedSymbols -> record(value, rootKeys, "symbols")
         is FeedMediaSymbols -> record(value, feedKeys, "feed")
+        is CorePostLocationSymbols -> record(value, coreLocationKeys, "core-location")
+        is MapPlaceholderLocationSymbols -> record(value, mapPlaceholderLocationKeys, "map-placeholder-location")
+        is FriendGraphSymbols -> record(value, friendGraphKeys, "friend-graph")
         is Enum<*> -> JSONObject().put("kind", "enum").put("owner", value.declaringJavaClass.name).put("name", value.name)
         else -> {
             val singleton = value.javaClass.declaredFields.single { field ->
@@ -93,9 +100,14 @@ internal object SymbolCacheCodec {
             "enum" -> requireNotNull(owner().enumConstants) { "Cached enum owner is not an enum" }
                 .single { (it as Enum<*>).name == value.getString("name") }
             "singleton" -> owner().getDeclaredField(value.getString("name")).apply { isAccessible = true }.get(null)
-            "symbols", "feed" -> {
-                val keys = if (kind == "symbols") rootKeys else feedKeys
-                val recordType = if (kind == "symbols") ResolvedSymbols::class.java else FeedMediaSymbols::class.java
+            "symbols", "feed", "core-location", "map-placeholder-location", "friend-graph" -> {
+                val (keys, recordType) = when (kind) {
+                    "symbols" -> rootKeys to ResolvedSymbols::class.java
+                    "feed" -> feedKeys to FeedMediaSymbols::class.java
+                    "core-location" -> coreLocationKeys to CorePostLocationSymbols::class.java
+                    "map-placeholder-location" -> mapPlaceholderLocationKeys to MapPlaceholderLocationSymbols::class.java
+                    else -> friendGraphKeys to FriendGraphSymbols::class.java
+                }
                 val values = value.getJSONObject("values")
                 val args = keys.map { key -> require(values.has(key)); read(values.get(key), loader) }.toTypedArray()
                 recordType.declaredConstructors.single { it.parameterCount == keys.size }

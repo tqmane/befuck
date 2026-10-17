@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_post_map_permission_settings">要显示当前位置，请在系统的 BeReal 应用设置中授予位置权限。</string>
+</resources>

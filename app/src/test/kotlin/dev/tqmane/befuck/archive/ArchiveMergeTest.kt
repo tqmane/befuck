@@ -2,6 +2,7 @@ package dev.tqmane.befuck.archive
 
 import dev.tqmane.befuck.download.FeedMediaItem
 import dev.tqmane.befuck.download.FeedPostMedia
+import dev.tqmane.befuck.download.PostLocation
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -73,5 +74,24 @@ class ArchiveMergeTest {
         val b=record(200).let { it.copy(fields=it.fields+("posted_at" to ObservedValue("not-a-date",200))) }
         assertEquals("2026-10-13T01:00:00Z",ArchiveMerge.merge(a,b).post().postedAt)
         assertEquals(ArchiveMerge.merge(a,b),ArchiveMerge.merge(b,a))
+    }
+
+    @Test fun locationsMergeAsCompleteSnapshotsAndMissingObservationsNeverEraseThem() {
+        fun located(at: Long, location: PostLocation?) = ArchiveRecord.observe("account",
+            FeedPostMedia("post", null, null, null, null, capturedAtMillis = at, location = location))
+        val older = located(100, PostLocation(35.0, 139.0, false))
+        val newer = located(200, PostLocation(-33.8, 151.2, true))
+        val latestWithoutLocation = located(300, null)
+        val merged = ArchiveMerge.merge(ArchiveMerge.merge(older, newer), latestWithoutLocation)
+        assertEquals(PostLocation(-33.8, 151.2, true), merged.post().location)
+        assertEquals(200L, merged.fields["location"]!!.at)
+        assertEquals(merged, ArchiveMerge.merge(latestWithoutLocation, ArchiveMerge.merge(newer, older)))
+    }
+
+    @Test fun malformedCoordinatesAndPartialPairsAreRejectedBeforeMerging() {
+        for (value in listOf("35.0,139.0", "35.0,139.0,unknown", "NaN,139.0,0", "91.0,0.0,0")) {
+            val invalid = record(100).let { it.copy(fields = it.fields + ("location" to ObservedValue(value, 100))) }
+            assertEquals("location", assertThrows(ArchiveFailure::class.java) { ArchiveMerge.validate(invalid) }.reason)
+        }
     }
 }

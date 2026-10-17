@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_saved_map_open">在地图上查看当天帖子</string>
+    <string name="befuck_saved_map_title">已保存帖子地图</string>
+    <string name="befuck_saved_map_count">有位置 %1$d 条 · 无位置 %2$d 条</string>
+    <string name="befuck_saved_map_empty">当天帖子没有已保存的位置信息。</string>
+    <string name="befuck_saved_map_hint">点击照片可查看账号。重复点击重叠照片可以循环切换。</string>
+    <string name="befuck_saved_map_approximate">大致位置</string>
+    <string name="befuck_saved_map_position">%1$d / %2$d</string>
+    <string name="befuck_saved_map_previous">上一条已保存帖子</string>
+    <string name="befuck_saved_map_next">下一条已保存帖子</string>
+    <string name="befuck_saved_map_preview">打开帖子</string>
+    <string name="befuck_saved_map_fit">显示全部帖子</string>
+</resources>

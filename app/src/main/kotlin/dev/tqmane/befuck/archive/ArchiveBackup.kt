@@ -33,10 +33,11 @@ internal object ArchiveBackup {
         SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS).use { db ->
             db.execSQL("PRAGMA query_only=ON")
             db.execSQL("PRAGMA trusted_schema=OFF")
-            archiveCheck(db.version == ArchiveStore.SCHEMA_VERSION, "version")
+            val legacy = db.version == 2
+            archiveCheck(legacy || db.version == ArchiveStore.SCHEMA_VERSION, "version")
             val application = db.rawQuery("PRAGMA application_id", null).use { it.moveToFirst(); it.getInt(0) }
             archiveCheck(application == ArchiveStore.APPLICATION_ID, "version")
-            val expected = mapOf("archive_posts" to ArchiveStore.POSTS_SQL, "archive_media" to ArchiveStore.MEDIA_SQL,
+            val expected = mapOf("archive_posts" to if (legacy) ArchiveStore.POSTS_V2_SQL else ArchiveStore.POSTS_SQL, "archive_media" to ArchiveStore.MEDIA_SQL,
                 "backup_info" to ArchiveStore.BACKUP_INFO_SQL, "archive_posts_date" to ArchiveStore.DATE_INDEX_SQL, "archive_posts_author" to ArchiveStore.AUTHOR_INDEX_SQL)
             val actual = linkedMapOf<String, String>()
             db.rawQuery("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name", null).use { c ->
@@ -55,7 +56,7 @@ internal object ArchiveBackup {
             var exported = 0L; var expectedPosts = 0L; var expectedUrls = 0L
             db.rawQuery("SELECT * FROM backup_info", null).use { c ->
                 archiveCheck(c.moveToFirst())
-                archiveCheck(c.text("format") == ArchiveStore.FORMAT && c.long("version") == ArchiveStore.BACKUP_VERSION.toLong(), "version")
+                archiveCheck(c.text("format") == ArchiveStore.FORMAT && c.long("version") == if (legacy) 1L else ArchiveStore.BACKUP_VERSION.toLong(), "version")
                 archiveCheck(c.text("account_uid") == account, "account")
                 exported = c.long("exported_at"); expectedPosts = c.long("post_count"); expectedUrls = c.long("url_count")
                 archiveCheck(!c.moveToNext())

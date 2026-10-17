@@ -59,7 +59,7 @@ dependencies {
     implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
     implementation("org.luckypray:dexkit:2.3.0")
-    implementation("org.maplibre.gl:android-sdk:13.3.1")
+    implementation("org.maplibre.gl:android-sdk-opengl:13.3.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.17")
 }

@@ -3,6 +3,7 @@ package dev.tqmane.befuck.archive
 import dev.tqmane.befuck.download.FeedMediaItem
 import dev.tqmane.befuck.download.FeedPostMedia
 import dev.tqmane.befuck.download.PostMediaMetadata
+import dev.tqmane.befuck.download.PostLocation
 import java.net.URI
 
 internal class ArchiveFailure(val reason: String) : Exception(reason)
@@ -25,13 +26,15 @@ internal data class ArchiveRecord(
             }
         return FeedPostMedia(id, value("taken_at"), value("caption"), item("back"), item("front"),
             value("owner_uid")?.let { account.isNotEmpty() && it == account } ?: value("is_own")?.let { it == "1" },
-            lastSeen, value("username"), value("posted_at"), item("bts"), value("owner_uid"), value("moment_id"), value("is_main")?.let { it == "1" })
+            lastSeen, value("username"), value("posted_at"), item("bts"), value("owner_uid"), value("moment_id"), value("is_main")?.let { it == "1" },
+            PostLocation.decode(value("location"))?.takeIf { it.isMappable })
     }
     fun forAccount(uid: String) = copy(account = uid, fields = fields - "is_own")
 
     companion object {
-        val POST_FIELDS = linkedMapOf("owner_uid" to "TEXT", "username" to "TEXT", "posted_at" to "TEXT",
+        val POST_FIELDS_V2 = linkedMapOf("owner_uid" to "TEXT", "username" to "TEXT", "posted_at" to "TEXT",
             "taken_at" to "TEXT", "caption" to "TEXT", "moment_id" to "TEXT", "is_main" to "INTEGER", "is_own" to "INTEGER")
+        val POST_FIELDS = POST_FIELDS_V2 + ("location" to "TEXT")
         val MEDIA_FIELDS = linkedMapOf("mime_type" to "TEXT", "width" to "INTEGER", "height" to "INTEGER")
         val SLOTS = setOf("back", "front", "bts")
         fun observe(account: String, post: FeedPostMedia): ArchiveRecord {
@@ -39,7 +42,8 @@ internal data class ArchiveRecord(
             fun fields(values: Map<String, String?>) = values.mapNotNull { (key, value) -> value?.let { key to ObservedValue(it, at) } }.toMap()
             val data = fields(mapOf("owner_uid" to post.ownerUid?.takeIf(String::isNotBlank), "username" to post.username?.takeIf(String::isNotBlank),
                 "posted_at" to post.postedAt, "taken_at" to post.takenAt, "caption" to post.caption,
-                "moment_id" to post.momentId, "is_main" to post.isMain?.let { if (it) "1" else "0" }, "is_own" to post.isOwnPost?.let { if (it) "1" else "0" }))
+                "moment_id" to post.momentId, "is_main" to post.isMain?.let { if (it) "1" else "0" }, "is_own" to post.isOwnPost?.let { if (it) "1" else "0" },
+                "location" to post.location?.encode()))
             val variants = listOf("back" to post.primary, "front" to post.secondary, "bts" to post.bts).mapNotNull { (slot, item) ->
                 item?.let {
                     val key = MediaKey(slot, it.url)
@@ -107,6 +111,7 @@ internal object ArchiveMerge {
                 }
                 if (key == "owner_uid") archiveCheck(ArchiveRecord.validId(value.value))
                 if (key == "mime_type") archiveCheck(value.value.startsWith("image/") || value.value.startsWith("video/"))
+                if (key == "location") archiveCheck(PostLocation.decode(value.value) != null, "location")
             }
         }
         values(record.fields, ArchiveRecord.POST_FIELDS, record.firstSeen, record.lastSeen)

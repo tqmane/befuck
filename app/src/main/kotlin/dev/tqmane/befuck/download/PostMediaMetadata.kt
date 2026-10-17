@@ -29,25 +29,42 @@ object PostMediaMetadata {
     }
 
     fun write(file: File, mime: String, post: FeedPostMedia) {
-        val millis = timestamp(post) ?: return
-        if (mime in listOf("image/jpeg", "image/webp", "image/png")) {
-            val time = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
+        val millis = timestamp(post)
+        if (mime in listOf("image/jpeg", "image/webp", "image/png") && (millis != null || post.location != null)) {
             val exif = ExifInterface(file.absolutePath)
-            val date = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss").format(time)
-            for (tag in listOf(ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED)) {
-                exif.setAttribute(tag, date)
+            if (millis != null) {
+                val time = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
+                val date = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss").format(time)
+                for (tag in listOf(ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED)) {
+                    exif.setAttribute(tag, date)
+                }
+                for (tag in listOf(ExifInterface.TAG_OFFSET_TIME, ExifInterface.TAG_OFFSET_TIME_ORIGINAL, ExifInterface.TAG_OFFSET_TIME_DIGITIZED)) {
+                    exif.setAttribute(tag, time.offset.id.replace("Z", "+00:00"))
+                }
+                exif.setAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL, "%03d".format(Math.floorMod(millis, 1000)))
             }
-            for (tag in listOf(ExifInterface.TAG_OFFSET_TIME, ExifInterface.TAG_OFFSET_TIME_ORIGINAL, ExifInterface.TAG_OFFSET_TIME_DIGITIZED)) {
-                exif.setAttribute(tag, time.offset.id.replace("Z", "+00:00"))
-            }
-            exif.setAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL, "%03d".format(Math.floorMod(millis, 1000)))
             exif.setAttribute(ExifInterface.TAG_ARTIST, post.username)
             exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, post.caption)
+            post.location?.let { location ->
+                // A privacy circle's randomized display center is not a photographic GPS fix.
+                // Also remove any inherited source GPS when the host marks this post approximate.
+                for (tag in listOf(
+                    ExifInterface.TAG_GPS_LATITUDE, ExifInterface.TAG_GPS_LATITUDE_REF,
+                    ExifInterface.TAG_GPS_LONGITUDE, ExifInterface.TAG_GPS_LONGITUDE_REF,
+                    ExifInterface.TAG_GPS_ALTITUDE, ExifInterface.TAG_GPS_ALTITUDE_REF,
+                    ExifInterface.TAG_GPS_TIMESTAMP, ExifInterface.TAG_GPS_DATESTAMP,
+                    ExifInterface.TAG_GPS_AREA_INFORMATION, ExifInterface.TAG_GPS_PROCESSING_METHOD,
+                    ExifInterface.TAG_GPS_H_POSITIONING_ERROR, ExifInterface.TAG_GPS_DOP,
+                    ExifInterface.TAG_GPS_DEST_LATITUDE, ExifInterface.TAG_GPS_DEST_LATITUDE_REF,
+                    ExifInterface.TAG_GPS_DEST_LONGITUDE, ExifInterface.TAG_GPS_DEST_LONGITUDE_REF,
+                )) exif.setAttribute(tag, null)
+                if (!location.approximate && location.isMappable) exif.setLatLong(location.latitude, location.longitude)
+            }
             exif.saveAttributes()
-        } else if (mime == "video/mp4") {
+        } else if (mime == "video/mp4" && millis != null) {
             writeMp4Date(file, millis)
         }
-        check(file.setLastModified(millis)) { "Could not set media file timestamp" }
+        if (millis != null) check(file.setLastModified(millis)) { "Could not set media file timestamp" }
     }
 
     // Patch only the fixed-width ISO BMFF time fields; encoded audio/video samples stay intact.

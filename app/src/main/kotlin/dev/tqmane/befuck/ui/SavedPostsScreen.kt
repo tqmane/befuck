@@ -64,6 +64,7 @@ internal object SavedPostsScreen {
         var hasLoaded = false
         var unassignedCount = 0
         var loadFailed = false
+        var dayMap: Dialog? = null
         val root = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.BLACK) }
         val header = LinearLayout(activity).apply {
             gravity = Gravity.CENTER_VERTICAL; setPadding(dp(activity, 20), dp(activity, 12), dp(activity, 12), dp(activity, 12))
@@ -117,6 +118,12 @@ internal object SavedPostsScreen {
         val count = ExpressiveUi.text(activity, "", 13f, ExpressiveUi.SECONDARY).apply { tag = "saved-day-count"; setPadding(dp(activity, 8), 0, 0, 0) }
         dayBar.addView(count)
         column.addView(dayBar)
+        val mapSection = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; tag = "saved-day-map-entry" }
+        val mapButton = action(uiContext, resources.getString(R.string.befuck_saved_map_open), false, TablerIcon.MAP_PIN) {}.apply { tag = "saved-day-map-open" }
+        val mapSummary = ExpressiveUi.text(activity, "", 12f, ExpressiveUi.SECONDARY).apply { tag = "saved-day-map-summary" }
+        mapSection.addView(mapButton, LinearLayout.LayoutParams(-1, -2))
+        mapSection.addView(mapSummary, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 6); bottomMargin = dp(activity, 12) })
+        column.addView(mapSection)
         val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; tag = "saved-day-posts" }
         column.addView(list)
         column.addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_preview_network_notice), 12f, ExpressiveUi.SECONDARY),
@@ -143,6 +150,11 @@ internal object SavedPostsScreen {
             dayTitle.text = if (model.mode == SavedCalendarModel.Mode.ALL) resources.getString(R.string.befuck_cache_all_dates)
                 else model.selectedDate.format(DateTimeFormatter.ofPattern(if (locale.language == "ja") "yyyy/M/d（E）" else "EEE, MMM d, yyyy", locale))
             count.text = resources.getString(R.string.befuck_calendar_count, posts.size)
+            val located = posts.count { it.location != null }
+            mapSection.visibility = if (hasLoaded && model.mode == SavedCalendarModel.Mode.CALENDAR && posts.isNotEmpty()) View.VISIBLE else View.GONE
+            mapButton.isEnabled = located > 0 && active()
+            mapSummary.text = if (located == 0) resources.getString(R.string.befuck_saved_map_empty)
+                else resources.getString(R.string.befuck_saved_map_count, located, posts.size - located)
             legacyNotice.visibility = if (unassignedCount > 0) View.VISIBLE else View.GONE
             if (hasLoaded) status.text = resources.getString(R.string.befuck_download_cached_count, model.matching.size)
             if (!hasLoaded) {
@@ -248,6 +260,17 @@ internal object SavedPostsScreen {
             }.also { future -> runCatching { execute.execute(future) }.onFailure { loadFailed = true; renderPosts(); status.text = resources.getString(R.string.befuck_saved_load_failed) } }
         }
         refresh.setOnClickListener { load() }
+        mapButton.setOnClickListener {
+            if (!active() || !hasLoaded || model.mode != SavedCalendarModel.Mode.CALENDAR) return@setOnClickListener
+            // The full date/query snapshot is intentionally independent of visibleLimit.
+            val posts = model.visible.toList()
+            if (posts.none { it.location != null } || dayMap?.isShowing == true) return@setOnClickListener
+            previews.clearRows()
+            val opened = SavedPostsMapScreen.show(activity, resources, dayTitle.text.toString(), posts, clock.zone, ::active,
+                onOpen = { post -> previews.show(post, if (post.primary != null) FeedMediaSelection.PRIMARY else FeedMediaSelection.SECONDARY) },
+                onClose = { dayMap = null; if (active()) { renderPosts(); previews.update() } })
+            dayMap = opened.takeIf { it.isShowing }
+        }
         backupButton.setOnClickListener { ArchiveBackupUi.show(activity, resources) { if (active()) load() } }
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -258,7 +281,8 @@ internal object SavedPostsScreen {
         calendarTab.setOnClickListener { model.query = search.text.toString(); model.showCalendar(); calendar.render(); visibleLimit = PAGE; renderPosts(); scroll.scrollTo(0, 0) }
         closeNow = {
             if (!closed) {
-                closed = true; ++generation; task?.cancel(true); main.removeCallbacks(renderLater); previews.close()
+                closed = true; ++generation; task?.cancel(true); main.removeCallbacks(renderLater)
+                dayMap?.dismiss(); dayMap = null; previews.close()
             }
         }
         val unsubscribeAccount = dev.tqmane.befuck.archive.ArchiveAccounts.subscribe {

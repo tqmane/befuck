@@ -129,6 +129,13 @@
     <string name="befuck_location_provider_hint">地点搜索会将输入的文本发送至配置的 HTTPS 地理编码服务。默认为公开的 OpenStreetMap Nominatim 服务。长期或频繁使用时，请配置允许该流量的兼容服务。</string>
     <string name="befuck_location_provider_invalid">请输入不包含查询参数、片段或凭据的 HTTPS 地址。</string>
     <string name="befuck_location_map_loading">正在加载地图…</string>
+    <string name="befuck_post_map_title">帖子位置</string>
+    <string name="befuck_post_map_current">显示当前位置</string>
+    <string name="befuck_post_map_no_current">暂时无法获取当前位置。</string>
+    <string name="befuck_post_map_photo">切换照片标记预览</string>
+    <string name="befuck_post_map_waiting">正在加载帖子位置…</string>
+    <string name="befuck_post_map_approximate">大致位置 · 半径5公里。地图由OpenFreeMap提供。</string>
+    <string name="befuck_post_map_hint">地图由OpenFreeMap提供。点击照片标记可切换预览。</string>
     <string name="befuck_location_search">搜索</string>
     <string name="befuck_location_selected_label">已选位置</string>
     <string name="befuck_location_search_results">选择搜索结果</string>
