@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_post_map_permission_settings">현재 위치를 표시하려면 기기의 BeReal 앱 설정에서 위치 권한을 허용하세요.</string>
+</resources>

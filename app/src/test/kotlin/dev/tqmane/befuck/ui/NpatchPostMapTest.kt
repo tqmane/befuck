@@ -1,6 +1,9 @@
 package dev.tqmane.befuck.ui
 
 import android.app.Activity
+import android.content.ContextWrapper
+import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.view.View
 import android.view.ViewGroup
@@ -9,7 +12,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import dev.tqmane.befuck.R
 import dev.tqmane.befuck.posting.LocationData
-import dev.tqmane.befuck.symbols.KnownMappings
+import dev.tqmane.befuck.symbols.PostMapSymbolResolver
 import dev.tqmane.befuck.symbols.PostMapSnapshot
 import dev.tqmane.befuck.symbols.PostMapSymbols
 import org.junit.Assert.*
@@ -149,11 +152,19 @@ class NpatchPostMapTest {
         }
     }
 
-    @Test fun missingClassesAndOlderVersionsDoNotInstallTheMapReplacement() {
-        val empty = object : ClassLoader(null) {}
-        assertNull(KnownMappings.find("3.97.0", 3597523L)!!.postMapSymbols(empty))
-        assertNull(KnownMappings.find("3.97.1", 3599414L)!!.postMapSymbols(empty))
-        assertNull(KnownMappings.find("3.97.1", 1L))
+    @Test fun ordinaryInstallationSkipsResolutionBeforeReadingPreferencesOrHostClasses() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val host = object : ContextWrapper(activity) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+                error("An ordinary installation must not initialize the NPatch resolver cache")
+        }
+        val untouchedLoader = object : ClassLoader(null) {
+            override fun loadClass(name: String): Class<*> =
+                error("An ordinary installation must not resolve NPatch host classes")
+        }
+        assertNull(PostMapSymbolResolver.resolve(host, untouchedLoader, ApplicationInfo(), "future", 1L) {
+            error("An ordinary installation must not enter map resolution")
+        })
     }
 
     @Test fun controlsRemainUsableWithoutGlAndReleaseClearsBorrowedState() {

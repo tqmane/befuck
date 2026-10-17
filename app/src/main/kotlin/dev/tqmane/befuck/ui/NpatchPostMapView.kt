@@ -18,6 +18,9 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import dev.tqmane.befuck.R
+import dev.tqmane.befuck.archive.ArchiveAccounts
+import dev.tqmane.befuck.download.FeedPostMediaCache
+import dev.tqmane.befuck.download.PostLocation
 import dev.tqmane.befuck.posting.LocationData
 import dev.tqmane.befuck.symbols.PostMapSnapshot
 import dev.tqmane.befuck.symbols.PostMapSymbols
@@ -42,7 +45,14 @@ import kotlin.math.*
 /** Replaces only the post-map content; the host still owns navigation and post state. */
 object NpatchPostMap {
     @JvmStatic fun compose(symbols: PostMapSymbols, owner: Any, composer: Any, resources: Resources): Any {
+        val account = ArchiveAccounts.snapshot()
         val snapshot = symbols.snapshot(owner)
+        if (account.uid != null) snapshot.post?.let { location ->
+            runCatching {
+                FeedPostMediaCache.captureDisplayedLocation(snapshot.postId,
+                    PostLocation(location.latitude, location.longitude, snapshot.approximate), account)
+            }.onFailure { Log.w("BeFuck/Map", "Could not record the displayed post location") }
+        }
         symbols.compose(composer, { NpatchPostMapView(it, resources) }, {
             (it as NpatchPostMapView).update(snapshot, { symbols.close(owner) }, { symbols.toggle(owner) }, { symbols.requestLocationPermission(owner) })
         }, { (it as NpatchPostMapView).dispose() })
@@ -77,7 +87,9 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
         val user = snapshot?.user
         if (user != null) map?.animateCamera(CameraUpdateFactory.newLatLngZoom(user.latLng(), 14.0))
         else if (snapshot?.locationAllowed == false) {
-            runCatching { askLocation?.invoke() }.onFailure { Log.w("BeFuck/Map", "Location permission action unavailable") }
+            if (snapshot?.canRequestLocation == true) {
+                runCatching { askLocation?.invoke() }.onFailure { Log.w("BeFuck/Map", "Location permission action unavailable") }
+            } else status.text = text(R.string.befuck_post_map_permission_settings)
         } else status.text = text(R.string.befuck_post_map_no_current)
     }
     private val photo = ExpressiveUi.iconButton(context, TablerIcon.MAP_PIN, text(R.string.befuck_post_map_photo)) { togglePhoto() }

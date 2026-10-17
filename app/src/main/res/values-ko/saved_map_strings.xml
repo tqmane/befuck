@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_saved_map_open">이 날짜의 게시물을 지도에서 보기</string>
+    <string name="befuck_saved_map_title">저장한 게시물 지도</string>
+    <string name="befuck_saved_map_count">위치 있음 %1$d개 · 없음 %2$d개</string>
+    <string name="befuck_saved_map_empty">이 날짜에 저장된 위치 정보가 없습니다.</string>
+    <string name="befuck_saved_map_hint">사진을 탭하면 계정을 확인할 수 있습니다. 겹친 사진은 반복해서 탭하여 전환하세요.</string>
+    <string name="befuck_saved_map_approximate">대략적인 위치</string>
+    <string name="befuck_saved_map_position">%1$d / %2$d</string>
+    <string name="befuck_saved_map_previous">이전 저장 게시물</string>
+    <string name="befuck_saved_map_next">다음 저장 게시물</string>
+    <string name="befuck_saved_map_preview">게시물 열기</string>
+    <string name="befuck_saved_map_fit">모든 게시물 보기</string>
+</resources>

@@ -61,7 +61,9 @@ import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
 import dev.tqmane.befuck.posting.BeFakeUploadController;
 import dev.tqmane.befuck.download.FeedPostMediaCache;
+import dev.tqmane.befuck.archive.ArchiveAccounts;
 import dev.tqmane.befuck.symbols.FeedMediaSymbols;
+import dev.tqmane.befuck.symbols.FriendGraphSymbols;
 import dev.tqmane.befuck.ui.BeFuckGalleryUi;
 
 public final class BeRealModule extends XposedModule {
@@ -188,8 +190,16 @@ public final class BeRealModule extends XposedModule {
         }
 
         mappings = KnownMappings.find(versionName, versionCode);
+        try {
+            moduleResources = loadModuleResources(context);
+        } catch (Throwable error) {
+            error("Could not load BeFuck resources", error);
+        }
         if (mappings == null) {
-            info("No mapping for BeReal " + versionName + " (" + versionCode + ")");
+            // The post map resolves its own validated host contract. It must not be
+            // blocked by the version tables used by unrelated module features.
+            installRepackagedPostMap(context, classLoader, versionName, versionCode);
+            info("No mapping for other BeReal features: " + versionName + " (" + versionCode + ")");
             return;
         }
 
@@ -197,11 +207,9 @@ public final class BeRealModule extends XposedModule {
             ApplicationInfo appInfo = targetApplicationInfo != null
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
-            moduleResources = loadModuleResources(context);
             smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
             installPreludeNativeCompatibility(context, classLoader);
             installRepackagedStartupCompatibility(context, classLoader);
-            installRepackagedPostMap(context, classLoader);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
             installComposeTracingContextGuard(classLoader);
             installAuthFailureDiagnostics(classLoader);
@@ -223,16 +231,19 @@ public final class BeRealModule extends XposedModule {
             error("BeFuck SymbolResolver failed; affected hooks will use explicit known-version fallback only", error);
         }
 
+        installRepackagedPostMap(context, classLoader, versionName, versionCode);
         installRuntimeHooks(classLoader, resolvedSymbols);
     }
 
-    private void installRepackagedPostMap(Context host, ClassLoader loader) {
+    private void installRepackagedPostMap(Context host, ClassLoader loader, String versionName, long versionCode) {
         try {
             if (moduleResources == null) return;
             ApplicationInfo installed = host.getPackageManager().getApplicationInfo(
                     TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
             if (installed.metaData == null || !installed.metaData.containsKey("npatch")) return;
-            dev.tqmane.befuck.symbols.PostMapSymbols symbols = mappings.postMapSymbols(loader);
+            dev.tqmane.befuck.symbols.PostMapSymbols symbols =
+                    dev.tqmane.befuck.symbols.PostMapSymbolResolver.resolve(
+                            host, loader, getModuleApplicationInfo(), versionName, versionCode, message -> info(message));
             if (symbols == null) {
                 info("NPatch post map replacement unavailable for this host symbol shape");
                 return;
@@ -1107,6 +1118,44 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
+    private void installFriendLocationCapture(FeedMediaSymbols media) {
+        FriendGraphSymbols graph = media.getFriendGraphSymbols();
+        if (graph == null) return;
+        try {
+            hook(graph.getQuery()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> {
+                        ArchiveAccounts.Scope scope = ArchiveAccounts.INSTANCE.snapshot();
+                        if (scope.getUid() == null) return chain.proceed();
+                        FriendGraphSymbols.Observation observation;
+                        try {
+                            observation = graph.observe(chain.getArg(0), scope.getUid());
+                        } catch (Throwable unavailable) {
+                            return chain.proceed();
+                        }
+                        if (observation == null) return chain.proceed();
+                        Object[] args = chain.getArgs().toArray();
+                        args[0] = observation.getConnection();
+                        long token = FeedPostMediaCache.beginFriendSnapshot();
+                        // The observer forwards the existing query; its original result and
+                        // exceptions stay with the host. Only a proven complete Friends set
+                        // can authorize exact coordinates in subsequent archive captures.
+                        Object result = chain.proceed(args);
+                        try {
+                            Set<String> friends = observation.friendUids(result);
+                            if (friends != null) {
+                                FeedPostMediaCache.captureFriendUids(scope.getUid(), scope.getGeneration(), token, friends);
+                            }
+                        } catch (Throwable ignored) {
+                            info("Skipped an unavailable friend-location observation");
+                        }
+                        return result;
+                    });
+            info("Observing the host's complete Friends graph for saved post locations");
+        } catch (Throwable failure) {
+            error("Could not observe friend location visibility", failure);
+        }
+    }
+
     private void installFeedMediaCaptureAndUnblur(ClassLoader classLoader, ResolvedSymbols symbols) {
         FeedMediaSymbols media = symbols == null ? null : symbols.getFeedMediaSymbols();
         info("Installing feed media hooks; capture=" + (media != null && media.getCanCaptureFeedMedia())
@@ -1115,6 +1164,8 @@ public final class BeRealModule extends XposedModule {
             info("[SymbolResolver] Feed media capture and local unblur disabled: media symbols unresolved");
             return;
         }
+
+        installFriendLocationCapture(media);
 
         if (KnownMappings.isSupportedVersion(symbols.getVersionName())) {
             try {
@@ -1147,7 +1198,7 @@ public final class BeRealModule extends XposedModule {
                     hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                             .intercept(chain -> {
                                 Object result = chain.proceed();
-                                FeedPostMediaCache.captureCorePost(chain.getThisObject());
+                                FeedPostMediaCache.captureCorePost(chain.getThisObject(), media);
                                 return result;
                             });
                 }
@@ -1182,6 +1233,22 @@ public final class BeRealModule extends XposedModule {
                 }
             } catch (Throwable error) {
                 error("Could not capture CorePost metadata", error);
+            }
+        }
+
+        if (media.getMapPlaceholderLocationSymbols() != null) {
+            try {
+                for (Constructor<?> constructor : media.getMapPlaceholderLocationSymbols().getConstructors()) {
+                    hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                            .intercept(chain -> {
+                                Object result = chain.proceed();
+                                FeedPostMediaCache.captureMapPlaceholder(chain.getThisObject(), media);
+                                return result;
+                            });
+                }
+                info("Capturing post locations authorized by the host's map friendship state");
+            } catch (Throwable failure) {
+                error("Could not capture map location metadata", failure);
             }
         }
 

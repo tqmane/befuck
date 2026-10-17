@@ -1,88 +1,63 @@
-# NPatch post-map fallback
+# NPatch post-map replacement
 
-## Failure and scope
+## Scope and compatibility
 
-The supplied 2026-10-17 log reports Google Maps `Error requesting API token. StatusCode=INVALID_ARGUMENT`
-followed by `Authorization failure`. The Google renderer loads, but its API authorization fails.
-This is separate from the FusedLocation errors and native location fallback also present in the log.
-Changing the BeFuck startup signer gate cannot authorize a patched APK in a Google Cloud project.
+The original BeReal post map can fail Google Maps authorization after NPatch repackaging. The module replaces that post-location screen with MapLibre and OpenFreeMap when the installed host has `npatch` manifest metadata. Ordinary Google Play / root-LSPosed installations keep their original Google map. The separate gallery-posting location picker already uses MapLibre.
 
-Only a host with `npatch` manifest metadata and the verified BeReal **3.97.1 / 3599414** symbol
-shape receives the replacement. Ordinary Google Play / root-LSPosed installs retain Google Maps.
-There is no original-signature check, API-key replacement, certificate impersonation, or Google
-service hook in this change. APKEditor-merged inputs do not need an official signing certificate.
+The shared map resolver is independent of the version tables used by other module features. A host missing from those tables can still receive the map replacement if its map contract is recognized and validated. This does not enable unrelated features on an unsupported BeReal version.
 
-The replacement is the **original BeReal post-location screen**, not just the BeFuck gallery
-posting location picker. The latter already uses MapLibre and is unchanged.
+| Host | Map resolution | Native permission-request helper |
+| --- | --- | --- |
+| NPatch, 3.97.0 / 3597523 | Supplied APK contract audited; semantic discovery and validation | Audited version-specific helper, with signature validation |
+| NPatch, 3.97.1 / 3599414 | Supplied APK contract audited; semantic discovery and validation | Audited version-specific helper, with signature validation |
+| NPatch, a later version | Attempted only through the shared contract checks; compatibility is not guaranteed | Disabled until its native helper is audited |
+| Host without NPatch metadata | Replacement is not installed | No helper installed by this feature |
 
-## APK boundary audit
+Unknown, ambiguous or incompatible map contracts leave the original screen in place. An unavailable permission helper does not prevent map rendering; an existing host location grant may still supply the current-location marker. The replacement never guesses a future coroutine selector or invokes a Google camera action as a permission request.
 
-All 12 DEX files in the supplied APK were inspected using JADX 1.5.6 / its DEX reader. Fourteen
-state-field descriptors and nine method descriptors were checked against the new bindings.
+## Shared host contract
 
-* `omg.a(Composer,int)` owns the post ViewModel, state collection, navigation and BackHandler.
-* Its content lambda `mmg.invoke(Object,Object,Object)` is the only real host caller of the
-  Google-map composable `h79.a(...)` (the other caller is its recomposition wrapper).
-* `mmg.a/f/h/i/j` are the display state, current-user location, permission state, photo state and
-  mutable photo-preview toggle. These Compose states are read during composition, not in an
-  asynchronous MapLibre callback, so updates continue to invalidate the screen.
-* `rmg.a/b/c` contain the display marker, optional user location and approximate-area flag.
-  The ViewModel has already randomized the display marker when precise location is unavailable.
-  No raw post-coordinate field is read. The original circle radius is **5,000 metres**.
-* `qwb.a/b` supply the existing low/high photo bitmaps. The replacement borrows them, makes its
-  own bounded pin bitmap, and never recycles host-owned bitmaps.
-* Navigation continues through `tbe.f()`. Permission requests launch the original `pmg` case 3
-  in the host ViewModel scope. Old Google camera actions (`pmg` case 2 / `mkg` case 3) are not called.
-* The existing host AndroidView composable's eight-argument overload mounts the native view.
-  Its release callback destroys the renderer; `onReset` is null to prevent cross-post view reuse.
-  In this APK `SizeKt.e` is **fillMaxSize**; `SizeKt.f` is only fillMaxWidth.
+`PostMapSymbolResolver` discovers the rendered post-map surface through semantic screen markers and verifies its call relationship to the enclosing screen. It resolves the ready-state and photo models, the AndroidView overload, full-size modifier, state interfaces, navigation command and optional post-identity reader. Fresh synthetic model instances establish which fields represent the post coordinate, user coordinate, approximation flag and low/high photo. Application-owned state is not modified by those probes.
 
-All obfuscated names remain in `symbols/`. Resolution validates method static/return/parameter
-shapes and field types before hooking. Missing symbols leave the original screen untouched.
+Every captured Compose state is read during composition, including while its value is null. Runtime value types distinguish ready, photo and current-location states without assuming a fixed order of obfuscated lambda fields. Missing data remains missing. Multiple candidates are rejected or leave the optional value unavailable.
+
+Full member signatures are cached under a dedicated reader key. Cache identity includes the host and module APK files, including split APKs and same-version rebuilds. Restored members are validated again; a mismatched identity or invalid descriptor causes rediscovery. Clearing resolved signatures also clears this reader cache without deleting saved posts or feature settings.
+
+The audited native permission-request recipes remain in `symbols/`. No obfuscated host identifiers or version branches are added to `BeRealModule` or the shared renderer.
+
+## Coordinates, photos and saved posts
+
+The replacement reads the host map's completed display state. It preserves the host's already randomized center and 5,000-metre area when the location is approximate; it does not substitute a raw post coordinate. Post and optional user markers, photo-preview toggling and native back navigation remain available.
+
+When the optional post-identity reader can prove which post the map belongs to, the display coordinate and approximation flag can also be captured for that post's saved record. The author must be known in the current account's cache or archive; exact coordinates additionally require self or a friend in the validated current native Friends graph. Approximate display coordinates may be saved for any known author. Account identity is retained across extraction and storage. If the required identity or authorization is unavailable, the map still displays but does not add that saved location. This capture does not edit the BeReal post or change its location-sharing state. See [saved location sources and metadata behavior](saved-post-locations.md).
+
+Host photo bitmaps are borrowed. The renderer preserves their alpha, creates a bounded marker image and never recycles a host-owned bitmap. Recomposition and late photo/current-location updates do not reset a manually moved camera.
 
 ## Renderer and lifetime
 
-The already installed MapLibre 13.3.1 dependency renders OpenFreeMap's Liberty style and
-OpenStreetMap-derived data. No dependency or provider-setting screen was added.
+The existing MapLibre 13.3.1 dependency loads OpenFreeMap's Liberty style. Module resources and class loading use `ModuleUiContext`; the global MapLibre context wraps the application. Attach/detach and Activity lifecycle events start, resume, pause and stop the map. Composition release or Activity destruction destroys it, unregisters callbacks, releases borrowed state and invalidates late work.
 
-Post and user markers, photo-preview toggling, the 5 km approximate area, location permission
-action, zoom/pan and native back navigation remain available. Recomposition and late photo/GPS
-updates do not reset a manually moved camera. Unavailable or invalid coordinates produce no pin,
-not a fabricated location. The map is read-only and never edits the post's location or saved data.
+Loading failures and timeouts expose an explicit retry action while leaving back navigation and attribution available. OpenFreeMap, OpenMapTiles and OpenStreetMap attribution remains visible, alongside the SDK's attribution control.
 
-Module resources, theme, inflater and class loader are isolated using the existing ModuleUiContext.
-The global MapLibre context wraps the application, not the Activity. Attach/detach and Activity
-lifecycle events start/resume/pause/stop the map; composition release and Activity destruction
-destroy it, unregister callbacks, clear borrowed state and invalidate late callbacks.
+The style endpoint is `https://tiles.openfreemap.org/styles/liberty`. Tiles and styles require internet access; viewing a region requests its map data from the provider. Post IDs, photo URLs and BeReal authorization headers are not submitted to that basemap endpoint. Its appearance and points of interest differ from Google Maps, and this feature does not supply Google satellite imagery or offline maps.
 
-Loading errors and timeouts expose a retry button while leaving back navigation and attribution
-available. Retry is explicit, not a polling loop. Attribution is visible for OpenFreeMap,
-OpenMapTiles and OpenStreetMap, with the SDK's attribution control retained.
+## Verification scope
 
-Map tiles/styles require internet access. The default endpoint is
-`https://tiles.openfreemap.org/styles/liberty`. Viewing a region requests that region's map data
-from this third-party provider; the fallback does not upload post IDs, photos or authentication
-headers. Basemap appearance/POIs differ from Google Maps; this is not a repair of Google's API
-authorization and does not provide Google satellite imagery or offline maps.
+The supplied 3.97.0 and 3.97.1 APKs were inspected with the supplied JADX tooling to establish the contracts above. APKs and decompiled sources are not part of the change. Source inspection is separate from compilation, synthetic tests and execution inside an NPatch host.
 
-## Validation and remaining device checks
-
-The seven new JVM/Robolectric tests exercise display-state subscriptions, privacy flags, invalid
-coordinates, photo ownership/toggling, native navigation/permission callback dispatch, the
-AndroidView factory/update/release contract, a 5 km geodesic ring across the date line, version
-failure behavior, control layout, and idempotent disposal before GPU initialization.
-
-Run the normal verification suite:
+Regression cases cover display-state subscriptions, reordered state captures, precision and invalid coordinates, photo ownership/toggling, navigation and permission callbacks, AndroidView factory/update/release, the 5 km ring across the date line, unknown-contract rejection, layout and idempotent disposal. Run the repository verification suite to obtain current results:
 
 ```sh
 ./gradlew :app:assembleDebug :app:checkModule :app:testDebugUnitTest :app:lintDebug
 ```
 
-The tests do **not** run a real Google service, the Android MapLibre GL renderer, or injected
-Compose on an NPatch device. The actual NPatch device still needs a check for tile rendering,
-portrait/landscape and floating-window resizing, photo updates, granting location permission,
-back/reopen and background/resume. No device/emulator was installed or modified for this change.
+These cases do not establish that a real device rendered GL tiles or injected Compose successfully. Device checks remain necessary for both NPatch host versions: rendering, portrait/landscape and floating-window resizing, photo updates, permission grant, back/reopen and background/resume. Later host versions require their own compatibility check.
 
-In NPatch embedded-module mode, build the updated BeFuck module and embed it when re-patching
-BeReal. Updating a separate module installation does not change an already embedded module.
-The change contains no uninstall, app-data clearing, account reset or archive migration.
+In embedded-module mode, rebuild BeFuck and embed the updated module when re-patching BeReal. Updating a separate module installation does not update a previously embedded copy. Saved-location storage migration is described in [the backup documentation](archive-backup.md).
+
+## Implementation references
+
+- [Shared resolver](../app/src/main/kotlin/dev/tqmane/befuck/symbols/PostMapSymbolResolver.kt)
+- [Validated display-state bridge](../app/src/main/kotlin/dev/tqmane/befuck/symbols/PostMapSymbols.kt)
+- [Optional audited permission helpers](../app/src/main/kotlin/dev/tqmane/befuck/symbols/PostMapPermissionActions.kt)
+- [NPatch renderer and location capture](../app/src/main/kotlin/dev/tqmane/befuck/ui/NpatchPostMapView.kt)

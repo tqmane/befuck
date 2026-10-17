@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_saved_map_open">この日の投稿を地図で見る</string>
+    <string name="befuck_saved_map_title">保存した投稿の地図</string>
+    <string name="befuck_saved_map_count">位置情報あり %1$d件 · なし %2$d件</string>
+    <string name="befuck_saved_map_empty">この日の投稿には保存された位置情報がありません。</string>
+    <string name="befuck_saved_map_hint">写真をタップするとアカウントを表示します。写真が重なる場所は、繰り返しタップして切り替えられます。</string>
+    <string name="befuck_saved_map_approximate">おおよその位置</string>
+    <string name="befuck_saved_map_position">%1$d / %2$d</string>
+    <string name="befuck_saved_map_previous">前の保存済み投稿</string>
+    <string name="befuck_saved_map_next">次の保存済み投稿</string>
+    <string name="befuck_saved_map_preview">投稿を開く</string>
+    <string name="befuck_saved_map_fit">すべての投稿を表示</string>
+</resources>

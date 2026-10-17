@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="befuck_saved_map_open">Show this day on map</string>
+    <string name="befuck_saved_map_title">Saved posts map</string>
+    <string name="befuck_saved_map_count">%1$d posts with location · %2$d without location</string>
+    <string name="befuck_saved_map_empty">No saved location information for this day.</string>
+    <string name="befuck_saved_map_hint">Tap a photo to see the account. Tap stacked photos again to cycle through them.</string>
+    <string name="befuck_saved_map_approximate">Approximate location</string>
+    <string name="befuck_saved_map_position">%1$d / %2$d</string>
+    <string name="befuck_saved_map_previous">Previous saved post</string>
+    <string name="befuck_saved_map_next">Next saved post</string>
+    <string name="befuck_saved_map_preview">Open post</string>
+    <string name="befuck_saved_map_fit">Show all posts</string>
+</resources>
