@@ -65,6 +65,7 @@ class CorePostLocationSymbols internal constructor(
     private val latitude: Field,
     private val longitude: Field,
     private val postId: Field? = null,
+    private val nativeFriendStatus: Field? = null,
 ) {
     /** Host models are observed once constructed, not when a post map is opened. */
     val constructors: List<Constructor<*>> get() = coreClass.declaredConstructors
@@ -82,11 +83,15 @@ class CorePostLocationSymbols internal constructor(
         id to uid
     }.getOrNull()
 
-    fun snapshot(model: Any, viewerUid: String?, friendUids: Set<String> = emptySet()): PostLocation? = runCatching {
+    fun snapshot(model: Any, viewerUid: String?, friendUids: Set<String> = emptySet(),
+        allowNativeAccepted: Boolean = false): PostLocation? = runCatching {
         if (viewerUid.isNullOrBlank() || !coreClass.isInstance(model)) return@runCatching null
         val author = owner.get(model) ?: return@runCatching null
         val uid = (ownerUid.get(author) as? String)?.takeIf(String::isNotBlank) ?: return@runCatching null
-        if (uid != viewerUid && uid !in friendUids) return@runCatching null
+        // Host-native Accepted is permitted only before a complete Friends graph exists.
+        if (uid != viewerUid && uid !in friendUids &&
+            (!allowNativeAccepted || (nativeFriendStatus?.get(author) as? Enum<*>)?.name != "Accepted"))
+            return@runCatching null
         val location = point.get(model) ?: return@runCatching null
         PostLocation.create(latitude.getDouble(location), longitude.getDouble(location), approximate = false)
     }.getOrNull()
@@ -256,7 +261,13 @@ object FeedMediaSymbolResolver {
             require(uid.type == String::class.java)
             require(latitude.type == Double::class.javaPrimitiveType && longitude.type == Double::class.javaPrimitiveType)
             require(!Modifier.isStatic(uid.modifiers) && !Modifier.isStatic(latitude.modifiers) && !Modifier.isStatic(longitude.modifiers))
-            CorePostLocationSymbols(core, ownerField, uid, pointField, latitude, longitude, id)
+            // Only the audited BasicUser status enum can grant pre-query access.
+            val nativeStatus = declaredFieldOrNull(ownerField.type, "status")?.takeIf { field ->
+                !Modifier.isStatic(field.modifiers) && field.type.isEnum &&
+                    field.type.enumConstants?.filterIsInstance<Enum<*>>()?.map { it.name }?.toSet() ==
+                    setOf("Accepted", "Canceled", "Pending", "Rejected", "Sent", "Blacklisted", "Unknown")
+            }
+            CorePostLocationSymbols(core, ownerField, uid, pointField, latitude, longitude, id, nativeStatus)
         }
     } catch (failure: Throwable) {
         diagnostics += "CorePost location resolution failed: ${failure.javaClass.simpleName}"

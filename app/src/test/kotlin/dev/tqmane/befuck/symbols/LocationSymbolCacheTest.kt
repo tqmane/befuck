@@ -9,7 +9,8 @@ import org.robolectric.annotation.Config
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @Config(sdk = [33])
 class LocationSymbolCacheTest {
-    private class User(val uid: String)
+    private enum class Relationship { Accepted, Canceled, Pending, Rejected, Sent, Blacklisted, Unknown }
+    private class User(val uid: String, val status: Relationship = Relationship.Unknown)
     private class Coordinate(val latitude: Double, val longitude: Double)
     private class Post(val owner: User, val point: Coordinate?, val id: String = "stored-id")
     private class Placeholder(val postId: String, val isFriend: Boolean, val latitude: Double, val longitude: Double)
@@ -27,7 +28,7 @@ class LocationSymbolCacheTest {
     private fun field(owner: Class<*>, name: String) = owner.getDeclaredField(name).apply { isAccessible = true }
     private fun reader() = CorePostLocationSymbols(Post::class.java,
         field(Post::class.java, "owner"), field(User::class.java, "uid"), field(Post::class.java, "point"),
-        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"), field(Post::class.java, "id"))
+        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"), field(Post::class.java, "id"), field(User::class.java, "status"))
 
     /** Other nullable signatures stay absent; only the location reader needs a host fixture. */
     private fun fixture(location: CorePostLocationSymbols?, placeholder: MapPlaceholderLocationSymbols? = null,
@@ -61,6 +62,10 @@ class LocationSymbolCacheTest {
         assertEquals(PostLocation(35.68, 139.76, false), location)
         assertEquals("stored-id" to "viewer", restored.feedMediaSymbols!!.corePostLocationSymbols!!
             .identity(Post(User("viewer"), Coordinate(35.68, 139.76))))
+        assertEquals(PostLocation(35.68, 139.76, false),
+            restored.feedMediaSymbols!!.corePostLocationSymbols!!.snapshot(
+                Post(User("friend", Relationship.Accepted), Coordinate(35.68, 139.76)),
+                "viewer", allowNativeAccepted = true))
     }
 
     @Test fun unsupportedLocationReaderDoesNotInvalidateOtherCachedFeedSymbols() {

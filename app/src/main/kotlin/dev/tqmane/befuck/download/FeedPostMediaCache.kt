@@ -104,7 +104,8 @@ object FeedPostMediaCache {
         val linked = source?.model?.get()?.let { model ->
             source.symbols.identity(model)?.takeIf { (id, uid) ->
                 id == post.postId && (post.ownerUid ?: previous?.ownerUid)?.let { it == uid } != false
-            }?.let { (_, uid) -> uid to source.symbols.snapshot(model, scope.uid, verifiedFriendUids) }
+            }?.let { (_, uid) -> uid to source.symbols.snapshot(model, scope.uid, verifiedFriendUids,
+                    allowNativeAccepted = appliedFriendQueryToken < 0L) }
         }
         val observed = post.copy(ownerUid = post.ownerUid ?: linked?.first,
             location = post.location ?: linked?.second)
@@ -134,7 +135,7 @@ object FeedPostMediaCache {
     internal fun invalidateArchiveMemory() { synchronized(cache) { cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll() } }
 
     /** Observe a constructed host CorePost even when no media was decoded yet.
-     * Keep only a weak model reference until the current viewer is authorized;
+     * Keep only a weak model reference until friendship is established;
      * do not turn unseen media-less CorePost models into empty archive entries.
      */
     @JvmStatic
@@ -151,7 +152,8 @@ object FeedPostMediaCache {
                 (existing.ownerUid == null || existing.ownerUid == uid)) {
                 storePost(FeedPostMedia(id, null, null, null, null,
                     capturedAtMillis = System.currentTimeMillis(), ownerUid = uid,
-                    location = reader.snapshot(model, scope.uid, verifiedFriendUids)), scope)
+                    location = reader.snapshot(model, scope.uid, verifiedFriendUids,
+                        allowNativeAccepted = appliedFriendQueryToken < 0L)), scope)
             }
         }
     }
@@ -288,7 +290,8 @@ object FeedPostMediaCache {
                 if (ArchiveAccounts.snapshot() != scope) return@withCache
                 val location = symbols?.corePostLocationSymbols?.let { reader ->
                     if (scope.uid != null) coreLocationSources.put(id, CoreLocationSource(WeakReference(model), reader))
-                    reader.snapshot(model, scope.uid, verifiedFriendUids)
+                    reader.snapshot(model, scope.uid, verifiedFriendUids,
+                        allowNativeAccepted = appliedFriendQueryToken < 0L)
                 }
                 storePost(captured.copy(isOwnPost = ownerUid?.let { owner -> scope.uid?.let { it == owner } }, location = location), scope)
             }

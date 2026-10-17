@@ -17,7 +17,9 @@ import java.util.UUID
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @Config(sdk = [33])
 class FriendLocationCaptureTest {
-    private class Owner(val uid: String, val userName: String = "Alice")
+    private enum class Relationship { Accepted, Canceled, Pending, Rejected, Sent, Blacklisted, Unknown }
+    private class Owner(val uid: String, val userName: String = "Alice",
+        val status: Relationship = Relationship.Unknown)
     private class Point(val latitude: Double, val longitude: Double)
     private class Content(val uri: String = "https://example.invalid/image", val mediaType: String = "IMAGE",
         val width: Int = 640, val height: Int = 480)
@@ -31,7 +33,8 @@ class FriendLocationCaptureTest {
     private fun field(type: Class<*>, name: String) = type.getDeclaredField(name).apply { isAccessible = true }
     private val locationSymbols = CorePostLocationSymbols(Post::class.java,
         field(Post::class.java, "b"), field(Owner::class.java, "uid"), field(Post::class.java, "point"),
-        field(Point::class.java, "latitude"), field(Point::class.java, "longitude"), field(Post::class.java, "a"))
+        field(Point::class.java, "latitude"), field(Point::class.java, "longitude"), field(Post::class.java, "a"),
+        field(Owner::class.java, "status"))
     private val placeholderSymbols = MapPlaceholderLocationSymbols(Placeholder::class.java.declaredConstructors.toList(),
         field(Placeholder::class.java, "postId"), field(Placeholder::class.java, "isFriend"),
         field(Placeholder::class.java, "latitude"), field(Placeholder::class.java, "longitude"))
@@ -112,6 +115,36 @@ class FriendLocationCaptureTest {
         graph(setOf("friend"))
         FeedPostMediaCache.captureCorePost(post, null)
         assertNull(FeedPostMediaCache.get("scope-guard")!!.location)
+    }
+
+    @Test fun acceptedHostFriendCapturesGpsWithoutOpeningMapOrLoadingFriendsSql() {
+        val host = Post("native-accepted", Owner("friend", status = Relationship.Accepted),
+            Point(35.68, 139.76))
+        FeedPostMediaCache.captureCorePostModel(host, locationSymbols)
+        FeedPostMediaCache.captureCorePost(host, null)
+        assertEquals(PostLocation(35.68, 139.76, false),
+            FeedPostMediaCache.get("native-accepted")!!.location)
+    }
+
+    @Test fun nonFriendStatusesCannotYieldRawLocation() {
+        for (status in Relationship.entries.filterNot { it == Relationship.Accepted }) {
+            val host = Post("native-${status.name}", Owner("stranger", status = status), Point(35.0, 139.0))
+            FeedPostMediaCache.captureCorePostModel(host, locationSymbols)
+            FeedPostMediaCache.captureCorePost(host, null)
+            assertNull(FeedPostMediaCache.get("native-${status.name}")!!.location)
+        }
+    }
+
+    @Test fun emptyVerifiedGraphOverridesPreviouslyAcceptedHostStatus() {
+        graph(emptySet())
+        val old = Post("revoked-native", Owner("friend", status = Relationship.Accepted), Point(35.0, 139.0))
+        FeedPostMediaCache.captureCorePostModel(old, locationSymbols)
+        FeedPostMediaCache.captureCorePost(old, null)
+        assertNull(FeedPostMediaCache.get("revoked-native")!!.location)
+        val own = Post("own-native", Owner(viewer), Point(35.0, 139.0))
+        FeedPostMediaCache.captureCorePostModel(own, locationSymbols)
+        FeedPostMediaCache.captureCorePost(own, null)
+        assertEquals(PostLocation(35.0, 139.0, false), FeedPostMediaCache.get("own-native")!!.location)
     }
 
     @Test fun firstCompleteGraphReplaysLiveModelsWithoutHavingStoredTheirRawCoordinates() {

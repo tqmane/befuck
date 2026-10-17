@@ -5,14 +5,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CorePostLocationSymbolsTest {
-    private class User(val uid: String)
+    private enum class Relationship { Accepted, Canceled, Pending, Rejected, Sent, Blacklisted, Unknown }
+    private class User(val uid: String, val status: Relationship = Relationship.Unknown)
     private class Coordinate(val latitude: Double, val longitude: Double)
     private class Post(val owner: User, val point: Coordinate?, val id: String = "post")
 
     private fun field(owner: Class<*>, name: String) = owner.getDeclaredField(name).apply { isAccessible = true }
     private val symbols = CorePostLocationSymbols(Post::class.java,
         field(Post::class.java, "owner"), field(User::class.java, "uid"), field(Post::class.java, "point"),
-        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"), field(Post::class.java, "id"))
+        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"), field(Post::class.java, "id"), field(User::class.java, "status"))
 
     @Test fun identityReadsOnlyTheVerifiedPostAndAuthor() {
         val friend = Post(User("friend"), Coordinate(35.0, 139.0), "p-123")
@@ -21,6 +22,15 @@ class CorePostLocationSymbolsTest {
         assertEquals(PostLocation(35.0, 139.0, false), symbols.snapshot(friend, "viewer", setOf("friend")))
         assertNull(symbols.identity(Any()))
         assertTrue(symbols.constructors.isNotEmpty())
+    }
+
+    @Test fun nativeAcceptedRequiresExplicitPreGraphPermission() {
+        val accepted = Post(User("friend", Relationship.Accepted), Coordinate(35.68, 139.76))
+        assertNull(symbols.snapshot(accepted, "viewer"))
+        assertEquals(PostLocation(35.68, 139.76, false),
+            symbols.snapshot(accepted, "viewer", allowNativeAccepted = true))
+        assertNull(symbols.snapshot(Post(User("pending", Relationship.Pending),
+            Coordinate(35.68, 139.76)), "viewer", allowNativeAccepted = true))
     }
 
     @Test fun ownPostCapturesAnExactValidatedCoordinate() {
