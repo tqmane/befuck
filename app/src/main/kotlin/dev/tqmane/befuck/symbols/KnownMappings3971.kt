@@ -96,6 +96,17 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
     )
 
 
+    // Unlike 3.97.0's VMRunner, 3.97.1 installs PairIP through
+    // com.pairip.application.Application.attachBaseContext and its ContentProvider.
+    // Both enter this static method before normal application startup.
+    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
+        Class.forName("com.pairip.licensecheck.LicenseClient", false, loader)
+            .getDeclaredMethod("checkLicense", android.content.Context::class.java)
+            .takeIf { method ->
+                java.lang.reflect.Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE
+            }?.apply { isAccessible = true }
+    }.getOrNull()
+
     // BeReal 3.97.1: eg7.c(lp): ko? is the nullable feed-ad selector for both
     // native and MREC clients. Returning null is its own normal no-ad result.
     // Guard the method shape before installing any hook; do not reuse this mapping

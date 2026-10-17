@@ -34,6 +34,7 @@ public final class MetadataCheck {
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
         checkAdClassification();
+        checkRepackagedLicenseCompatibility();
         checkAdSelectorBoundary();
         checkKnownStrings();
         BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
@@ -319,6 +320,22 @@ public final class MetadataCheck {
                 : "Fixture preserves non-null ad selection for the unhooked path";
         // Any class loader without the verified symbol shape must fail closed.
         assert CURRENT.resolveFeedAdSelector(new ClassLoader(null) {}) == null;
+    }
+
+    private static void checkRepackagedLicenseCompatibility() throws Exception {
+        var loader = MetadataCheck.class.getClassLoader();
+        assert LEGACY.repackagedLicenseCheck(loader) == null : "Never alter original 3.97.0 license behavior";
+        var method = CURRENT.repackagedLicenseCheck(loader);
+        assert method != null : "Missing 3.97.1 PairIP entrypoint";
+        assert method.getDeclaringClass() == com.pairip.licensecheck.LicenseClient.class;
+        assert method.getName().equals("checkLicense");
+        assert method.getReturnType() == Void.TYPE;
+        assert java.lang.reflect.Modifier.isStatic(method.getModifiers());
+        assert method.getParameterCount() == 1
+                && method.getParameterTypes()[0] == android.content.Context.class;
+        assert CURRENT.repackagedLicenseCheck(new ClassLoader(null) {}) == null
+                : "No unsafe fallback when exact PairIP class is absent";
+        com.pairip.licensecheck.LicenseClient.checkLicense(new android.content.Context());
     }
 
     private static void checkAdClassification() throws Exception {

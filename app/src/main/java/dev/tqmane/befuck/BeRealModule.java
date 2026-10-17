@@ -112,6 +112,7 @@ public final class BeRealModule extends XposedModule {
     private final AtomicBoolean pendingDetailMi6SeenLogged = new AtomicBoolean();
     private final AtomicBoolean detailGridComposerBoundLogged = new AtomicBoolean();
     private final AtomicBoolean adViewSuppressionLogged = new AtomicBoolean();
+    private final AtomicBoolean npatchLicenseCompatibilityLogged = new AtomicBoolean();
     private final Map<Class<?>, Boolean> adViewClasses = new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicBoolean videoUploadDiagnosticsInstalled = new AtomicBoolean();
     private volatile ResolvedSymbols resolvedSymbols;
@@ -232,18 +233,44 @@ public final class BeRealModule extends XposedModule {
                     TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
             if (installed.metaData == null || (!installed.metaData.containsKey("npatch")
                     && !installed.metaData.containsKey("lspatch"))) return;
-            if (!mappings.getRequiresRuntimeRecovery()) return;
-            installRepackagedSigningInfoCompatibility(host, installed.metaData);
-            for (Method check : mappings.repackagedStartupChecks(loader)) {
-                hook(check).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
-                    Object context = chain.getArg(0);
-                    if (context instanceof Context && TARGET_PACKAGE.equals(((Context) context).getPackageName())) {
-                        info("Skipped repackaged application startup check: " + check.getName());
-                        return null;
-                    }
-                    return chain.proceed();
-                });
-                info("Installed repackaged application compatibility: " + check.getName());
+
+            // 3.97.0 has a different protected VMRunner/startup sequence. Keep its
+            // existing recovery path unmodified; it does not apply to 3.97.1.
+            if (mappings.getRequiresRuntimeRecovery()) {
+                installRepackagedSigningInfoCompatibility(host, installed.metaData);
+                for (Method check : mappings.repackagedStartupChecks(loader)) {
+                    hook(check).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH).intercept(chain -> {
+                        Object context = chain.getArg(0);
+                        if (context instanceof Context && TARGET_PACKAGE.equals(((Context) context).getPackageName())) {
+                            info("Skipped repackaged application startup check: " + check.getName());
+                            return null;
+                        }
+                        return chain.proceed();
+                    });
+                    info("Installed repackaged application compatibility: " + check.getName());
+                }
+            }
+
+            // NPatch changes install provenance, so only its 3.97.1 host skips the
+            // PairIP startup check; ordinary Play installs retain the original flow.
+            Method licenseCheck = installed.metaData.containsKey("npatch")
+                    ? mappings.repackagedLicenseCheck(loader) : null;
+            if (licenseCheck != null) {
+                hook(licenseCheck)
+                        .setPriority(XposedInterface.PRIORITY_HIGHEST)
+                        .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object target = chain.getArg(0);
+                            if (target instanceof Context
+                                    && TARGET_PACKAGE.equals(((Context) target).getPackageName())) {
+                                if (npatchLicenseCompatibilityLogged.compareAndSet(false, true)) {
+                                    info("Skipped PairIP license startup for NPatch host");
+                                }
+                                return null;
+                            }
+                            return chain.proceed();
+                        });
+                info("Installed NPatch startup compatibility for BeReal 3.97.1");
             }
         } catch (Throwable failure) {
             error("Could not install repackaged application startup compatibility", failure);
@@ -272,7 +299,7 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
-    private void installRepackagedSigningInfoCompatibility(Context host, Bundle metadata) throws Exception {
+    private android.content.pm.Signature verifiedOriginalRepackagedSignature(Bundle metadata) throws Exception {
         String encoded = metadata.getString("npatch");
         if (encoded == null) encoded = metadata.getString("lspatch");
         if (encoded == null) throw new IllegalStateException("Missing patch signature metadata");
@@ -284,6 +311,11 @@ public final class BeRealModule extends XposedModule {
         if (!digest.equals(mappings.getSigningCertificateSha256())) {
             throw new IllegalStateException("Patch metadata certificate does not match the supported original APK");
         }
+        return original;
+    }
+
+    private void installRepackagedSigningInfoCompatibility(Context host, Bundle metadata) throws Exception {
+        android.content.pm.Signature original = verifiedOriginalRepackagedSignature(metadata);
         // Some API 102 NPatch runtimes do not apply their legacy PackageManager hooks.
         // Restore the configured certificate through the modern API, for this host only.
         int count = 0;
