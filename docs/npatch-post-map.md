@@ -27,6 +27,8 @@ The audited native permission-request recipes remain in `symbols/`. No obfuscate
 
 ## Coordinates, photos and saved posts
 
+The Android map dependency now selects OpenGL ES instead of Vulkan. The supplied October 18 log shows a native crash around an NPatch/Vulkan map session, including a file-descriptor ownership violation. This is a compatibility mitigation, **not proof** that the underlying native crash can no longer occur on the device.
+
 The replacement reads the host map's completed display state. It preserves the host's already randomized center and 5,000-metre area when the location is approximate; it does not substitute a raw post coordinate. Post and optional user markers, photo-preview toggling and native back navigation remain available. A missing-location placeholder at (0,0) is suppressed rather than displayed at sea.
 
 When the optional post-identity reader can prove which post the map belongs to, the display coordinate and approximation flag can also be captured for that post's saved record. The author must be known in the current account's cache or archive. Coordinates are read only from the host's actually displayed, already privacy-filtered state, so the separate optional native Friends query need not complete first; the host's approximate marker remains approximate. Account identity is retained across extraction and storage. If the required identity or authorization is unavailable, the map still displays but does not add that saved location. This capture does not edit the BeReal post or change its location-sharing state. See [saved location sources and metadata behavior](saved-post-locations.md).
