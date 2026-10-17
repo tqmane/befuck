@@ -96,10 +96,6 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
     )
 
 
-    // Verified SHA-256 of the original Google Play-signed 3.97.1 base APK's DER
-    // signing certificate (APK Signing Scheme v2/v3); same signer as 3.97.0.
-    override val signingCertificateSha256 = "Lv29c48/2ukB7LlurS17mx7m0s6rkRvfexo9+BLzz8Q="
-
     // Unlike 3.97.0's VMRunner, 3.97.1 installs PairIP through
     // com.pairip.application.Application.attachBaseContext and its ContentProvider.
     // Both enter this static method before normal application startup.
