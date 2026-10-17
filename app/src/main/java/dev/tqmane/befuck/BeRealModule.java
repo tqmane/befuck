@@ -251,17 +251,11 @@ public final class BeRealModule extends XposedModule {
                 }
             }
 
-            // The original 3.97.1 APK calls PairIP from Application.attachBaseContext
-            // and LicenseContentProvider.onCreate. NPatch's rewritten installer
-            // provenance makes its local check fail, then the licensing activity
-            // closes the patched task. In verified NPatch installations only,
-            // leave PairIP unstarted rather than manipulating service responses,
-            // Android package metadata, global exit calls, or BeReal authentication.
-            // This hook is installed before Application.attachBaseContext executes.
+            // NPatch changes install provenance, so only its 3.97.1 host skips the
+            // PairIP startup check; ordinary Play installs retain the original flow.
             Method licenseCheck = installed.metaData.containsKey("npatch")
                     ? mappings.repackagedLicenseCheck(loader) : null;
             if (licenseCheck != null) {
-                verifiedOriginalRepackagedSignature(installed.metaData);
                 hook(licenseCheck)
                         .setPriority(XposedInterface.PRIORITY_HIGHEST)
                         .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -270,13 +264,13 @@ public final class BeRealModule extends XposedModule {
                             if (target instanceof Context
                                     && TARGET_PACKAGE.equals(((Context) target).getPackageName())) {
                                 if (npatchLicenseCompatibilityLogged.compareAndSet(false, true)) {
-                                    info("Skipped PairIP license startup only for verified NPatch host");
+                                    info("Skipped PairIP license startup for NPatch host");
                                 }
                                 return null;
                             }
                             return chain.proceed();
                         });
-                info("Installed verified NPatch startup compatibility for BeReal 3.97.1");
+                info("Installed NPatch startup compatibility for BeReal 3.97.1");
             }
         } catch (Throwable failure) {
             error("Could not install repackaged application startup compatibility", failure);
