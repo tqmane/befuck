@@ -7,12 +7,21 @@ import org.junit.Test
 class CorePostLocationSymbolsTest {
     private class User(val uid: String)
     private class Coordinate(val latitude: Double, val longitude: Double)
-    private class Post(val owner: User, val point: Coordinate?)
+    private class Post(val owner: User, val point: Coordinate?, val id: String = "post")
 
     private fun field(owner: Class<*>, name: String) = owner.getDeclaredField(name).apply { isAccessible = true }
     private val symbols = CorePostLocationSymbols(Post::class.java,
         field(Post::class.java, "owner"), field(User::class.java, "uid"), field(Post::class.java, "point"),
-        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"))
+        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"), field(Post::class.java, "id"))
+
+    @Test fun identityReadsOnlyTheVerifiedPostAndAuthor() {
+        val friend = Post(User("friend"), Coordinate(35.0, 139.0), "p-123")
+        assertEquals("p-123" to "friend", symbols.identity(friend))
+        assertNull(symbols.snapshot(friend, "viewer"))
+        assertEquals(PostLocation(35.0, 139.0, false), symbols.snapshot(friend, "viewer", setOf("friend")))
+        assertNull(symbols.identity(Any()))
+        assertTrue(symbols.constructors.isNotEmpty())
+    }
 
     @Test fun ownPostCapturesAnExactValidatedCoordinate() {
         assertEquals(PostLocation(35.0, 139.0, false), symbols.snapshot(Post(User("viewer"), Coordinate(35.0, 139.0)), "viewer"))

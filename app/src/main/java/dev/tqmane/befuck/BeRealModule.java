@@ -1156,6 +1156,53 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
+    /** Run independently of optional version-mapped User/media models. */
+    private boolean installCorePostModelCapture(FeedMediaSymbols media, String versionName) {
+        dev.tqmane.befuck.symbols.CorePostLocationSymbols reader = media.getCorePostLocationSymbols();
+        if (reader == null) return false;
+        try {
+            List<Constructor<?>> constructors = new ArrayList<>(reader.getConstructors());
+            if (constructors.isEmpty() || constructors.size() > 8) return false;
+            for (Constructor<?> constructor : constructors) {
+                hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            try {
+                                FeedPostMediaCache.captureCorePostModel(chain.getThisObject(), reader);
+                                if (KnownMappings.isSupportedVersion(versionName))
+                                    FeedPostMediaCache.captureCorePost(chain.getThisObject(), media);
+                            } catch (Throwable failure) {
+                                info("Skipped CorePost observation: " + failure.getClass().getSimpleName());
+                            }
+                            return result;
+                        });
+            }
+            info("Installed CorePost location observations for feed-loaded models");
+            return true;
+        } catch (Throwable failure) {
+            info("CorePost observation unavailable: " + failure.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private void installLegacyCorePostCapture(ClassLoader loader, FeedMediaSymbols media) {
+        try {
+            Class<?> core = mappings.type(HostClass.CorePost, loader);
+            for (Constructor<?> constructor : core.getDeclaredConstructors()) {
+                if (constructor.getParameterCount() != 28) continue;
+                hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            FeedPostMediaCache.captureCorePost(chain.getThisObject(), media);
+                            return result;
+                        });
+            }
+            info("Installed legacy feed-model capture without requiring User/media hooks");
+        } catch (Throwable failure) {
+            info("Legacy CorePost capture unavailable: " + failure.getClass().getSimpleName());
+        }
+    }
+
     private void installFeedMediaCaptureAndUnblur(ClassLoader classLoader, ResolvedSymbols symbols) {
         FeedMediaSymbols media = symbols == null ? null : symbols.getFeedMediaSymbols();
         info("Installing feed media hooks; capture=" + (media != null && media.getCanCaptureFeedMedia())
@@ -1166,6 +1213,9 @@ public final class BeRealModule extends XposedModule {
         }
 
         installFriendLocationCapture(media);
+        boolean semanticCoreHooked = installCorePostModelCapture(media, symbols.getVersionName());
+        if (!semanticCoreHooked && KnownMappings.isSupportedVersion(symbols.getVersionName()))
+            installLegacyCorePostCapture(classLoader, media);
 
         if (KnownMappings.isSupportedVersion(symbols.getVersionName())) {
             try {
@@ -1192,17 +1242,8 @@ public final class BeRealModule extends XposedModule {
                                 return result;
                             });
                 }
+                // CorePost constructors have already been observed independently above.
                 Class<?> corePost = mappings.type(HostClass.CorePost, classLoader);
-                for (Constructor<?> constructor : corePost.getDeclaredConstructors()) {
-                    if (constructor.getParameterCount() != 28) continue;
-                    hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                            .intercept(chain -> {
-                                Object result = chain.proceed();
-                                FeedPostMediaCache.captureCorePost(chain.getThisObject(), media);
-                                return result;
-                            });
-                }
-                info("Capturing CorePost URLs, owner and original timestamps from all loaded feed models");
                 Class<?> unsentRepository = mappings.type(HostClass.UnsentPostRepository, classLoader);
                 Class<?> postRepository = mappings.type(HostClass.PostRepository, classLoader);
                 Class<?> createContinuation = mappings.type(HostClass.CreatePostContinuation, classLoader);

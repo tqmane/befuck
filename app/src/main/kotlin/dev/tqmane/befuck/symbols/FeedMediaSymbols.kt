@@ -64,7 +64,24 @@ class CorePostLocationSymbols internal constructor(
     private val point: Field,
     private val latitude: Field,
     private val longitude: Field,
+    private val postId: Field? = null,
 ) {
+    /** Host models are observed once constructed, not when a post map is opened. */
+    val constructors: List<Constructor<*>> get() = coreClass.declaredConstructors
+        .filter { !it.isSynthetic && it.parameterCount in 3..64 }
+        .map { it.apply { isAccessible = true } }
+
+    /** Author and post identity alone; reading this never touches location coordinates. */
+    fun identity(model: Any?): Pair<String, String>? = runCatching {
+        if (model == null || !coreClass.isInstance(model)) return@runCatching null
+        val id = (postId?.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 }
+            ?: return@runCatching null
+        val author = owner.get(model) ?: return@runCatching null
+        val uid = (ownerUid.get(author) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 }
+            ?: return@runCatching null
+        id to uid
+    }.getOrNull()
+
     fun snapshot(model: Any, viewerUid: String?, friendUids: Set<String> = emptySet()): PostLocation? = runCatching {
         if (viewerUid.isNullOrBlank() || !coreClass.isInstance(model)) return@runCatching null
         val author = owner.get(model) ?: return@runCatching null
@@ -202,6 +219,18 @@ object FeedMediaSymbolResolver {
             classLoader, label, logger, diagnostics)
         val core = semantic("CorePost location", "CorePost(id=", ", owner=", ", location=")
         if (core == null) null else {
+            val modelData = requireNotNull(bridge.getClassData(core))
+            val rendered = modelData.findMethod(FindMethod.create().matcher(
+                MethodMatcher.create().name("toString").returnType(String::class.java).paramCount(0),
+            )).single { it.usingStrings.containsAll(listOf("CorePost(id=", ", owner=", ", location=")) }
+            // Verify the first toString String-field read corresponds to CorePost(id=.
+            // Do not depend on R8's obfuscated field name, or parse a data-bearing string.
+            val id = requireNotNull(rendered.usingFields.firstOrNull { usage ->
+                usage.usingType.isRead() && usage.field.declaredClassName == core.name &&
+                    !Modifier.isStatic(usage.field.modifiers) && usage.field.typeName == String::class.java.name
+            }?.field?.getFieldInstance(classLoader)) { "CorePost.id is unproven" }
+                .apply { isAccessible = true }
+            require(id.declaringClass == core && id.type == String::class.java)
             // Several unrelated host types stringify as Location(longitude=...). Resolve
             // through CorePost's actual field types, then validate each selected type's semantics.
             fun member(label: String, shapes: Map<String, Class<*>>, anchors: List<String>): Field {
@@ -227,7 +256,7 @@ object FeedMediaSymbolResolver {
             require(uid.type == String::class.java)
             require(latitude.type == Double::class.javaPrimitiveType && longitude.type == Double::class.javaPrimitiveType)
             require(!Modifier.isStatic(uid.modifiers) && !Modifier.isStatic(latitude.modifiers) && !Modifier.isStatic(longitude.modifiers))
-            CorePostLocationSymbols(core, ownerField, uid, pointField, latitude, longitude)
+            CorePostLocationSymbols(core, ownerField, uid, pointField, latitude, longitude, id)
         }
     } catch (failure: Throwable) {
         diagnostics += "CorePost location resolution failed: ${failure.javaClass.simpleName}"

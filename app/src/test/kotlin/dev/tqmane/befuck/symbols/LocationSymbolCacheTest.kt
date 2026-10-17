@@ -11,7 +11,7 @@ import org.robolectric.annotation.Config
 class LocationSymbolCacheTest {
     private class User(val uid: String)
     private class Coordinate(val latitude: Double, val longitude: Double)
-    private class Post(val owner: User, val point: Coordinate?)
+    private class Post(val owner: User, val point: Coordinate?, val id: String = "stored-id")
     private class Placeholder(val postId: String, val isFriend: Boolean, val latitude: Double, val longitude: Double)
     interface GraphStatement {
         fun bindText(index: Int, value: String)
@@ -27,7 +27,7 @@ class LocationSymbolCacheTest {
     private fun field(owner: Class<*>, name: String) = owner.getDeclaredField(name).apply { isAccessible = true }
     private fun reader() = CorePostLocationSymbols(Post::class.java,
         field(Post::class.java, "owner"), field(User::class.java, "uid"), field(Post::class.java, "point"),
-        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"))
+        field(Coordinate::class.java, "latitude"), field(Coordinate::class.java, "longitude"), field(Post::class.java, "id"))
 
     /** Other nullable signatures stay absent; only the location reader needs a host fixture. */
     private fun fixture(location: CorePostLocationSymbols?, placeholder: MapPlaceholderLocationSymbols? = null,
@@ -59,6 +59,8 @@ class LocationSymbolCacheTest {
         val location = restored.feedMediaSymbols!!.corePostLocationSymbols!!
             .snapshot(Post(User("viewer"), Coordinate(35.68, 139.76)), "viewer")
         assertEquals(PostLocation(35.68, 139.76, false), location)
+        assertEquals("stored-id" to "viewer", restored.feedMediaSymbols!!.corePostLocationSymbols!!
+            .identity(Post(User("viewer"), Coordinate(35.68, 139.76))))
     }
 
     @Test fun unsupportedLocationReaderDoesNotInvalidateOtherCachedFeedSymbols() {

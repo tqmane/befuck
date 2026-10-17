@@ -98,17 +98,27 @@ object FeedPostMediaCache {
         if (ArchiveAccounts.snapshot() != scope) return
         val account = scope.uid.orEmpty()
         val previous = cache.get(post.postId) ?: runCatching { ArchiveRepository.get(account, post.postId) }.getOrNull()
+        // Host CorePost may precede feed media: reconcile its proven author and only
+        // currently authorized coordinate without navigating to the post's map.
+        val source = coreLocationSources.get(post.postId)
+        val linked = source?.model?.get()?.let { model ->
+            source.symbols.identity(model)?.takeIf { (id, uid) ->
+                id == post.postId && (post.ownerUid ?: previous?.ownerUid)?.let { it == uid } != false
+            }?.let { (_, uid) -> uid to source.symbols.snapshot(model, scope.uid, verifiedFriendUids) }
+        }
+        val observed = post.copy(ownerUid = post.ownerUid ?: linked?.first,
+            location = post.location ?: linked?.second)
         // Runtime presentation can fill gaps, but storage gets only the raw observation (not inherited values).
-        val merged = post.copy(
+        val merged = observed.copy(
             takenAt = post.takenAt ?: previous?.takenAt, postedAt = post.postedAt ?: previous?.postedAt,
-            username = post.username ?: previous?.username, ownerUid = post.ownerUid ?: previous?.ownerUid,
+            username = post.username ?: previous?.username, ownerUid = observed.ownerUid ?: previous?.ownerUid,
             caption = post.caption ?: previous?.caption, primary = post.primary ?: previous?.primary,
             secondary = post.secondary ?: previous?.secondary, bts = post.bts ?: previous?.bts,
             momentId = post.momentId ?: previous?.momentId, isMain = post.isMain ?: previous?.isMain,
             isOwnPost = post.isOwnPost ?: previous?.isOwnPost,
-            location = post.location?.takeIf { it.isMappable } ?: previous?.location?.takeIf { it.isMappable })
+            location = observed.location?.takeIf { it.isMappable } ?: previous?.location?.takeIf { it.isMappable })
         cache.put(post.postId, merged)
-        ArchiveRepository.capture(account, post)
+        ArchiveRepository.capture(account, observed)
         if (!merged.ownerUid.isNullOrBlank()) {
             // A verified post author may become available after the host map placeholder.
             // Re-read the original host object only while it is alive and only if its
@@ -122,6 +132,29 @@ object FeedPostMediaCache {
         }
     }
     internal fun invalidateArchiveMemory() { synchronized(cache) { cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll() } }
+
+    /** Observe a constructed host CorePost even when no media was decoded yet.
+     * Keep only a weak model reference until the current viewer is authorized;
+     * do not turn unseen media-less CorePost models into empty archive entries.
+     */
+    @JvmStatic
+    fun captureCorePostModel(model: Any?, reader: CorePostLocationSymbols?) {
+        if (model == null || reader == null) return
+        val scope = ArchiveAccounts.snapshot()
+        if (scope.uid.isNullOrBlank()) return
+        val (id, uid) = reader.identity(model) ?: return
+        withCache {
+            if (ArchiveAccounts.snapshot() != scope) return@withCache
+            coreLocationSources.put(id, CoreLocationSource(WeakReference(model), reader))
+            val existing = cache.get(id) ?: runCatching { ArchiveRepository.get(scope.uid!!, id) }.getOrNull()
+            if (existing != null && (existing.primary != null || existing.secondary != null || existing.bts != null) &&
+                (existing.ownerUid == null || existing.ownerUid == uid)) {
+                storePost(FeedPostMedia(id, null, null, null, null,
+                    capturedAtMillis = System.currentTimeMillis(), ownerUid = uid,
+                    location = reader.snapshot(model, scope.uid, verifiedFriendUids)), scope)
+            }
+        }
+    }
 
     /** Allocate before running the host query so overlapping completions cannot undo newer results. */
     @JvmStatic
@@ -145,7 +178,12 @@ object FeedPostMediaCache {
             coreLocationSources.snapshot().forEach { (id, source) ->
                 val model = source.model.get()
                 if (model == null) coreLocationSources.remove(id)
-                else captureLocation(id, source.symbols.snapshot(model, scope.uid, verifiedFriendUids), scope)
+                else {
+                    val existing = cache.get(id) ?: runCatching { ArchiveRepository.get(scope.uid!!, id) }.getOrNull()
+                    // Don't create a saved-post entry for an offscreen host model.
+                    if (existing != null && (existing.primary != null || existing.secondary != null || existing.bts != null))
+                        captureLocation(id, source.symbols.snapshot(model, scope.uid, verifiedFriendUids), scope)
+                }
             }
         }
     }

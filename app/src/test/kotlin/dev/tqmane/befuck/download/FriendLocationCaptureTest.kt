@@ -31,7 +31,7 @@ class FriendLocationCaptureTest {
     private fun field(type: Class<*>, name: String) = type.getDeclaredField(name).apply { isAccessible = true }
     private val locationSymbols = CorePostLocationSymbols(Post::class.java,
         field(Post::class.java, "b"), field(Owner::class.java, "uid"), field(Post::class.java, "point"),
-        field(Point::class.java, "latitude"), field(Point::class.java, "longitude"))
+        field(Point::class.java, "latitude"), field(Point::class.java, "longitude"), field(Post::class.java, "a"))
     private val placeholderSymbols = MapPlaceholderLocationSymbols(Placeholder::class.java.declaredConstructors.toList(),
         field(Placeholder::class.java, "postId"), field(Placeholder::class.java, "isFriend"),
         field(Placeholder::class.java, "latitude"), field(Placeholder::class.java, "longitude"))
@@ -77,6 +77,41 @@ class FriendLocationCaptureTest {
     private fun graph(uids: Set<String>, token: Long = FeedPostMediaCache.beginFriendSnapshot(),
         observedScope: ArchiveAccounts.Scope = scope) {
         FeedPostMediaCache.captureFriendUids(observedScope.uid!!, observedScope.generation, token, uids)
+    }
+
+    @Test fun feedCanArchiveAnAlreadyLoadedCorePostWithoutOpeningTheMap() {
+        graph(setOf("friend"))
+        val post = Post("automatic", Owner("friend"), Point(35.68, 139.76))
+        FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+        assertNull(FeedPostMediaCache.get("automatic"))
+        // Media can be captured independently of its location reader.
+        FeedPostMediaCache.captureCorePost(post, null)
+        assertEquals("friend", FeedPostMediaCache.get("automatic")!!.ownerUid)
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get("automatic")!!.location)
+        assertNotNull(FeedPostMediaCache.get("automatic")!!.primary)
+    }
+
+    @Test fun loadedCorePostCanWaitForFriendsWithoutFakingOtherLocations() {
+        val model = Post("pending-feed", Owner("friend"), Point(35.0, 139.0))
+        FeedPostMediaCache.captureCorePostModel(model, locationSymbols)
+        FeedPostMediaCache.captureCorePost(model, null)
+        assertNull(FeedPostMediaCache.get("pending-feed")!!.location)
+        graph(setOf("friend"))
+        assertEquals(PostLocation(35.0, 139.0, false), FeedPostMediaCache.get("pending-feed")!!.location)
+        val stranger = Post("stranger-feed", Owner("stranger"), Point(50.0, 120.0))
+        FeedPostMediaCache.captureCorePostModel(stranger, locationSymbols)
+        FeedPostMediaCache.captureCorePost(stranger, null)
+        assertNull(FeedPostMediaCache.get("stranger-feed")!!.location)
+    }
+
+    @Test fun semanticObservationNeverCreatesEmptyPostsOrCrossesAccounts() {
+        val post = Post("scope-guard", Owner("friend"), Point(30.0, 130.0))
+        FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+        assertNull(FeedPostMediaCache.get("scope-guard"))
+        scope = select("other-viewer")
+        graph(setOf("friend"))
+        FeedPostMediaCache.captureCorePost(post, null)
+        assertNull(FeedPostMediaCache.get("scope-guard")!!.location)
     }
 
     @Test fun firstCompleteGraphReplaysLiveModelsWithoutHavingStoredTheirRawCoordinates() {
