@@ -16,7 +16,7 @@ class CorePostLocationSymbolsTest {
 
     @Test fun ownPostCapturesAnExactValidatedCoordinate() {
         assertEquals(PostLocation(35.0, 139.0, false), symbols.snapshot(Post(User("viewer"), Coordinate(35.0, 139.0)), "viewer"))
-        assertEquals(PostLocation(0.0, 0.0, false), symbols.snapshot(Post(User("viewer"), Coordinate(0.0, 0.0)), "viewer"))
+        assertNull(symbols.snapshot(Post(User("viewer"), Coordinate(0.0, 0.0)), "viewer"))
     }
 
     @Test fun unknownViewerOrOtherAuthorNeverLeaksRawCoordinates() {

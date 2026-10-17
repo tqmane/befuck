@@ -194,8 +194,10 @@ class FriendLocationCaptureTest {
         val oldScope = scope
         scope = select("next-viewer")
         capture("displayed")
-        FeedPostMediaCache.captureDisplayedLocation("displayed", exact, scope)
         FeedPostMediaCache.captureDisplayedLocation("displayed", approximate, oldScope)
         assertNull(FeedPostMediaCache.get("displayed")!!.location)
+        // A genuinely displayed host coordinate belongs only to this current account.
+        FeedPostMediaCache.captureDisplayedLocation("displayed", exact, scope)
+        assertEquals(exact, FeedPostMediaCache.get("displayed")!!.location)
     }
 }
