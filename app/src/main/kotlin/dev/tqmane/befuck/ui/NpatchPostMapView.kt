@@ -311,14 +311,14 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
     private fun photoPin(source: Bitmap): Bitmap {
         val width = dp(72).coerceIn(72, 256)
         val height = (width * source.height.toFloat() / source.width).toInt().coerceIn(width / 2, width * 2)
-        val pin = Bitmap.createBitmap(width + 8, height + 8, Bitmap.Config.ARGB_8888)
+        // The host bitmap already contains the photo border and transparent padding.
+        // Preserve its alpha instead of painting that transparent area opaque white.
+        val pin = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         pin.density = context.resources.displayMetrics.densityDpi
         val canvas = Canvas(pin)
         try {
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            paint.color = Color.WHITE
-            canvas.drawRoundRect(RectF(0f, 0f, pin.width.toFloat(), pin.height.toFloat()), 8f, 8f, paint)
-            canvas.drawBitmap(source, Rect(0, 0, source.width, source.height), Rect(4, 4, width + 4, height + 4), paint)
+            canvas.drawBitmap(source, Rect(0, 0, source.width, source.height), Rect(0, 0, width, height), paint)
             return pin
         } catch (failure: Throwable) {
             pin.recycle()
