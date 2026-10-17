@@ -190,12 +190,16 @@ object FeedPostMediaCache {
         withCache {
             if (ArchiveAccounts.snapshot() != scope) return@withCache
             val reader = symbols?.mapPlaceholderLocationSymbols ?: return@withCache
-            // The host's isFriend flag and non-placeholder coordinates are checked by snapshot.
-            // This is displayed host map data, not a raw CorePost permission inference.
-            val located = reader.snapshot(model) { true } ?: return@withCache
-            if (knownPostOwner(located.first, scope) == null) {
-                pendingMapLocations.put(located.first, MapLocationSource(WeakReference(model), reader))
-            } else captureLocation(located.first, located.second, scope)
+            // The host's isFriend flag is checked before the identity callback.
+            // If the author is not known yet, keep only a weak host object and
+            // return false BEFORE snapshot reads latitude or longitude.
+            val located = reader.snapshot(model) { postId ->
+                if (knownPostOwner(postId, scope) != null) true else {
+                    pendingMapLocations.put(postId, MapLocationSource(WeakReference(model), reader))
+                    false
+                }
+            } ?: return@withCache
+            captureLocation(located.first, located.second, scope)
         }
     }
 
