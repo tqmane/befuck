@@ -95,4 +95,17 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
         HostMethod.KoinResolve to "e",
     )
 
+
+    // BeReal 3.97.1: eg7.c(lp): ko? is the nullable feed-ad selector for both
+    // native and MREC clients. Returning null is its own normal no-ad result.
+    // Guard the method shape before installing any hook; do not reuse this mapping
+    // for other versions or hook the loading coroutine (which must complete).
+    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
+        val selector = Class.forName("eg7", false, loader)
+        val placement = Class.forName("lp", false, loader)
+        val ad = Class.forName("ko", false, loader)
+        selector.getDeclaredMethod("c", placement).takeIf { method ->
+            method.returnType == ad && !java.lang.reflect.Modifier.isStatic(method.modifiers)
+        }?.apply { isAccessible = true }
+    }.getOrNull()
 }
