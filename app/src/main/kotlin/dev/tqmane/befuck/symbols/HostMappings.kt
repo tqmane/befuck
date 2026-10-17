@@ -28,6 +28,8 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open fun preludeLibraryLoad(loader: ClassLoader): Method? = null
     open fun preludeLibraryInterfaces(loader: ClassLoader): List<Class<*>> = emptyList()
     open fun repackagedStartupChecks(loader: ClassLoader): List<Method> = emptyList()
+    /** PairIP's early installer/license entrypoint; only version-verified mappings may expose it. */
+    open fun repackagedLicenseCheck(loader: ClassLoader): Method? = null
     open fun runtimeStringRepairs(classLoader: ClassLoader): Map<Field, String> = emptyMap()
     open fun missingStringRepairs(classLoader: ClassLoader): Map<Field, String> = emptyMap()
     open fun newCameraIdleCallback(classLoader: ClassLoader): android.os.Binder = error("No VM recovery for this host")
