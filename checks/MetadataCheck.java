@@ -34,6 +34,7 @@ public final class MetadataCheck {
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
         checkAdClassification();
+        checkAdSelectorBoundary();
         checkKnownStrings();
         BeFakeAuthHeaders.capture("bereal.com.example.org", "Authorization", "Bearer rejected");
         assert !BeFakeAuthHeaders.hasAuthorization();
@@ -303,6 +304,23 @@ public final class MetadataCheck {
         assert fields.size() == 2 && fields.get(0).get(card) == card.e && fields.get(1).get(card) == card.h;
     }
 
+    private static void checkAdSelectorBoundary() throws Exception {
+        // A version-specific, verified nullable selection boundary, not a generic
+        // ViewGroup hook or a coroutine that could remain suspended indefinitely.
+        var loader = MetadataCheck.class.getClassLoader();
+        assert LEGACY.resolveFeedAdSelector(loader) == null;
+        var method = CURRENT.resolveFeedAdSelector(loader);
+        assert method != null : "3.97.1 ad selector mapping missing";
+        assert method.getDeclaringClass() == eg7.class;
+        assert method.getParameterCount() == 1 && method.getParameterTypes()[0] == lp.class;
+        assert method.getReturnType() == ko.class;
+        assert !java.lang.reflect.Modifier.isStatic(method.getModifiers());
+        assert method.invoke(new eg7(), new lp()) instanceof ko
+                : "Fixture preserves non-null ad selection for the unhooked path";
+        // Any class loader without the verified symbol shape must fail closed.
+        assert CURRENT.resolveFeedAdSelector(new ClassLoader(null) {}) == null;
+    }
+
     private static void checkAdClassification() throws Exception {
         assert LEGACY.isAdViewClass(AdManagerViewFixture.class)
                 : "SDK subclasses must remain hidden";
@@ -335,6 +353,12 @@ public final class MetadataCheck {
         return output.toByteArray();
     }
 }
+
+// The 3.97.1 APK maps its nullable Native/MREC ad selector to eg7.c(lp): ko?.
+// No SDK/host code is run in this reflection fixture.
+class eg7 { public ko c(lp placement) { return new ko(); } }
+class lp {}
+class ko {}
 
 class AdManagerViewFixture extends com.google.android.gms.ads.BaseAdView {}
 class OrdinaryAdViewNamedFixture {}

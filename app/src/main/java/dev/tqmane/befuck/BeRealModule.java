@@ -528,6 +528,7 @@ public final class BeRealModule extends XposedModule {
         installFeedOptionsCanBlurHooks(classLoader, symbols);
         installBeFuckGalleryFeature(classLoader, symbols);
         installRealMojiDownloadMenu(classLoader);
+        installFeedAdSelectionSuppression(classLoader);
         installAdViewSuppression();
     }
 
@@ -2077,6 +2078,27 @@ public final class BeRealModule extends XposedModule {
             info("Hooked mi6.c's current-side seed and its remembered tap-swap state for downloads");
         } catch (Throwable error) {
             error("Could not resolve the tap-swapped media selection; inline downloads will default to primary", error);
+        }
+    }
+
+    /**
+     * The 3.97.1 feed ad manager selects between native and MREC SDK clients in
+     * one nullable method. Its normal no-available-ad result is null. Suppress
+     * that selection before the ad is passed to Compose/AndroidView; hiding an
+     * SDK child view alone can leave its host card visible or later resurrect it.
+     * Keep the native-view hooks below as a defensive fallback for other hosts.
+     */
+    private void installFeedAdSelectionSuppression(ClassLoader loader) {
+        try {
+            Method select = mappings.resolveFeedAdSelector(loader);
+            if (select == null) return;
+            hook(select)
+                    .setPriority(XposedInterface.PRIORITY_HIGHEST)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> null);
+            info("Suppressed Native/MREC feed ad selection at the verified host boundary");
+        } catch (Throwable failure) {
+            error("Could not install version-mapped feed ad selection suppression", failure);
         }
     }
 

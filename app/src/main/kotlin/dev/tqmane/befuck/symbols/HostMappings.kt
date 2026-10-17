@@ -39,6 +39,8 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open fun protobufFieldLookupMethod(loader: ClassLoader): Method? = null
     open fun uploadStringRepairs(loader: ClassLoader): Map<Field, String> = emptyMap()
     open fun recoveryProbe(loader: ClassLoader): Pair<Field, java.lang.reflect.Constructor<*>>? = null
+    /** A nullable host advertisement-slot selector, available only when verified for the APK version. */
+    open fun resolveFeedAdSelector(loader: ClassLoader): Method? = null
 
     companion object {
         @JvmStatic
