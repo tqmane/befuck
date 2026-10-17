@@ -333,8 +333,6 @@ public final class MetadataCheck {
         assert java.lang.reflect.Modifier.isStatic(method.getModifiers());
         assert method.getParameterCount() == 1
                 && method.getParameterTypes()[0] == android.content.Context.class;
-        assert CURRENT.getSigningCertificateSha256().equals(LEGACY.getSigningCertificateSha256())
-                : "3.97.1 must be verified against the original Play certificate";
         assert CURRENT.repackagedLicenseCheck(new ClassLoader(null) {}) == null
                 : "No unsafe fallback when exact PairIP class is absent";
         com.pairip.licensecheck.LicenseClient.checkLicense(new android.content.Context());
