@@ -148,26 +148,41 @@ class FriendLocationCaptureTest {
         assertEquals("cleared", pending.a)
     }
 
-    @Test fun nativeFriendFlagCannotAuthorizeAnUnknownOrCurrentlyUnrelatedOwner() {
+    @Test fun hostMapFriendFlagCapturesRealLocationWithoutWaitingForOptionalGraph() {
+        // The host has already checked isFriend for its own displayed map placeholder.
         capture("placeholder")
-        FeedPostMediaCache.captureMapPlaceholder(Placeholder("placeholder", true, 40.0, 140.0), symbols)
+        FeedPostMediaCache.captureMapPlaceholder(Placeholder("placeholder", false, 40.0, 140.0), symbols)
         assertNull(FeedPostMediaCache.get("placeholder")!!.location)
-        graph(setOf("friend"))
+        FeedPostMediaCache.captureMapPlaceholder(Placeholder("placeholder", true, 0.0, 0.0), symbols)
+        assertNull(FeedPostMediaCache.get("placeholder")!!.location)
         FeedPostMediaCache.captureMapPlaceholder(Placeholder("placeholder", true, 40.0, 140.0), symbols)
         assertEquals(PostLocation(40.0, 140.0, false), FeedPostMediaCache.get("placeholder")!!.location)
         FeedPostMediaCache.captureMapPlaceholder(Placeholder("missing-owner", true, 40.0, 140.0), symbols)
         assertNull(FeedPostMediaCache.get("missing-owner")?.location)
         graph(emptySet())
-        FeedPostMediaCache.captureMapPlaceholder(Placeholder("placeholder", true, 50.0, 150.0), symbols)
+        FeedPostMediaCache.captureMapPlaceholder(Placeholder("placeholder", false, 50.0, 150.0), symbols)
         assertEquals(PostLocation(40.0, 140.0, false), FeedPostMediaCache.get("placeholder")!!.location)
     }
 
-    @Test fun displayedLocationsRequireCurrentAccountOwnerAndExactPermission() {
+    @Test fun pendingHostMapCoordinatesReplayOnceTheActualPostOwnerArrives() {
+        val early = Placeholder("late", true, 35.68, 139.76)
+        FeedPostMediaCache.captureMapPlaceholder(early, symbols)
+        assertNull(FeedPostMediaCache.get("late"))
+        capture("late")
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get("late")!!.location)
+        val stale = Placeholder("other-account", true, 55.0, 33.0)
+        FeedPostMediaCache.captureMapPlaceholder(stale, symbols)
+        scope = select("next-viewer")
+        capture("other-account", owner = "friend")
+        assertNull(FeedPostMediaCache.get("other-account")!!.location)
+    }
+
+    @Test fun hostDisplayedLocationsRequireKnownOwnerAndMatchingAccountScope() {
         val exact = PostLocation(40.0, 140.0, false)
         val approximate = exact.copy(approximate = true)
         capture("displayed")
         FeedPostMediaCache.captureDisplayedLocation("displayed", exact, scope)
-        assertNull(FeedPostMediaCache.get("displayed")!!.location)
+        assertEquals(exact, FeedPostMediaCache.get("displayed")!!.location)
         FeedPostMediaCache.captureDisplayedLocation("missing-owner", approximate, scope)
         assertNull(FeedPostMediaCache.get("missing-owner")?.location)
         FeedPostMediaCache.captureDisplayedLocation("displayed", approximate, scope)

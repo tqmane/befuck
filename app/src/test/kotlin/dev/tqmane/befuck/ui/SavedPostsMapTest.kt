@@ -60,13 +60,13 @@ class SavedPostsMapTest {
         model.move(1); assertEquals("a", model.selected?.postId)
     }
 
-    @Test fun missingCoordinatesAreOmittedButAnExplicitOriginAndApproximationArePreserved() {
+    @Test fun missingAndLegacyOriginPlaceholderNeverBecomeMapPins() {
         val data = mutableListOf(post("missing", location = null), post("origin", location = PostLocation(0.0, 0.0, true)))
         val model = SavedPostsMapModel(data)
         data.clear()
-        assertEquals(1, model.points.size)
-        assertEquals(1, model.missingCount)
-        assertEquals(PostLocation(0.0, 0.0, true), model.selected?.location)
+        assertEquals(0, model.points.size)
+        assertEquals(2, model.missingCount)
+        assertNull(model.selected)
         val empty = SavedPostsMapModel(listOf(post("none", location = null)))
         empty.move(1); assertNull(empty.selected); assertFalse(empty.selectHits(listOf(0)))
     }

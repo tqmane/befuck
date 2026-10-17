@@ -9,6 +9,7 @@ import android.content.Context
 import org.json.JSONObject
 import dev.tqmane.befuck.symbols.FeedMediaSymbols
 import dev.tqmane.befuck.symbols.CorePostLocationSymbols
+import dev.tqmane.befuck.symbols.MapPlaceholderLocationSymbols
 import java.net.URI
 import java.lang.ref.WeakReference
 import java.lang.reflect.Modifier
@@ -55,6 +56,10 @@ object FeedPostMediaCache {
     private data class CoreLocationSource(val model: WeakReference<Any>, val symbols: CorePostLocationSymbols)
     // Until the host's complete friend query arrives, keep only weak original models; never raw coordinates.
     private val coreLocationSources = LruCache<String, CoreLocationSource>(200)
+    private data class MapLocationSource(val model: WeakReference<Any>, val reader: MapPlaceholderLocationSymbols)
+    // Map placeholders may be instantiated before CorePost tells us who owns the post.
+    // Retain only a weak host model, NOT an unverified coordinate or account association.
+    private val pendingMapLocations = LruCache<String, MapLocationSource>(200)
 
     init {
         ArchiveAccounts.subscribe { withCache { } }
@@ -82,7 +87,7 @@ object FeedPostMediaCache {
     private inline fun <T> withCache(action: () -> T): T = synchronized(cache) {
         val epoch = ArchiveAccounts.snapshot().generation
         if (cacheEpoch != epoch) {
-            cache.evictAll(); coreLocationSources.evictAll(); verifiedFriendUids = emptySet()
+            cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll(); verifiedFriendUids = emptySet()
             appliedFriendQueryToken = -1L
             cacheEpoch = epoch
         }
@@ -94,17 +99,29 @@ object FeedPostMediaCache {
         val account = scope.uid.orEmpty()
         val previous = cache.get(post.postId) ?: runCatching { ArchiveRepository.get(account, post.postId) }.getOrNull()
         // Runtime presentation can fill gaps, but storage gets only the raw observation (not inherited values).
-        cache.put(post.postId, post.copy(
+        val merged = post.copy(
             takenAt = post.takenAt ?: previous?.takenAt, postedAt = post.postedAt ?: previous?.postedAt,
             username = post.username ?: previous?.username, ownerUid = post.ownerUid ?: previous?.ownerUid,
             caption = post.caption ?: previous?.caption, primary = post.primary ?: previous?.primary,
             secondary = post.secondary ?: previous?.secondary, bts = post.bts ?: previous?.bts,
             momentId = post.momentId ?: previous?.momentId, isMain = post.isMain ?: previous?.isMain,
             isOwnPost = post.isOwnPost ?: previous?.isOwnPost,
-            location = post.location ?: previous?.location))
+            location = post.location?.takeIf { it.isMappable } ?: previous?.location?.takeIf { it.isMappable })
+        cache.put(post.postId, merged)
         ArchiveRepository.capture(account, post)
+        if (!merged.ownerUid.isNullOrBlank()) {
+            // A verified post author may become available after the host map placeholder.
+            // Re-read the original host object only while it is alive and only if its
+            // own isFriend flag still authorizes the displayed coordinate.
+            val pending = pendingMapLocations.get(post.postId)
+            if (pending != null) {
+                pendingMapLocations.remove(post.postId)
+                val observed = pending.model.get()?.let { pending.reader.snapshot(it) { id -> id == post.postId } }
+                if (observed != null) captureLocation(observed.first, observed.second, scope)
+            }
+        }
     }
-    internal fun invalidateArchiveMemory() { synchronized(cache) { cache.evictAll(); coreLocationSources.evictAll() } }
+    internal fun invalidateArchiveMemory() { synchronized(cache) { cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll() } }
 
     /** Allocate before running the host query so overlapping completions cannot undo newer results. */
     @JvmStatic
@@ -155,7 +172,8 @@ object FeedPostMediaCache {
         withCache {
             if (ArchiveAccounts.snapshot() != scope) return@withCache
             val owner = knownPostOwner(postId, scope) ?: return@withCache
-            if (!location.approximate && owner != scope.uid && owner !in verifiedFriendUids) return@withCache
+            // This is already the host's privacy-filtered, actually displayed map state.
+            // Do not require the optional Friends SQL observation to run first.
             captureLocation(postId, location, scope)
         }
     }
@@ -171,11 +189,13 @@ object FeedPostMediaCache {
         if (scope.uid == null) return
         withCache {
             if (ArchiveAccounts.snapshot() != scope) return@withCache
-            val located = symbols?.mapPlaceholderLocationSymbols?.snapshot(model) { postId ->
-                val owner = knownPostOwner(postId, scope)
-                owner != null && (owner == scope.uid || owner in verifiedFriendUids)
-            } ?: return@withCache
-            captureLocation(located.first, located.second, scope)
+            val reader = symbols?.mapPlaceholderLocationSymbols ?: return@withCache
+            // The host's isFriend flag and non-placeholder coordinates are checked by snapshot.
+            // This is displayed host map data, not a raw CorePost permission inference.
+            val located = reader.snapshot(model) { true } ?: return@withCache
+            if (knownPostOwner(located.first, scope) == null) {
+                pendingMapLocations.put(located.first, MapLocationSource(WeakReference(model), reader))
+            } else captureLocation(located.first, located.second, scope)
         }
     }
 

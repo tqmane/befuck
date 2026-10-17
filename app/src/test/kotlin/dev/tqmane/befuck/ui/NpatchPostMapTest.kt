@@ -99,7 +99,7 @@ class NpatchPostMapTest {
 
     @Test fun invalidCoordinatesAndRecycledPhotosAreRejected() {
         val binding = binding(); val owner = Owner()
-        for (coordinate in listOf(Coordinate(Double.NaN, 0.0), Coordinate(91.0, 0.0), Coordinate(0.0, 181.0), Coordinate(0.0, Double.POSITIVE_INFINITY))) {
+        for (coordinate in listOf(Coordinate(0.0, 0.0), Coordinate(Double.NaN, 0.0), Coordinate(91.0, 0.0), Coordinate(0.0, 181.0), Coordinate(0.0, Double.POSITIVE_INFINITY))) {
             owner.state.setValue(Ready(coordinate, coordinate, true)); owner.userState.setValue(coordinate)
             assertNull(binding.snapshot(owner).post); assertNull(binding.snapshot(owner).user)
         }

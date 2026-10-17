@@ -41,12 +41,12 @@ class PostLocationMetadataTest {
         }
     }
 
-    @Test fun originGpsIsWrittenAndExistingOrientationAndPostingTimeSurvive() = image(Bitmap.CompressFormat.JPEG) { file ->
+    @Test fun originPlaceholderNeverCreatesGpsAndOtherMetadataSurvives() = image(Bitmap.CompressFormat.JPEG) { file ->
         ExifInterface(file).apply { setAttribute(ExifInterface.TAG_ORIENTATION, "6"); saveAttributes() }
         val date = "2026-10-13T01:02:03.123Z"
         PostMediaMetadata.write(file, "image/jpeg", post(PostLocation(0.0, 0.0, false), date))
         val exif = ExifInterface(file)
-        assertArrayEquals(doubleArrayOf(0.0, 0.0), exif.latLong, 0.000001)
+        assertNull(exif.latLong)
         assertEquals("6", exif.getAttribute(ExifInterface.TAG_ORIENTATION))
         assertEquals(PostMediaMetadata.parseTimestamp(date), file.lastModified())
         assertEquals("author", exif.getAttribute(ExifInterface.TAG_ARTIST))

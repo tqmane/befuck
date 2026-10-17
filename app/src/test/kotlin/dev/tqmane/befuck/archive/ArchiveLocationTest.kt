@@ -78,6 +78,20 @@ class ArchiveLocationTest {
         } finally { SQLiteDatabase.deleteDatabase(file); SQLiteDatabase.deleteDatabase(destination) }
     }
 
+    @Test fun legacyOriginLocationIsRetainedInBackupButNotRenderedAsRealPostLocation() {
+        val file = path(); val exported = path()
+        try {
+            ArchiveStore.open(file).use { store ->
+                store.capture("account", located().copy(location = PostLocation(0.0, 0.0, false)))
+                assertNull(store.get("account", "post")!!.post().location)
+                store.export("account", exported)
+                val restored = ArchiveBackup.read(exported, "account").records.single()
+                assertEquals("0.0,0.0,0", restored.fields["location"]!!.value)
+                assertNull(restored.post().location)
+            }
+        } finally { SQLiteDatabase.deleteDatabase(file); SQLiteDatabase.deleteDatabase(exported) }
+    }
+
     @Test fun currentBackupRoundTripsLocationAndPrivacyAsOneObservedValue() {
         val file = path(); val exported = path()
         try {

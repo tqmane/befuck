@@ -72,7 +72,8 @@ class PostMapSymbols internal constructor(
         if (!field("latitude").declaringClass.isInstance(value)) return null
         val lat = field("latitude").getDouble(value)
         val lon = field("longitude").getDouble(value)
-        return if (lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0)
+        return if (lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0 &&
+            (lat != 0.0 || lon != 0.0))
             LocationData(lat, lon) else null
     }
 

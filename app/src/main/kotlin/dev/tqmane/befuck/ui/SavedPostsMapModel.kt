@@ -5,7 +5,7 @@ import dev.tqmane.befuck.download.FeedPostMedia
 /** An immutable day/query snapshot. Pagination only applies to the timeline, never to map points. */
 internal class SavedPostsMapModel(posts: List<FeedPostMedia>) {
     private val snapshot = posts.distinctBy { it.postId }
-    val points = snapshot.filter { it.location != null }
+    val points = snapshot.filter { it.location?.isMappable == true }
     val missingCount = snapshot.size - points.size
     var selectedIndex = if (points.isEmpty()) -1 else 0
         private set

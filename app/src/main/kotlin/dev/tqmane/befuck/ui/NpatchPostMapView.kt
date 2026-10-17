@@ -50,7 +50,7 @@ object NpatchPostMap {
         if (account.uid != null) snapshot.post?.let { location ->
             runCatching {
                 FeedPostMediaCache.captureDisplayedLocation(snapshot.postId,
-                    PostLocation(location.latitude, location.longitude, snapshot.approximate), account)
+                    PostLocation.create(location.latitude, location.longitude, snapshot.approximate), account)
             }.onFailure { Log.w("BeFuck/Map", "Could not record the displayed post location") }
         }
         symbols.compose(composer, { NpatchPostMapView(it, resources) }, {

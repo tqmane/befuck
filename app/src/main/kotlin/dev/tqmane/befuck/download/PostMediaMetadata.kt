@@ -58,7 +58,7 @@ object PostMediaMetadata {
                     ExifInterface.TAG_GPS_DEST_LATITUDE, ExifInterface.TAG_GPS_DEST_LATITUDE_REF,
                     ExifInterface.TAG_GPS_DEST_LONGITUDE, ExifInterface.TAG_GPS_DEST_LONGITUDE_REF,
                 )) exif.setAttribute(tag, null)
-                if (!location.approximate) exif.setLatLong(location.latitude, location.longitude)
+                if (!location.approximate && location.isMappable) exif.setLatLong(location.latitude, location.longitude)
             }
             exif.saveAttributes()
         } else if (mime == "video/mp4" && millis != null) {

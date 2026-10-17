@@ -14,9 +14,15 @@ class PostLocationTest {
         }
     }
 
-    @Test fun explicitOriginAndBoundaryCoordinatesAreValid() {
-        for ((lat, lon) in listOf(0.0 to 0.0, 90.0 to 180.0, -90.0 to -180.0, -33.8 to 151.2)) {
+    @Test fun originPlaceholderIsNotAnObservedPositionButLegacyBackupRemainsReadable() {
+        assertNull(PostLocation.create(0.0, 0.0, false))
+        assertNull(PostLocation.create(-0.0, 0.0, true))
+        val legacy = PostLocation.decode("0.0,0.0,0")
+        assertEquals(PostLocation(0.0, 0.0, false), legacy)
+        assertFalse(legacy!!.isMappable)
+        for ((lat, lon) in listOf(0.0 to 24.0, 90.0 to 180.0, -90.0 to -180.0, -33.8 to 151.2)) {
             assertEquals(PostLocation(lat, lon, false), PostLocation.create(lat, lon, false))
+            assertTrue(PostLocation(lat, lon, false).isMappable)
         }
     }
 

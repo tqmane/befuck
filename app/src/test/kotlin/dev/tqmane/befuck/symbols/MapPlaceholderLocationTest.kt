@@ -22,7 +22,6 @@ class MapPlaceholderLocationTest {
         assertNull(symbols.snapshot(Placeholder("", true, 0.0, 0.0)) { true })
         assertNull(symbols.snapshot(Placeholder("post", true, Double.NaN, 0.0)) { true })
         assertNull(symbols.snapshot(Placeholder("post", true, 0.0, 181.0)) { true })
-        assertEquals("origin" to PostLocation(0.0, 0.0, false),
-            symbols.snapshot(Placeholder("origin", true, 0.0, 0.0)) { true })
+        assertNull(symbols.snapshot(Placeholder("origin", true, 0.0, 0.0)) { true })
     }
 }

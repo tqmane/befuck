@@ -27,7 +27,7 @@ internal data class ArchiveRecord(
         return FeedPostMedia(id, value("taken_at"), value("caption"), item("back"), item("front"),
             value("owner_uid")?.let { account.isNotEmpty() && it == account } ?: value("is_own")?.let { it == "1" },
             lastSeen, value("username"), value("posted_at"), item("bts"), value("owner_uid"), value("moment_id"), value("is_main")?.let { it == "1" },
-            PostLocation.decode(value("location")))
+            PostLocation.decode(value("location"))?.takeIf { it.isMappable })
     }
     fun forAccount(uid: String) = copy(account = uid, fields = fields - "is_own")
 
