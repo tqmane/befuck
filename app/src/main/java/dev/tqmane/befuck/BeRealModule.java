@@ -201,6 +201,7 @@ public final class BeRealModule extends XposedModule {
             smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
             installPreludeNativeCompatibility(context, classLoader);
             installRepackagedStartupCompatibility(context, classLoader);
+            installRepackagedPostMap(context, classLoader);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
             installComposeTracingContextGuard(classLoader);
             installAuthFailureDiagnostics(classLoader);
@@ -223,6 +224,26 @@ public final class BeRealModule extends XposedModule {
         }
 
         installRuntimeHooks(classLoader, resolvedSymbols);
+    }
+
+    private void installRepackagedPostMap(Context host, ClassLoader loader) {
+        try {
+            if (moduleResources == null) return;
+            ApplicationInfo installed = host.getPackageManager().getApplicationInfo(
+                    TARGET_PACKAGE, android.content.pm.PackageManager.GET_META_DATA);
+            if (installed.metaData == null || !installed.metaData.containsKey("npatch")) return;
+            dev.tqmane.befuck.symbols.PostMapSymbols symbols = mappings.postMapSymbols(loader);
+            if (symbols == null) {
+                info("NPatch post map replacement unavailable for this host symbol shape");
+                return;
+            }
+            hook(symbols.getRender()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> dev.tqmane.befuck.ui.NpatchPostMap.compose(
+                            symbols, chain.getThisObject(), chain.getArg(1), moduleResources));
+            info("Installed NPatch post map using OpenStreetMap/OpenFreeMap; Google API identity unchanged");
+        } catch (Throwable failure) {
+            error("Could not install NPatch post map replacement", failure);
+        }
     }
 
     private void installRepackagedStartupCompatibility(Context host, ClassLoader loader) {

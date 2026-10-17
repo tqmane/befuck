@@ -1,6 +1,9 @@
 package dev.tqmane.befuck.symbols
 
 internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
+    override fun postMapSymbols(loader: ClassLoader): PostMapSymbols? =
+        runCatching { PostMapSymbols.resolve3971(loader) }.getOrNull()
+
     override val classes = mapOf(
         HostClass.RealMojiMenuItem to "t7i",
         HostClass.DualViewImageSize to "dh6",

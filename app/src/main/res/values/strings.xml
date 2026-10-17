@@ -129,6 +129,13 @@
     <string name="befuck_location_provider_hint">Place searches send the entered text to the configured HTTPS geocoding service. The default is the public OpenStreetMap Nominatim service. For regular or shared use, configure a compatible provider that permits your traffic.</string>
     <string name="befuck_location_provider_invalid">Enter an HTTPS endpoint without a query, fragment or credentials.</string>
     <string name="befuck_location_map_loading">Loading the map…</string>
+    <string name="befuck_post_map_title">Post location</string>
+    <string name="befuck_post_map_current">Show your current location</string>
+    <string name="befuck_post_map_no_current">Your current location is not available yet.</string>
+    <string name="befuck_post_map_photo">Toggle photo pin</string>
+    <string name="befuck_post_map_waiting">Waiting for the post location…</string>
+    <string name="befuck_post_map_approximate">Approximate location · 5 km area. Map tiles are provided by OpenFreeMap.</string>
+    <string name="befuck_post_map_hint">Map tiles are provided by OpenFreeMap. Tap the photo pin to change its preview.</string>
     <string name="befuck_location_search">Search</string>
     <string name="befuck_location_selected_label">Selected location</string>
     <string name="befuck_location_search_results">Choose a search result</string>
