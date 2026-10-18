@@ -41,6 +41,8 @@ data class FeedMediaSymbols(
     val corePostLocationSymbols: CorePostLocationSymbols? = null,
     val mapPlaceholderLocationSymbols: MapPlaceholderLocationSymbols? = null,
     val friendGraphSymbols: FriendGraphSymbols? = null,
+    val remotePostLocationSymbols: RemotePostLocationSymbols? = null,
+    val postDataOwnerUidField: Field? = null,
 ) {
     val canCaptureFeedMedia: Boolean
         get() = postModelClass != null && postDeserializerMethod != null && postIdField != null &&
@@ -67,6 +69,8 @@ class CorePostLocationSymbols internal constructor(
     private val postId: Field? = null,
     private val nativeFriendStatus: Field? = null,
 ) {
+    fun isCorePost(value: Any?): Boolean = value != null && coreClass.isInstance(value)
+
     /** Host models are observed once constructed, not when a post map is opened. */
     val constructors: List<Constructor<*>> get() = coreClass.declaredConstructors
         .filter { !it.isSynthetic && it.parameterCount in 3..64 }
@@ -83,6 +87,11 @@ class CorePostLocationSymbols internal constructor(
         id to uid
     }.getOrNull()
 
+    /** Native friend status alone does not expose coordinates. */
+    fun nativeAccepted(model: Any): Boolean = runCatching {
+        coreClass.isInstance(model) && (nativeFriendStatus?.get(owner.get(model)) as? Enum<*>)?.name == "Accepted"
+    }.getOrDefault(false)
+
     fun snapshot(model: Any, viewerUid: String?, friendUids: Set<String> = emptySet(),
         allowNativeAccepted: Boolean = false): PostLocation? = runCatching {
         if (viewerUid.isNullOrBlank() || !coreClass.isInstance(model)) return@runCatching null
@@ -97,6 +106,31 @@ class CorePostLocationSymbols internal constructor(
     }.getOrNull()
 }
 
+/** The original PostRemoteModel carries a LocationRemoteModel alongside its media URLs.
+ *  The permission callback runs before either coordinate field is read.
+ */
+class RemotePostLocationSymbols internal constructor(
+    private val remoteClass: Class<*>,
+    private val postId: Field,
+    private val location: Field,
+    private val latitude: Field,
+    private val longitude: Field,
+) {
+    /** Presence-only diagnostic; does not read or log any coordinate. */
+    fun hasLocationFieldValue(model: Any): Boolean = runCatching {
+        remoteClass.isInstance(model) && location.get(model) != null
+    }.getOrDefault(false)
+
+    fun snapshot(model: Any, canLocate: (String) -> Boolean): Pair<String, PostLocation>? = runCatching {
+        if (!remoteClass.isInstance(model)) return@runCatching null
+        val id = (postId.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 } ?: return@runCatching null
+        if (!canLocate(id)) return@runCatching null
+        val value = location.get(model) ?: return@runCatching null
+        id to (PostLocation.create(latitude.getDouble(value), longitude.getDouble(value), approximate = false)
+            ?: return@runCatching null)
+    }.getOrNull()
+}
+
 /** The host has already resolved the same friendship flag that its full map will use. */
 class MapPlaceholderLocationSymbols internal constructor(
     val constructors: List<Constructor<*>>,
@@ -104,7 +138,15 @@ class MapPlaceholderLocationSymbols internal constructor(
     private val isFriend: Field,
     private val latitude: Field,
     private val longitude: Field,
+    /** Host use case `(postId, Continuation)` that fetches a post and builds the MapPlaceholder. */
+    val fetchMethod: Method? = null,
+    /** DI factory `invoke(scope, params)` whose first argument is the host's DI scope. */
+    val factoryMethod: Method? = null,
+    /** Kotlin coroutine bridge class (e.g. xha/lia) used to invoke ContinuationImpl-typed use cases. */
+    val coroutineBridgeClass: Class<*>? = null,
 ) {
+    fun isMapPlaceholder(model: Any?): Boolean = model != null && postId.declaringClass.isInstance(model)
+
     fun snapshot(model: Any, canLocatePost: (String) -> Boolean): Pair<String, PostLocation>? = runCatching {
         if (!postId.declaringClass.isInstance(model) || !isFriend.getBoolean(model)) return@runCatching null
         val id = (postId.get(model) as? String)?.takeIf(String::isNotBlank) ?: return@runCatching null
@@ -138,6 +180,7 @@ object FeedMediaSymbolResolver {
         val fields = postClass?.let { resolvePostFields(it, logger, diagnostics) }
         val mediaClass = fields?.primary?.type
         val mediaFields = mediaClass?.let { resolveMediaFields(bridge, it, classLoader, logger, diagnostics) }
+        val remoteLocation = if (postClass != null && fields != null) resolveRemotePostLocation(bridge, postClass, fields.id, logger, diagnostics) else null
         val deserializer = if (postClass != null) {
             resolvePostDeserializer(bridge, postClass, classLoader, logger, diagnostics)
         } else {
@@ -158,6 +201,9 @@ object FeedMediaSymbolResolver {
         } else {
             null
         }
+        val postDataOwnerUidField = if (postDataData != null && postDataClass != null) {
+            resolveThirdReadStringField(postDataData, postDataClass, classLoader, diagnostics)
+        } else null
         val postDataIsMineField = if (postDataData != null && postDataClass != null) {
             resolveThirdReadBooleanField(postDataData, postDataClass, classLoader, logger, diagnostics)
         } else {
@@ -177,6 +223,7 @@ object FeedMediaSymbolResolver {
         } else {
             null to null
         }
+        val hostMapLocation = resolveMapPlaceholderLocation(bridge, classLoader, logger, diagnostics)
         val result = FeedMediaSymbols(
             postModelClass = postClass,
             postDeserializerMethod = deserializer,
@@ -203,14 +250,37 @@ object FeedMediaSymbolResolver {
             blurredMediaRenderMethod = blur.blurredMediaMethod,
             blurredOverlayComposableMethod = blur.blurredOverlayMethod,
             corePostLocationSymbols = resolveCorePostLocation(bridge, classLoader, logger, diagnostics),
-            mapPlaceholderLocationSymbols = resolveMapPlaceholderLocation(bridge, classLoader, logger, diagnostics),
+            mapPlaceholderLocationSymbols = hostMapLocation,
             friendGraphSymbols = FriendGraphSymbols.resolve(bridge, classLoader),
+            remotePostLocationSymbols = remoteLocation,
+            postDataOwnerUidField = postDataOwnerUidField,
         )
         emit(
             logger,
             "[SymbolResolver] Feed media capture=${if (result.canCaptureFeedMedia) "ready" else "disabled"}; visible-model capture=${if (result.canCaptureVisibleFeedMedia) "ready" else "disabled"}; local unblur=${if (result.canUnblurLocally) "ready" else "disabled"}",
         )
         return result
+    }
+
+    private fun resolveRemotePostLocation(
+        bridge: DexKitBridge,
+        remote: Class<*>, id: Field, logger: Consumer<String>, diagnostics: MutableList<String>,
+    ): RemotePostLocationSymbols? = try {
+        val location = declaredField(remote, "location")
+        require(!Modifier.isStatic(location.modifiers))
+        val verified = bridge.getClassData(location.type)?.findMethod(FindMethod.create().matcher(
+            MethodMatcher.create().name("toString").returnType(String::class.java).paramCount(0),
+        ))?.any { it.usingStrings.containsAll(listOf("LocationRemoteModel(latitude=", ", longitude=")) } == true
+        require(verified) { "Unverified LocationRemoteModel" }
+        val lat = declaredField(location.type, "latitude")
+        val lon = declaredField(location.type, "longitude")
+        require(lat.type == Double::class.javaPrimitiveType && lon.type == Double::class.javaPrimitiveType)
+        require(!Modifier.isStatic(lat.modifiers) && !Modifier.isStatic(lon.modifiers))
+        emit(logger, "[SymbolResolver] PostRemoteModel.location available alongside image URLs")
+        RemotePostLocationSymbols(remote, id, location, lat, lon)
+    } catch (failure: Throwable) {
+        diagnostics += "PostRemoteModel.location resolution failed: ${failure.javaClass.simpleName}"
+        null
     }
 
     private fun resolveCorePostLocation(
@@ -293,11 +363,64 @@ object FeedMediaSymbolResolver {
             require(listOf(id, friend, latitude, longitude).none { Modifier.isStatic(it.modifiers) })
             val constructors = owner.declaredConstructors.map { it.apply { isAccessible = true } }
             require(constructors.isNotEmpty())
-            MapPlaceholderLocationSymbols(constructors, id, friend, latitude, longitude)
+            val fetch = runCatching { resolveMapFetch(bridge, data!!, owner, classLoader, logger) }
+                .onFailure { diagnostics += "MapPlaceholder fetch resolution failed: ${it.javaClass.simpleName}" }
+                .getOrNull()
+            emit(logger, "[SymbolResolver] MapPlaceholder prefetch use case " +
+                if (fetch?.first != null) "resolved (factory=${fetch.second != null})" else "unavailable")
+            MapPlaceholderLocationSymbols(constructors, id, friend, latitude, longitude,
+                fetch?.first, fetch?.second, fetch?.third)
         }
     } catch (failure: Throwable) {
         diagnostics += "MapPlaceholder location resolution failed: ${failure.javaClass.simpleName}"
         null
+    }
+
+    /**
+     * Resolves the host's map use case (the caller of the MapPlaceholder constructor)
+     * and its coroutine bridge so the module can invoke it in the background.
+     */
+    private fun resolveMapFetch(
+        bridge: DexKitBridge,
+        data: org.luckypray.dexkit.result.ClassData,
+        placeholder: Class<*>,
+        classLoader: ClassLoader,
+        logger: Consumer<String>,
+    ): Triple<Method, Method?, Class<*>?>? {
+        fun callersOf(classData: org.luckypray.dexkit.result.ClassData) = classData.methods
+            .filter { it.isConstructor }.flatMap { it.callers }.distinctBy { it.descriptor }
+        val useCases = callersOf(data).filter { !it.isConstructor && !it.isStaticInitializer }.mapNotNull { caller ->
+            val method = runCatching { caller.getMethodInstance(classLoader) }.getOrNull() ?: return@mapNotNull null
+            val parameters = method.parameterTypes
+            if (Modifier.isStatic(method.modifiers) || method.returnType != Any::class.java || parameters.size != 2 ||
+                parameters[0] != String::class.java || method.declaringClass == placeholder) null else caller to method
+        }
+        emit(logger, "[SymbolResolver] MapPlaceholder use-case candidates=${useCases.size}")
+        val (useCaseData, useCase) = useCases.singleOrNull() ?: return null
+        useCase.isAccessible = true
+        // Factory: unique caller of the use-case constructor with the standard (scope, params) shape.
+        val factory = runCatching {
+            callersOf(requireNotNull(bridge.getClassData(useCase.declaringClass)))
+                .mapNotNull { runCatching { it.getMethodInstance(classLoader) }.getOrNull() }
+                .filter { method ->
+                    !Modifier.isStatic(method.modifiers) && method.returnType == Any::class.java &&
+                        method.parameterTypes.contentEquals(arrayOf(Any::class.java, Any::class.java))
+                }.distinctBy { it.declaringClass }.also { emit(logger, "[SymbolResolver] MapPlaceholder DI factory candidates=${it.size}") }
+                .singleOrNull()?.apply { isAccessible = true }
+        }.getOrNull()
+        val continuationParam = useCase.parameterTypes[1]
+        val bridgeClass = if (continuationParam.isInterface) null else runCatching {
+            bridge.findClass(FindClass.create().matcher(
+                ClassMatcher.create().superClass(continuationParam.name)
+                    .usingStrings("This coroutine had already completed")
+            )).mapNotNull { runCatching { it.getInstance(classLoader) }.getOrNull() }
+                .firstOrNull { cls ->
+                    cls.declaredConstructors.any { it.parameterCount in 3..4 } &&
+                        cls.declaredFields.any { !Modifier.isStatic(it.modifiers) && it.type == Integer.TYPE }
+                }
+        }.getOrNull()
+        emit(logger, "[SymbolResolver] MapPlaceholder coroutine bridge=${bridgeClass?.name ?: "none"}")
+        return Triple(useCase, factory, bridgeClass)
     }
 
     private data class PostFields(
@@ -611,6 +734,23 @@ object FeedMediaSymbolResolver {
             diagnostics += "PostDataUiModel.postId field load failed: ${failure.javaClass.simpleName}"
             null
         }
+    }
+
+    private fun resolveThirdReadStringField(
+        classData: org.luckypray.dexkit.result.ClassData,
+        owner: Class<*>, loader: ClassLoader, diagnostics: MutableList<String>,
+    ): Field? = try {
+        val reader = classData.findMethod(FindMethod.create().matcher(
+            MethodMatcher.create().name("toString").returnType(String::class.java).paramCount(0),
+        )).single()
+        val fields = reader.usingFields.filter { it.usingType.isRead() &&
+            it.field.declaredClassName == owner.name && !Modifier.isStatic(it.field.modifiers) &&
+            it.field.typeName == String::class.java.name }
+        require(fields.size >= 3)
+        fields[2].field.getFieldInstance(loader).apply { require(type == String::class.java); isAccessible = true }
+    } catch (failure: Throwable) {
+        diagnostics += "PostDataUiModel.ownerUid resolution failed: ${failure.javaClass.simpleName}"
+        null
     }
 
     private fun resolveThirdReadBooleanField(

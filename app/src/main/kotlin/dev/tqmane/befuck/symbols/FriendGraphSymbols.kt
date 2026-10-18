@@ -39,12 +39,12 @@ class FriendGraphSymbols internal constructor(
     }
 
     /** A new observer belongs to exactly one synchronous native query invocation. */
-    fun observe(connection: Any, viewerUid: String): Observation? {
-        if (!connectionType.isInstance(connection) || !validUid(viewerUid)) return null
+    fun observe(connection: Any, viewerUid: String? = null): Observation? {
+        if (!connectionType.isInstance(connection) || (viewerUid != null && !validUid(viewerUid))) return null
         return runCatching { Observation(connection, viewerUid) }.getOrNull()
     }
 
-    inner class Observation internal constructor(original: Any, private val viewerUid: String) {
+    inner class Observation internal constructor(original: Any, private val viewerUid: String? = null) {
         private var invalid = false
         private var prepared = 0
         private var matched = 0
@@ -79,6 +79,9 @@ class FriendGraphSymbols internal constructor(
             }.getOrElse { invalid = true; result }
         }
 
+        val observedViewerUid: String?
+            get() = bindings[0]?.takeIf { correctBindings() }
+
         /** Null means unproven; an empty set is a successfully observed empty Friends graph. */
         fun friendUids(result: Any?): Set<String>? {
             if (invalid || prepared != 1 || matched != 1 || !finished || !closed || !correctBindings()) return null
@@ -88,8 +91,11 @@ class FriendGraphSymbols internal constructor(
             return rows.toSet()
         }
 
-        private fun correctBindings() = bindings[0] == viewerUid && bindings[1] == viewerUid &&
-            bindings[2] == viewerUid && bindings[3] == friendsToken
+        private fun correctBindings(): Boolean {
+            val uid = bindings[0] ?: return false
+            if (!validUid(uid) || bindings[1] != uid || bindings[2] != uid || bindings[3] != friendsToken) return false
+            return viewerUid == null || viewerUid == uid
+        }
 
         private fun record(method: Method, args: Array<out Any?>?, result: Any?) {
             if (invalid) return

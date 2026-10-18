@@ -96,6 +96,9 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
     )
 
 
+    override fun smsRequestConstructor(loader: ClassLoader): java.lang.reflect.Constructor<*>? =
+        resolveSmsRequestConstructor(loader, "euj")
+
     // Unlike 3.97.0's VMRunner, 3.97.1 installs PairIP through
     // com.pairip.application.Application.attachBaseContext and its ContentProvider.
     // Both enter this static method before normal application startup.

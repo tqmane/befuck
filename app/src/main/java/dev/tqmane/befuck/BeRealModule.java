@@ -207,7 +207,7 @@ public final class BeRealModule extends XposedModule {
             ApplicationInfo appInfo = targetApplicationInfo != null
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
-            smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
+            smsAuthCompatibility = mappings.getSupportsSmsAuth();
             installPreludeNativeCompatibility(context, classLoader);
             installRepackagedStartupCompatibility(context, classLoader);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
@@ -709,6 +709,7 @@ public final class BeRealModule extends XposedModule {
                                             if (replacement != null) {
                                                 Object compatible = getInvoker(method).setType(XposedInterface.Invoker.Type.ORIGIN).invoke(replacement);
                                                 captureFromBuiltOkHttpRequest(request);
+                                                info("Applied SMS request payload compatibility repair");
                                                 return compatible;
                                             }
                                         } catch (Throwable failure) {
@@ -1125,7 +1126,6 @@ public final class BeRealModule extends XposedModule {
             hook(graph.getQuery()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                     .intercept(chain -> {
                         ArchiveAccounts.Scope scope = ArchiveAccounts.INSTANCE.snapshot();
-                        if (scope.getUid() == null) return chain.proceed();
                         FriendGraphSymbols.Observation observation;
                         try {
                             observation = graph.observe(chain.getArg(0), scope.getUid());
@@ -1143,7 +1143,7 @@ public final class BeRealModule extends XposedModule {
                         try {
                             Set<String> friends = observation.friendUids(result);
                             if (friends != null) {
-                                FeedPostMediaCache.captureFriendUids(scope.getUid(), scope.getGeneration(), token, friends);
+                                FeedPostMediaCache.captureObservedFriendUids(observation.getObservedViewerUid(), scope.getUid(), scope.getGeneration(), token, friends);
                             }
                         } catch (Throwable ignored) {
                             info("Skipped an unavailable friend-location observation");
@@ -1153,6 +1153,37 @@ public final class BeRealModule extends XposedModule {
             info("Observing the host's complete Friends graph for saved post locations");
         } catch (Throwable failure) {
             error("Could not observe friend location visibility", failure);
+        }
+    }
+
+    /** Observe actual host PostDataUiModel construction, including offscreen feed posts.
+     * Only isMyPost=true with its validated ownerUid may establish viewer identity.
+     */
+    private void installPostDataIdentityCapture(FeedMediaSymbols media) {
+        Field id = media.getPostDataIdField();
+        Field owner = media.getPostDataOwnerUidField();
+        Field own = media.getPostDataIsMineField();
+        if (id == null || owner == null || own == null ||
+                id.getDeclaringClass() != owner.getDeclaringClass() ||
+                id.getDeclaringClass() != own.getDeclaringClass()) return;
+        try {
+            Constructor<?>[] constructors = id.getDeclaringClass().getDeclaredConstructors();
+            if (constructors.length == 0 || constructors.length > 8) return;
+            for (Constructor<?> constructor : constructors) {
+                if (constructor.isSynthetic()) continue;
+                hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            try { FeedPostMediaCache.capturePostDataIdentity(chain.getThisObject(), media); }
+                            catch (Throwable failure) {
+                                info("Skipped host post-data identity observation: " + failure.getClass().getSimpleName());
+                            }
+                            return result;
+                        });
+            }
+            info("Watching host PostDataUiModel identities for account-scoped feed location capture");
+        } catch (Throwable failure) {
+            info("PostDataUiModel identity observation unavailable: " + failure.getClass().getSimpleName());
         }
     }
 
@@ -1213,6 +1244,7 @@ public final class BeRealModule extends XposedModule {
         }
 
         installFriendLocationCapture(media);
+        installPostDataIdentityCapture(media);
         boolean semanticCoreHooked = installCorePostModelCapture(media, symbols.getVersionName());
         if (!semanticCoreHooked && KnownMappings.isSupportedVersion(symbols.getVersionName()))
             installLegacyCorePostCapture(classLoader, media);
@@ -1288,6 +1320,18 @@ public final class BeRealModule extends XposedModule {
                             });
                 }
                 info("Capturing post locations authorized by the host's map friendship state");
+                dev.tqmane.befuck.symbols.MapPlaceholderLocationSymbols mapSymbols = media.getMapPlaceholderLocationSymbols();
+                dev.tqmane.befuck.download.MapLocationPrefetcher.configure(mapSymbols, media.getCorePostLocationSymbols());
+                if (mapSymbols.getFactoryMethod() != null && mapSymbols.getFetchMethod() != null) {
+                    // Other definitions sharing this DI factory run at startup and expose the host scope.
+                    hook(mapSymbols.getFactoryMethod()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                            .intercept(chain -> {
+                                try { dev.tqmane.befuck.download.MapLocationPrefetcher.observeScope(chain.getArg(0)); }
+                                catch (Throwable ignored) { }
+                                return chain.proceed();
+                            });
+                    info("Background location prefetch armed through the host map use case");
+                }
             } catch (Throwable failure) {
                 error("Could not capture map location metadata", failure);
             }

@@ -49,6 +49,7 @@ object GalleryPostController {
     /** Read-only current-user provider. Never infer login identity from arbitrary User constructors. */
     internal fun readCurrentAccount(activity: Activity, symbols: ResolvedSymbols, completion: Consumer<String?>) {
         val once = AtomicBoolean(false)
+        val requestedGeneration = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot().generation
         val main = android.os.Handler(android.os.Looper.getMainLooper())
         fun deliver(uid: String?) { if (once.compareAndSet(false, true)) completion.accept(uid) }
         val timeout = Runnable { Log.w(TAG, "Current-account provider timed out; archive identity remains unavailable"); deliver(null) }
@@ -66,7 +67,12 @@ object GalleryPostController {
                     if (failure != null || user != null && !uid.declaringClass.isInstance(user)) {
                         Log.w(TAG, "Current-account provider did not return the expected current-user model")
                     }
-                    deliver(value?.takeIf(String::isNotBlank))
+                    val validated = value?.takeIf(String::isNotBlank)
+                    if (validated != null && once.get()) {
+                        // The 15-second UI timeout must not permanently discard a
+                        // later authenticated-user Flow result. Reject stale accounts.
+                        dev.tqmane.befuck.archive.ArchiveAccounts.accept(requestedGeneration, validated)
+                    } else deliver(validated)
                 }
             } catch (failure: Exception) {
                 main.removeCallbacks(timeout)
