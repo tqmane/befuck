@@ -39,6 +39,13 @@ internal object ArchiveAccounts {
         if (changed) listeners.forEach { runCatching(it) }
         callbacks.forEach { runCatching { it(resolved) } }
     }
+    /** Only an actual host PostDataUiModel with isMyPost=true proves its owner is the viewer. */
+    fun observeVerifiedOwnPost(ownerUid: String?) {
+        if (ownerUid == null || !ArchiveRecord.validId(ownerUid)) return
+        val before = snapshot()
+        if (before.uid == null) accept(before.generation, ownerUid)
+    }
+
     fun refresh(activity: Activity, symbols: ResolvedSymbols, force: Boolean = false, completion: ((Scope) -> Unit)? = null) {
         resolve(force, android.os.SystemClock.elapsedRealtime(), { callback ->
             GalleryPostController.readCurrentAccount(activity, symbols, callback)
