@@ -10,6 +10,7 @@ import org.json.JSONObject
 import dev.tqmane.befuck.symbols.FeedMediaSymbols
 import dev.tqmane.befuck.symbols.CorePostLocationSymbols
 import dev.tqmane.befuck.symbols.MapPlaceholderLocationSymbols
+import dev.tqmane.befuck.symbols.RemotePostLocationSymbols
 import java.net.URI
 import java.lang.ref.WeakReference
 import java.lang.reflect.Modifier
@@ -60,9 +61,32 @@ object FeedPostMediaCache {
     // Map placeholders may be instantiated before CorePost tells us who owns the post.
     // Retain only a weak host model, NOT an unverified coordinate or account association.
     private val pendingMapLocations = LruCache<String, MapLocationSource>(200)
+    // Keep the original feed DTO until the host's account and friendship state are known.
+    // It is capped to 200 entries and never read for GPS before authorization.
+    private data class RemoteLocationSource(val model: Any, val reader: RemotePostLocationSymbols)
+    private val remoteLocationSources = LruCache<String, RemoteLocationSource>(200)
+    private data class VerifiedOwner(val uid: String, val acceptedByHost: Boolean)
+    private val verifiedOwners = LruCache<String, VerifiedOwner>(200)
+    private var lastScope = ArchiveAccounts.snapshot()
 
     init {
-        ArchiveAccounts.subscribe { withCache { } }
+        ArchiveAccounts.subscribe {
+            synchronized(cache) {
+                val next = ArchiveAccounts.snapshot()
+                val previous = lastScope
+                lastScope = next
+                if (previous.uid == null && next.uid != null && next.generation == previous.generation + 1L) {
+                    // First proven login of this process: carry media/host models already
+                    // decoded before the account became available into the right account.
+                    val pendingMedia = cache.snapshot().values.toList()
+                    cacheEpoch = next.generation
+                    pendingMedia.forEach { storePost(it, next) }
+                } else {
+                    cacheEpoch = -1L
+                    withCache { }
+                }
+            }
+        }
     }
 
     @JvmStatic
@@ -87,7 +111,8 @@ object FeedPostMediaCache {
     private inline fun <T> withCache(action: () -> T): T = synchronized(cache) {
         val epoch = ArchiveAccounts.snapshot().generation
         if (cacheEpoch != epoch) {
-            cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll(); verifiedFriendUids = emptySet()
+            cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll()
+            remoteLocationSources.evictAll(); verifiedOwners.evictAll(); verifiedFriendUids = emptySet()
             appliedFriendQueryToken = -1L
             cacheEpoch = epoch
         }
@@ -98,6 +123,18 @@ object FeedPostMediaCache {
         if (ArchiveAccounts.snapshot() != scope) return
         val account = scope.uid.orEmpty()
         val previous = cache.get(post.postId) ?: runCatching { ArchiveRepository.get(account, post.postId) }.getOrNull()
+        val verified = verifiedOwners.get(post.postId)
+        val candidateOwner = post.ownerUid ?: previous?.ownerUid
+        val consistent = verified != null && (candidateOwner == null || candidateOwner == verified.uid)
+        val mayReadExact = consistent && !scope.uid.isNullOrBlank() && (
+            verified!!.uid == scope.uid ||
+                if (appliedFriendQueryToken >= 0L) verified.uid in verifiedFriendUids else verified.acceptedByHost
+        )
+        // PostRemoteModel includes location in the same deserialization as its media.
+        // Do not even access the latitude/longitude fields until permission is established.
+        val remoteLocation = remoteLocationSources.get(post.postId)?.let { original ->
+            original.reader.snapshot(original.model) { id -> id == post.postId && mayReadExact }?.second
+        }
         // Host CorePost may precede feed media: reconcile its proven author and only
         // currently authorized coordinate without navigating to the post's map.
         val source = coreLocationSources.get(post.postId)
@@ -107,8 +144,8 @@ object FeedPostMediaCache {
             }?.let { (_, uid) -> uid to source.symbols.snapshot(model, scope.uid, verifiedFriendUids,
                     allowNativeAccepted = appliedFriendQueryToken < 0L) }
         }
-        val observed = post.copy(ownerUid = post.ownerUid ?: linked?.first,
-            location = post.location ?: linked?.second)
+        val observed = post.copy(ownerUid = post.ownerUid ?: linked?.first ?: verified?.uid,
+            location = post.location ?: linked?.second ?: remoteLocation)
         // Runtime presentation can fill gaps, but storage gets only the raw observation (not inherited values).
         val merged = observed.copy(
             takenAt = post.takenAt ?: previous?.takenAt, postedAt = post.postedAt ?: previous?.postedAt,
@@ -132,7 +169,10 @@ object FeedPostMediaCache {
             }
         }
     }
-    internal fun invalidateArchiveMemory() { synchronized(cache) { cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll() } }
+    internal fun invalidateArchiveMemory() { synchronized(cache) {
+        cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll()
+        remoteLocationSources.evictAll(); verifiedOwners.evictAll()
+    } }
 
     /** Observe a constructed host CorePost even when no media was decoded yet.
      * Keep only a weak model reference until friendship is established;
