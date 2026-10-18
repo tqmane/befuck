@@ -182,20 +182,61 @@ object FeedPostMediaCache {
     fun captureCorePostModel(model: Any?, reader: CorePostLocationSymbols?) {
         if (model == null || reader == null) return
         val scope = ArchiveAccounts.snapshot()
-        if (scope.uid.isNullOrBlank()) return
-        val (id, uid) = reader.identity(model) ?: return
+        val (id, ownerUid) = reader.identity(model) ?: return
         withCache {
             if (ArchiveAccounts.snapshot() != scope) return@withCache
+            val previous = verifiedOwners.get(id)
+            if (previous != null && previous.uid != ownerUid) {
+                // Conflicting host author identity cannot authorize exact GPS.
+                verifiedOwners.remove(id)
+                coreLocationSources.remove(id)
+                return@withCache
+            }
+            // Recording identity/status requires no coordinate read or account inference.
+            verifiedOwners.put(id, VerifiedOwner(ownerUid, reader.nativeAccepted(model)))
             coreLocationSources.put(id, CoreLocationSource(WeakReference(model), reader))
+            if (scope.uid.isNullOrBlank()) return@withCache
             val existing = cache.get(id) ?: runCatching { ArchiveRepository.get(scope.uid!!, id) }.getOrNull()
             if (existing != null && (existing.primary != null || existing.secondary != null || existing.bts != null) &&
-                (existing.ownerUid == null || existing.ownerUid == uid)) {
+                (existing.ownerUid == null || existing.ownerUid == ownerUid)) {
                 storePost(FeedPostMedia(id, null, null, null, null,
-                    capturedAtMillis = System.currentTimeMillis(), ownerUid = uid,
+                    capturedAtMillis = System.currentTimeMillis(), ownerUid = ownerUid,
                     location = reader.snapshot(model, scope.uid, verifiedFriendUids,
                         allowNativeAccepted = appliedFriendQueryToken < 0L)), scope)
             }
         }
+    }
+
+    /** Use only host-verified PostDataUiModel identity; a random User is never the viewer. */
+    @JvmStatic
+    fun capturePostDataIdentity(model: Any?, symbols: FeedMediaSymbols?) {
+        if (model == null || symbols == null) return
+        runCatching {
+            val idField = symbols.postDataIdField ?: return
+            val ownerField = symbols.postDataOwnerUidField ?: return
+            val myPostField = symbols.postDataIsMineField ?: return
+            if (!idField.declaringClass.isInstance(model) || ownerField.declaringClass != idField.declaringClass)
+                return
+            val id = (idField.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 } ?: return
+            val owner = (ownerField.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 } ?: return
+            if (myPostField.getBoolean(model)) ArchiveAccounts.observeVerifiedOwnPost(owner)
+            val scope = ArchiveAccounts.snapshot()
+            withCache {
+                if (ArchiveAccounts.snapshot() != scope) return@withCache
+                val old = verifiedOwners.get(id)
+                if (old != null && old.uid != owner) {
+                    verifiedOwners.remove(id)
+                    return@withCache
+                }
+                verifiedOwners.put(id, VerifiedOwner(owner, old?.acceptedByHost == true))
+                val media = cache.get(id)
+                if (media != null && (media.primary != null || media.secondary != null || media.bts != null) &&
+                    (media.ownerUid == null || media.ownerUid == owner)) {
+                    storePost(FeedPostMedia(id, null, null, null, null,
+                        capturedAtMillis = System.currentTimeMillis(), ownerUid = owner), scope)
+                }
+            }
+        }.onFailure { android.util.Log.w("BeFuck/Cache", "Host post owner observation rejected", it) }
     }
 
     /** Allocate before running the host query so overlapping completions cannot undo newer results. */
@@ -225,6 +266,13 @@ object FeedPostMediaCache {
                     // Don't create a saved-post entry for an offscreen host model.
                     if (existing != null && (existing.primary != null || existing.secondary != null || existing.bts != null))
                         captureLocation(id, source.symbols.snapshot(model, scope.uid, verifiedFriendUids), scope)
+                }
+            }
+            remoteLocationSources.snapshot().keys.forEach { id ->
+                val saved = cache.get(id) ?: runCatching { ArchiveRepository.get(scope.uid!!, id) }.getOrNull()
+                if (saved != null && (saved.primary != null || saved.secondary != null || saved.bts != null)) {
+                    storePost(FeedPostMedia(id, null, null, null, null,
+                        capturedAtMillis = System.currentTimeMillis()), scope)
                 }
             }
         }
@@ -374,7 +422,12 @@ object FeedPostMediaCache {
                 postedAt = runCatching { model.javaClass.getDeclaredField("postedAt").apply { isAccessible = true }.get(model) as? String }.getOrNull(),
                 bts = readMedia(symbols.postBtsMediaField?.get(model), symbols),
             )
-            withCache { storePost(post) }
+            withCache {
+                symbols.remotePostLocationSymbols?.let { reader ->
+                    remoteLocationSources.put(id, RemoteLocationSource(model, reader))
+                }
+                storePost(post)
+            }
             true
         } catch (_: Throwable) {
             false
@@ -386,6 +439,7 @@ object FeedPostMediaCache {
         if (viewState == null || symbols == null || !symbols.canCaptureVisibleFeedMedia) return false
         return try {
             val postData = symbols.viewStatePostDataField!!.get(viewState) ?: return false
+            capturePostDataIdentity(postData, symbols)
             val postId = symbols.postDataIdField!!.get(postData) as? String ?: return false
             if (postId.isBlank()) return false
             val isOwnPost = symbols.postDataIsMineField!!.getBoolean(postData)
