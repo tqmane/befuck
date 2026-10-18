@@ -268,4 +268,18 @@ class FriendLocationCaptureTest {
         FeedPostMediaCache.captureDisplayedLocation("displayed", exact, scope)
         assertEquals(exact, FeedPostMediaCache.get("displayed")!!.location)
     }
+
+    @Test fun startupFriendsQueryBeforeViewerResolutionReplaysUponAccountLogin() {
+        ArchiveAccounts.invalidate()
+        val emptyScope = ArchiveAccounts.snapshot()
+        assertNull(emptyScope.uid)
+        val token = FeedPostMediaCache.beginFriendSnapshot()
+        FeedPostMediaCache.captureObservedFriendUids("login-viewer", emptyScope, token, setOf("friend-1", "friend-2"))
+        val post = Post("startup-post", Owner("friend-1"), Point(35.68, 139.76))
+        FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+        FeedPostMediaCache.captureCorePost(post, null)
+        ArchiveAccounts.accept(emptyScope.generation, "login-viewer")
+        scope = ArchiveAccounts.snapshot()
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get("startup-post")!!.location)
+    }
 }

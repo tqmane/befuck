@@ -59,11 +59,12 @@ object FeedPostMediaCache {
     private val loggedMissingViewer = AtomicBoolean(false)
     private val loggedSavedLocation = AtomicBoolean(false)
     private var appliedFriendQueryToken = -1L
+    private val pendingFriendSnapshots = LruCache<String, Pair<Long, Set<String>>>(8)
     // Weak-only CorePosts were being collected before account resolution.
-    // Retain at most 48 unmodified host models, not copied coordinates, until
+    // Retain at most 200 unmodified host models, not copied coordinates, until
     // the host author and viewer scope are verified. Account switches evict them.
     private data class CoreLocationSource(val model: Any, val symbols: CorePostLocationSymbols)
-    private val coreLocationSources = LruCache<String, CoreLocationSource>(48)
+    private val coreLocationSources = LruCache<String, CoreLocationSource>(200)
     private data class MapLocationSource(val model: WeakReference<Any>, val reader: MapPlaceholderLocationSymbols)
     // Map placeholders may be instantiated before CorePost tells us who owns the post.
     // Retain only a weak host model, NOT an unverified coordinate or account association.
@@ -75,6 +76,7 @@ object FeedPostMediaCache {
     private data class VerifiedOwner(val uid: String, val acceptedByHost: Boolean)
     private val verifiedOwners = LruCache<String, VerifiedOwner>(200)
     private var lastScope = ArchiveAccounts.snapshot()
+    private val prefetchAttempted = LruCache<String, Boolean>(4000)
 
     init {
         ArchiveAccounts.subscribe {
@@ -83,10 +85,14 @@ object FeedPostMediaCache {
                 val previous = lastScope
                 lastScope = next
                 if (previous.uid == null && next.uid != null && next.generation == previous.generation + 1L) {
+                    cacheEpoch = next.generation
+                    val pendingFriends = pendingFriendSnapshots.remove(next.uid)
+                    if (pendingFriends != null) {
+                        captureFriendUids(next, pendingFriends.first, pendingFriends.second)
+                    }
                     // First proven login of this process: carry media/host models already
                     // decoded before the account became available into the right account.
                     val pendingMedia = cache.snapshot().values.toList()
-                    cacheEpoch = next.generation
                     pendingMedia.forEach { storePost(it, next) }
                 } else {
                     cacheEpoch = -1L
@@ -120,6 +126,7 @@ object FeedPostMediaCache {
         if (cacheEpoch != epoch) {
             cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll()
             remoteLocationSources.evictAll(); verifiedOwners.evictAll(); verifiedFriendUids = emptySet()
+            prefetchAttempted.evictAll()
             appliedFriendQueryToken = -1L
             cacheEpoch = epoch
         }
@@ -182,10 +189,25 @@ object FeedPostMediaCache {
                 if (observed != null) captureLocation(observed.first, observed.second, scope)
             }
         }
+        maybePrefetchLocation(post.postId, scope)
+    }
+
+    /** Ask the host's own map use case for a missing location, only for authors already authorized for exact GPS. */
+    private fun maybePrefetchLocation(postId: String, scope: ArchiveAccounts.Scope) {
+        if (scope.uid.isNullOrBlank() || prefetchAttempted.get(postId) != null) return
+        val post = cache.get(postId) ?: return
+        if (post.location != null || (post.primary == null && post.secondary == null && post.bts == null)) return
+        val verified = verifiedOwners.get(postId) ?: return
+        if (post.ownerUid != null && post.ownerUid != verified.uid) return
+        val allowed = verified.uid == scope.uid ||
+            if (appliedFriendQueryToken >= 0L) verified.uid in verifiedFriendUids else true
+        if (!allowed) return
+        prefetchAttempted.put(postId, true)
+        if (!MapLocationPrefetcher.request(postId, scope)) prefetchAttempted.remove(postId)
     }
     internal fun invalidateArchiveMemory() { synchronized(cache) {
         cache.evictAll(); coreLocationSources.evictAll(); pendingMapLocations.evictAll()
-        remoteLocationSources.evictAll(); verifiedOwners.evictAll()
+        remoteLocationSources.evictAll(); verifiedOwners.evictAll(); prefetchAttempted.evictAll()
     } }
 
     /** Observe a constructed host CorePost even when no media was decoded yet.
@@ -257,6 +279,20 @@ object FeedPostMediaCache {
     @JvmStatic
     fun beginFriendSnapshot(): Long = friendQuerySequence.incrementAndGet()
 
+    @JvmStatic
+    fun captureObservedFriendUids(observedViewerUid: String?, viewerUid: String?, generation: Long, queryToken: Long, friendUids: Set<String>) {
+        val uid = viewerUid ?: observedViewerUid ?: return
+        if (viewerUid != null) {
+            captureFriendUids(ArchiveAccounts.Scope(viewerUid, generation), queryToken, friendUids)
+        } else {
+            pendingFriendSnapshots.put(uid, queryToken to friendUids)
+        }
+    }
+
+    internal fun captureObservedFriendUids(observedViewerUid: String?, scope: ArchiveAccounts.Scope, queryToken: Long, friendUids: Set<String>) {
+        captureObservedFriendUids(observedViewerUid, scope.uid, scope.generation, queryToken, friendUids)
+    }
+
     /** Only the validated, complete host Friends graph query may supply this account-scoped set. */
     @JvmStatic
     fun captureFriendUids(viewerUid: String, capturedGeneration: Long, queryToken: Long, friendUids: Set<String>) {
@@ -288,6 +324,7 @@ object FeedPostMediaCache {
                         capturedAtMillis = System.currentTimeMillis()), scope)
                 }
             }
+            cache.snapshot().keys.toList().forEach { maybePrefetchLocation(it, scope) }
         }
     }
 
@@ -325,12 +362,16 @@ object FeedPostMediaCache {
 
     @JvmStatic
     fun captureMapPlaceholder(model: Any?, symbols: FeedMediaSymbols?) {
-        if (model == null) return
+        captureMapPlaceholder(model, symbols?.mapPlaceholderLocationSymbols)
+    }
+
+    @JvmStatic
+    fun captureMapPlaceholder(model: Any?, reader: MapPlaceholderLocationSymbols?) {
+        if (model == null || reader == null) return
         val scope = ArchiveAccounts.snapshot()
         if (scope.uid == null) return
         withCache {
             if (ArchiveAccounts.snapshot() != scope) return@withCache
-            val reader = symbols?.mapPlaceholderLocationSymbols ?: return@withCache
             // The host's isFriend flag is checked before the identity callback.
             // If the author is not known yet, keep only a weak host object and
             // return false BEFORE snapshot reads latitude or longitude.

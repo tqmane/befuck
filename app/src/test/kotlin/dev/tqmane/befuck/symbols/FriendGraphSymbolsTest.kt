@@ -136,4 +136,13 @@ class FriendGraphSymbolsTest {
         assertNull(symbols.observe(Database(emptyList()), ""))
         assertNull(symbols.observe(Any(), "viewer-a"))
     }
+
+    @Test fun startupObservationWithoutViewerUidDerivesAndExposesBoundViewerUid() {
+        val database = Database(listOf("startup-friend-1", "startup-friend-2"))
+        val observer = symbols().observe(database)!!
+        assertNull(observer.observedViewerUid)
+        val result = execute(observer, viewer = "startup-viewer")
+        assertEquals("startup-viewer", observer.observedViewerUid)
+        assertEquals(setOf("startup-friend-1", "startup-friend-2"), observer.friendUids(result))
+    }
 }

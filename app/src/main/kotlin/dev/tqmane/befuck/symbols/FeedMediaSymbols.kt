@@ -69,6 +69,8 @@ class CorePostLocationSymbols internal constructor(
     private val postId: Field? = null,
     private val nativeFriendStatus: Field? = null,
 ) {
+    fun isCorePost(value: Any?): Boolean = value != null && coreClass.isInstance(value)
+
     /** Host models are observed once constructed, not when a post map is opened. */
     val constructors: List<Constructor<*>> get() = coreClass.declaredConstructors
         .filter { !it.isSynthetic && it.parameterCount in 3..64 }
@@ -136,7 +138,15 @@ class MapPlaceholderLocationSymbols internal constructor(
     private val isFriend: Field,
     private val latitude: Field,
     private val longitude: Field,
+    /** Host use case `(postId, Continuation)` that fetches a post and builds the MapPlaceholder. */
+    val fetchMethod: Method? = null,
+    /** DI factory `invoke(scope, params)` whose first argument is the host's DI scope. */
+    val factoryMethod: Method? = null,
+    /** Kotlin coroutine bridge class (e.g. xha/lia) used to invoke ContinuationImpl-typed use cases. */
+    val coroutineBridgeClass: Class<*>? = null,
 ) {
+    fun isMapPlaceholder(model: Any?): Boolean = model != null && postId.declaringClass.isInstance(model)
+
     fun snapshot(model: Any, canLocatePost: (String) -> Boolean): Pair<String, PostLocation>? = runCatching {
         if (!postId.declaringClass.isInstance(model) || !isFriend.getBoolean(model)) return@runCatching null
         val id = (postId.get(model) as? String)?.takeIf(String::isNotBlank) ?: return@runCatching null
@@ -353,11 +363,64 @@ object FeedMediaSymbolResolver {
             require(listOf(id, friend, latitude, longitude).none { Modifier.isStatic(it.modifiers) })
             val constructors = owner.declaredConstructors.map { it.apply { isAccessible = true } }
             require(constructors.isNotEmpty())
-            MapPlaceholderLocationSymbols(constructors, id, friend, latitude, longitude)
+            val fetch = runCatching { resolveMapFetch(bridge, data!!, owner, classLoader, logger) }
+                .onFailure { diagnostics += "MapPlaceholder fetch resolution failed: ${it.javaClass.simpleName}" }
+                .getOrNull()
+            emit(logger, "[SymbolResolver] MapPlaceholder prefetch use case " +
+                if (fetch?.first != null) "resolved (factory=${fetch.second != null})" else "unavailable")
+            MapPlaceholderLocationSymbols(constructors, id, friend, latitude, longitude,
+                fetch?.first, fetch?.second, fetch?.third)
         }
     } catch (failure: Throwable) {
         diagnostics += "MapPlaceholder location resolution failed: ${failure.javaClass.simpleName}"
         null
+    }
+
+    /**
+     * Resolves the host's map use case (the caller of the MapPlaceholder constructor)
+     * and its coroutine bridge so the module can invoke it in the background.
+     */
+    private fun resolveMapFetch(
+        bridge: DexKitBridge,
+        data: org.luckypray.dexkit.result.ClassData,
+        placeholder: Class<*>,
+        classLoader: ClassLoader,
+        logger: Consumer<String>,
+    ): Triple<Method, Method?, Class<*>?>? {
+        fun callersOf(classData: org.luckypray.dexkit.result.ClassData) = classData.methods
+            .filter { it.isConstructor }.flatMap { it.callers }.distinctBy { it.descriptor }
+        val useCases = callersOf(data).filter { !it.isConstructor && !it.isStaticInitializer }.mapNotNull { caller ->
+            val method = runCatching { caller.getMethodInstance(classLoader) }.getOrNull() ?: return@mapNotNull null
+            val parameters = method.parameterTypes
+            if (Modifier.isStatic(method.modifiers) || method.returnType != Any::class.java || parameters.size != 2 ||
+                parameters[0] != String::class.java || method.declaringClass == placeholder) null else caller to method
+        }
+        emit(logger, "[SymbolResolver] MapPlaceholder use-case candidates=${useCases.size}")
+        val (useCaseData, useCase) = useCases.singleOrNull() ?: return null
+        useCase.isAccessible = true
+        // Factory: unique caller of the use-case constructor with the standard (scope, params) shape.
+        val factory = runCatching {
+            callersOf(requireNotNull(bridge.getClassData(useCase.declaringClass)))
+                .mapNotNull { runCatching { it.getMethodInstance(classLoader) }.getOrNull() }
+                .filter { method ->
+                    !Modifier.isStatic(method.modifiers) && method.returnType == Any::class.java &&
+                        method.parameterTypes.contentEquals(arrayOf(Any::class.java, Any::class.java))
+                }.distinctBy { it.declaringClass }.also { emit(logger, "[SymbolResolver] MapPlaceholder DI factory candidates=${it.size}") }
+                .singleOrNull()?.apply { isAccessible = true }
+        }.getOrNull()
+        val continuationParam = useCase.parameterTypes[1]
+        val bridgeClass = if (continuationParam.isInterface) null else runCatching {
+            bridge.findClass(FindClass.create().matcher(
+                ClassMatcher.create().superClass(continuationParam.name)
+                    .usingStrings("This coroutine had already completed")
+            )).mapNotNull { runCatching { it.getInstance(classLoader) }.getOrNull() }
+                .firstOrNull { cls ->
+                    cls.declaredConstructors.any { it.parameterCount in 3..4 } &&
+                        cls.declaredFields.any { !Modifier.isStatic(it.modifiers) && it.type == Integer.TYPE }
+                }
+        }.getOrNull()
+        emit(logger, "[SymbolResolver] MapPlaceholder coroutine bridge=${bridgeClass?.name ?: "none"}")
+        return Triple(useCase, factory, bridgeClass)
     }
 
     private data class PostFields(
