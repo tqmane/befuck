@@ -26,6 +26,24 @@ A normal-feed friend post can therefore acquire a location without opening its m
 
 Capture keeps the post ID, account scope and coordinate together. If the account generation changes during extraction, the observation is rejected. The value contains a complete finite latitude/longitude pair plus an explicit precision flag. Null is absence. The pair **(0,0)** is also a host placeholder for posts that did not share a location, so new observations at that pair are rejected. Historical 0,0 values remain readable in existing databases and backups, but they do not produce map markers or GPS metadata. Other valid equator/prime-meridian coordinates remain supported.
 
+## Why opening a map can still reveal a previously missing location
+
+JADX 1.5.6 inspection of the provided BeReal 3.97.0 and 3.97.1 APKs confirms that a normal feed `PostRemoteModel` contains an **optional** `LocationRemoteModel` alongside its image URLs, and that the native `CorePost` location is also nullable. BeFuck now observes both the incoming remote DTO and the loaded CorePost, retains a small bounded number of original CorePost objects until the account is verified, and reconciles these fields with the already saved image record without opening the post screen. It never fabricates a coordinate for an absent or `(0,0)` location.
+
+The host's map placeholder builder follows a different path: it first requests the chosen post by ID through the host repository, then reads the returned CorePost location and applies the host friendship/approximation decision before building the marker. Consequently, **a location absent from both normal-feed models cannot be obtained from those feed observations alone**. The module does not silently issue a second, bulk fetch of other people's precise locations. Viewing a post's original map may still reveal location metadata not delivered to the initial feed.
+
+The October 18 device logs show visible-feed media capture working, while earlier startup logs also show a distinct bootstrap ClassLoader failing to load obfuscated host classes after a successful resolution under a different loader. That failure must not invalidate a working saved resolver signature; the resolver now avoids caching results from a known-incompatible host loader.
+
+New diagnostic log messages use only the presence of a location field and the archive operation status. They never log post IDs, usernames, raw latitude/longitude, or the account UID:
+
+- `Feed PostRemoteModel contains a shared location field`: a feed DTO carried a non-null location model (not necessarily yet authorized for archive use)
+- `Feed PostRemoteModel location is null`: this particular feed DTO cannot supply its location without additional host data
+- `Feed was loaded before viewer identity`: ownership reconciliation is pending
+- `Host-verified post location queued for persistent archive`: validated coordinates were queued for database persistence
+- `Host CorePost absent from this ClassLoader`: an incompatible early/secondary class loader has been excluded from the symbol cache
+
+`SecurityException` from Android FusedLocationProvider concerns permission to obtain the **device's own** current location, not permission to read social posts' host-provided location metadata.
+
 ## Daily saved-post map
 
 Open **Saved posts**, select a calendar day and choose **Show this day on map**. The map uses that device-local posting date and the current author filter. Its immutable snapshot includes all matching posts with locations, independently of the timeline's 40-post page size. The entry and screen report how many posts have saved locations and how many do not.
