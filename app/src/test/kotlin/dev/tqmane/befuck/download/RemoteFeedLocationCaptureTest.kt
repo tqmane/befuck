@@ -89,6 +89,20 @@ class RemoteFeedLocationCaptureTest {
         assertNotNull(FeedPostMediaCache.get(id)!!.primary)
     }
 
+    @Test fun corePostLoadedBeforeViewerIdentityCanEnrichFeedWithoutOpeningMap() {
+        val id = "early-core-${UUID.randomUUID()}"
+        // The feed host constructs its CorePost before the current account
+        // service (or PostDataUiModel isMyPost) becomes available.
+        FeedPostMediaCache.captureCorePostModel(Core(id,
+            Person("friend", Friendship.Accepted), Geo(35.68, 139.76)), coreReader)
+        assertTrue(FeedPostMediaCache.capture(Remote(id, location = null), symbols))
+        assertNull(FeedPostMediaCache.get(id)!!.location)
+        FeedPostMediaCache.capturePostDataIdentity(PostData("viewer-main", viewer, true), symbols)
+        assertEquals(viewer, ArchiveAccounts.snapshot().uid)
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(id)!!.location)
+        assertNotNull(FeedPostMediaCache.get(id)!!.primary)
+    }
+
     @Test fun pendingNonFriendCannotAuthorizeRemoteGpsAfterAccountResolution() {
         val id = "pending-${UUID.randomUUID()}"
         FeedPostMediaCache.capture(Remote(id, location = Geo(35.0, 139.0)), symbols)
