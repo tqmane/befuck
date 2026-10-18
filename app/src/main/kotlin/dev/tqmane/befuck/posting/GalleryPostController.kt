@@ -25,7 +25,6 @@ import java.util.function.Consumer
 object GalleryPostController {
     private const val TAG = "BeFuck/Post"
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val locationExecutor: ExecutorService = Executors.newSingleThreadExecutor { task -> Thread(task, "BeFuckHostMapLookup") }
     private val uploadMonitor = Executors.newSingleThreadScheduledExecutor()
     private const val MAX_UPLOAD_MONITOR_POLLS = 1_800
 
@@ -79,36 +78,6 @@ object GalleryPostController {
                 main.removeCallbacks(timeout)
                 Log.w(TAG, "Current-account provider failed (${failure.javaClass.simpleName}); archive identity remains unavailable")
                 deliver(null)
-            }
-        }
-    }
-
-    /** Ask the host's validated map builder for a missing post location without
-     * opening a map UI or invoking an undocumented network endpoint. The host
-     * applies its own friendship and precision rules before returning a model.
-     */
-    internal fun fetchHostMapPlaceholder(
-        activity: Activity,
-        builder: Method,
-        postId: String,
-        completion: (Any?, Throwable?) -> Unit,
-    ) {
-        if (activity.isDestroyed || activity.isFinishing || postId.isBlank()) {
-            completion(null, IllegalStateException("Host map Activity unavailable"))
-            return
-        }
-        locationExecutor.execute {
-            try {
-                val continuation = builder.parameterTypes.getOrNull(1)
-                    ?: error("Host map continuation type unavailable")
-                require(builder.parameterCount == 2 && builder.parameterTypes[0] == String::class.java &&
-                    continuation.isInterface && !Modifier.isStatic(builder.modifiers))
-                val receiver = resolveKoinInstance(builder.declaringClass, activity.classLoader, null)
-                val context = coroutineContext(lifecycleScope(activity, activity.classLoader))
-                invokeSuspend(receiver, builder, arrayOf(postId), continuation, context, completion)
-            } catch (failure: Throwable) {
-                Log.w("BeFuck/HostMap", "Host post-map lookup could not start: ${failure.javaClass.simpleName}")
-                completion(null, failure)
             }
         }
     }
