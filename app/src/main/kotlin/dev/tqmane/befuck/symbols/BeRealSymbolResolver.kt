@@ -72,15 +72,24 @@ object BeRealSymbolResolver {
             apk.length().toString(),
             apk.lastModified().toString(),
         ).joinToString("|")
-        results[identity]?.let {
+        val mapping = KnownMappings.find(versionName, versionCode)
+        // PairIP and early bootstrap ClassLoaders may see the DEX bytes yet be
+        // unable to load the actual obfuscated host classes. Their failed scans
+        // must never replace a working signature cache from the real app loader.
+        val validHostLoader = mapping == null || runCatching {
+            Class.forName(mapping.className(HostClass.CorePost), false, classLoader)
+        }.isSuccess
+        if (!validHostLoader) emit(logger,
+            "[SymbolResolver] Host CorePost absent from this ClassLoader; results will not be cached or persisted")
+        if (validHostLoader) results[identity]?.let {
             emit(logger, "[SymbolResolver] Cache hit package=${applicationInfo.packageName} version=$versionName identity=${apk.name}")
             return it
         }
 
         synchronized(results) {
-            results[identity]?.let { return it }
-            val fromPreset = RuntimeKnowledge.loadSymbols() == null
-            val stored = RuntimeKnowledge.loadSymbols()
+            if (validHostLoader) results[identity]?.let { return it }
+            val fromPreset = validHostLoader && RuntimeKnowledge.loadSymbols() == null
+            val stored = if (!validHostLoader) null else RuntimeKnowledge.loadSymbols()
                 ?: RuntimeKnowledge.preset().takeIf { RuntimeKnowledge.shouldUsePreset() }
             if (stored != null) {
                 try {
@@ -354,13 +363,15 @@ object BeRealSymbolResolver {
                 locationClientGetter,
                 diagnostics.toList(),
             )
-            results[identity] = resolved
-            runCatching {
+            if (validHostLoader) {
+                results[identity] = resolved
+                runCatching {
                 val saved = JSONObject().put("schema", SymbolCacheCodec.SCHEMA).put("version_code", versionCode)
                     .put("package", applicationInfo.packageName).put("symbols", SymbolCacheCodec.encode(resolved))
                 RuntimeKnowledge.saveSymbols(saved.toString())
                 emit(logger, "[SymbolResolver] Persisted native member signatures for versionCode=$versionCode")
-            }.onFailure { emit(logger, "[SymbolResolver] Could not persist symbols: ${it.javaClass.simpleName}: ${it.message}") }
+                }.onFailure { emit(logger, "[SymbolResolver] Could not persist symbols: ${it.javaClass.simpleName}: ${it.message}") }
+            } else emit(logger, "[SymbolResolver] Skipped cache persistence for non-host ClassLoader")
             emit(logger, "[SymbolResolver] complete version=$versionName dexKit=$dexKitAvailable fields=${fields.keys} camera=${cameraViewModel?.name ?: "disabled"} location=${locationRepository?.name ?: "disabled"}")
             return resolved
         }
