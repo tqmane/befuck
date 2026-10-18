@@ -1156,6 +1156,37 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
+    /** Observe actual host PostDataUiModel construction, including offscreen feed posts.
+     * Only isMyPost=true with its validated ownerUid may establish viewer identity.
+     */
+    private void installPostDataIdentityCapture(FeedMediaSymbols media) {
+        Field id = media.getPostDataIdField();
+        Field owner = media.getPostDataOwnerUidField();
+        Field own = media.getPostDataIsMineField();
+        if (id == null || owner == null || own == null ||
+                id.getDeclaringClass() != owner.getDeclaringClass() ||
+                id.getDeclaringClass() != own.getDeclaringClass()) return;
+        try {
+            Constructor<?>[] constructors = id.getDeclaringClass().getDeclaredConstructors();
+            if (constructors.length == 0 || constructors.length > 8) return;
+            for (Constructor<?> constructor : constructors) {
+                if (constructor.isSynthetic()) continue;
+                hook(constructor).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            try { FeedPostMediaCache.capturePostDataIdentity(chain.getThisObject(), media); }
+                            catch (Throwable failure) {
+                                info("Skipped host post-data identity observation: " + failure.getClass().getSimpleName());
+                            }
+                            return result;
+                        });
+            }
+            info("Watching host PostDataUiModel identities for account-scoped feed location capture");
+        } catch (Throwable failure) {
+            info("PostDataUiModel identity observation unavailable: " + failure.getClass().getSimpleName());
+        }
+    }
+
     /** Run independently of optional version-mapped User/media models. */
     private boolean installCorePostModelCapture(FeedMediaSymbols media, String versionName) {
         dev.tqmane.befuck.symbols.CorePostLocationSymbols reader = media.getCorePostLocationSymbols();
@@ -1213,6 +1244,7 @@ public final class BeRealModule extends XposedModule {
         }
 
         installFriendLocationCapture(media);
+        installPostDataIdentityCapture(media);
         boolean semanticCoreHooked = installCorePostModelCapture(media, symbols.getVersionName());
         if (!semanticCoreHooked && KnownMappings.isSupportedVersion(symbols.getVersionName()))
             installLegacyCorePostCapture(classLoader, media);
