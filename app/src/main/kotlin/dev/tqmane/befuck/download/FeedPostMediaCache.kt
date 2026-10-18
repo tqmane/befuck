@@ -17,6 +17,7 @@ import java.lang.reflect.Modifier
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class FeedMediaItem(
     val url: String,
@@ -53,6 +54,10 @@ object FeedPostMediaCache {
     private val currentUsernames = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var verifiedFriendUids: Set<String> = emptySet()
     private val friendQuerySequence = AtomicLong()
+    private val loggedRemoteWithLocation = AtomicBoolean(false)
+    private val loggedRemoteWithoutLocation = AtomicBoolean(false)
+    private val loggedMissingViewer = AtomicBoolean(false)
+    private val loggedSavedLocation = AtomicBoolean(false)
     private var appliedFriendQueryToken = -1L
     // Weak-only CorePosts were being collected before account resolution.
     // Retain at most 48 unmodified host models, not copied coordinates, until
@@ -159,6 +164,13 @@ object FeedPostMediaCache {
             location = observed.location?.takeIf { it.isMappable } ?: previous?.location?.takeIf { it.isMappable })
         cache.put(post.postId, merged)
         ArchiveRepository.capture(account, observed)
+        if (account.isBlank() && loggedMissingViewer.compareAndSet(false, true)) {
+            android.util.Log.w("BeFuck/Cache", "Feed was loaded before viewer identity; retaining loaded media and host models")
+        }
+        if (account.isNotBlank() && merged.location != null && previous?.location == null &&
+            loggedSavedLocation.compareAndSet(false, true)) {
+            android.util.Log.i("BeFuck/Cache", "Host-verified post location queued for persistent archive")
+        }
         if (!merged.ownerUid.isNullOrBlank()) {
             // A verified post author may become available after the host map placeholder.
             // Re-read the original host object only while it is alive and only if its
@@ -426,6 +438,11 @@ object FeedPostMediaCache {
             withCache {
                 symbols.remotePostLocationSymbols?.let { reader ->
                     remoteLocationSources.put(id, RemoteLocationSource(model, reader))
+                    val available = reader.hasLocationFieldValue(model)
+                    if (available && loggedRemoteWithLocation.compareAndSet(false, true))
+                        android.util.Log.i("BeFuck/Cache", "Feed PostRemoteModel contains a shared location field")
+                    if (!available && loggedRemoteWithoutLocation.compareAndSet(false, true))
+                        android.util.Log.i("BeFuck/Cache", "Feed PostRemoteModel location is null; cannot archive it from this feed response")
                 }
                 storePost(post)
             }
