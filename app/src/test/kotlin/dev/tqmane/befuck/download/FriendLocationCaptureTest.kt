@@ -25,6 +25,20 @@ class FriendLocationCaptureTest {
         val width: Int = 640, val height: Int = 480)
     private class Media(val a: Content = Content())
     private class Placeholder(val postId: String, val isFriend: Boolean, val latitude: Double, val longitude: Double)
+    private class TypeToken(val type: Class<*>)
+    private class MapUseCase {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        fun fetch(id: String, continuation: kotlin.coroutines.Continuation<Any?>): Any {
+            calls.incrementAndGet()
+            return Placeholder(id, true, 35.68, 139.76)
+        }
+    }
+    private class MapScope(val useCase: MapUseCase) {
+        fun get(token: TypeToken, qualifier: Any?, parameters: Any?): Any {
+            check(token.type == MapUseCase::class.java)
+            return useCase
+        }
+    }
     // CorePost's existing media boundary and the semantically resolved coordinate fields are both exercised.
     private class Post(val a: String, val b: Owner, val point: Point?, val c: Any? = null,
         val d: Media = Media(), val e: Media? = null, val t: String? = "2026-01-02T03:04:05Z",
@@ -281,5 +295,42 @@ class FriendLocationCaptureTest {
         ArchiveAccounts.accept(emptyScope.generation, "login-viewer")
         scope = ArchiveAccounts.snapshot()
         assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get("startup-post")!!.location)
+    }
+
+    @Test fun feedBeforeMapScopeIsRetriedWhenScopeArrivesWithoutReopeningPost() {
+        val scopeField = field(MapLocationPrefetcher::class.java, "diScope")
+        val fetcherField = field(MapLocationPrefetcher::class.java, "fetcher")
+        scopeField.set(MapLocationPrefetcher, null)
+        fetcherField.set(MapLocationPrefetcher, null)
+        val useCase = MapUseCase()
+        val hostScope = MapScope(useCase)
+        val prefetchSymbols = MapPlaceholderLocationSymbols(Placeholder::class.java.declaredConstructors.toList(),
+            field(Placeholder::class.java, "postId"), field(Placeholder::class.java, "isFriend"),
+            field(Placeholder::class.java, "latitude"), field(Placeholder::class.java, "longitude"),
+            MapUseCase::class.java.declaredMethods.single { it.name == "fetch" }.apply { isAccessible = true },
+            MapScope::class.java.declaredMethods.single { it.name == "get" })
+        MapLocationPrefetcher.configure(prefetchSymbols, locationSymbols)
+        try {
+            val post = Post("before-map-scope", Owner(viewer), null)
+            FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+            FeedPostMediaCache.captureCorePost(post, null)
+            assertNull(FeedPostMediaCache.get(post.a)!!.location)
+            val attempts = field(FeedPostMediaCache::class.java, "prefetchAttempted")
+                .get(FeedPostMediaCache) as android.util.LruCache<*, *>
+            assertFalse("An unavailable DI scope must not consume the attempt", attempts.snapshot().containsKey(post.a))
+
+            MapLocationPrefetcher.observeScope(hostScope)
+            val worker = field(MapLocationPrefetcher::class.java, "executor")
+                .get(MapLocationPrefetcher) as java.util.concurrent.ThreadPoolExecutor
+            worker.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(post.a)!!.location)
+            MapLocationPrefetcher.observeScope(hostScope)
+            worker.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(1, useCase.calls.get())
+        } finally {
+            MapLocationPrefetcher.configure(null, null)
+            scopeField.set(MapLocationPrefetcher, null)
+            fetcherField.set(MapLocationPrefetcher, null)
+        }
     }
 }

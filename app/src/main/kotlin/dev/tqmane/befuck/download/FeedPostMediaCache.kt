@@ -192,6 +192,11 @@ object FeedPostMediaCache {
         maybePrefetchLocation(post.postId, scope)
     }
 
+    internal fun retryMissingLocations() = withCache {
+        val scope = ArchiveAccounts.snapshot()
+        cache.snapshot().keys.forEach { maybePrefetchLocation(it, scope) }
+    }
+
     /** Ask the host's own map use case for a missing location, only for authors already authorized for exact GPS. */
     private fun maybePrefetchLocation(postId: String, scope: ArchiveAccounts.Scope) {
         if (scope.uid.isNullOrBlank() || prefetchAttempted.get(postId) != null) return

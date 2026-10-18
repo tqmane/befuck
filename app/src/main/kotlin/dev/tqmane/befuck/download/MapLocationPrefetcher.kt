@@ -50,12 +50,16 @@ object MapLocationPrefetcher {
     /** Only a DI scope object observed in the host's own factory call is ever retained (weakly). */
     @JvmStatic
     fun observeScope(scope: Any?) {
-        if (scope != null && diScope?.get() !== scope) diScope = WeakReference(scope)
+        if (scope == null) return
+        val wasReady = diScope?.get() != null
+        if (diScope?.get() !== scope) diScope = WeakReference(scope)
+        if (!wasReady) FeedPostMediaCache.retryMissingLocations()
     }
 
     /** Returns false when nothing was queued, so the caller may retry later. */
     internal fun request(postId: String, scope: ArchiveAccounts.Scope): Boolean {
-        if (symbols == null || scope.uid.isNullOrBlank()) return false
+        // A deferred request must not consume the cache's one attempt per post.
+        if (symbols == null || scope.uid.isNullOrBlank() || diScope?.get() == null) return false
         return try {
             executor.execute { run(postId, scope) }
             true
