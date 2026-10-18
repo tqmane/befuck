@@ -243,18 +243,8 @@ internal object KnownMappings3970 : HostMappings("3.97.0", 3597523L) {
         return TextFieldFocusGuard(notify, field(layout, "a", input), field(input, "a", annotated), transform)
     }
 
-    override fun smsRequestConstructor(loader: ClassLoader): java.lang.reflect.Constructor<*>? {
-        val request = Class.forName("mtj", false, loader)
-        for ((fieldName, type) in mapOf(
-            "deviceId" to String::class.java, "stableDeviceId" to String::class.java,
-            "phoneNumber" to String::class.java, "tokens" to List::class.java,
-        )) {
-            val field = request.getDeclaredField(fieldName)
-            require(field.type == type && !Modifier.isStatic(field.modifiers))
-        }
-        return request.getDeclaredConstructor(String::class.java, String::class.java,
-            String::class.java, ArrayList::class.java)
-    }
+    override fun smsRequestConstructor(loader: ClassLoader): java.lang.reflect.Constructor<*>? =
+        resolveSmsRequestConstructor(loader, "mtj")
 
     /** Only booleans and counts leave this method; never stringify request values. */
     override fun smsRequestShape(loader: ClassLoader, args: Array<Any?>): String {

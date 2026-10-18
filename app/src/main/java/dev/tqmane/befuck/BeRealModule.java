@@ -207,7 +207,7 @@ public final class BeRealModule extends XposedModule {
             ApplicationInfo appInfo = targetApplicationInfo != null
                     ? targetApplicationInfo
                     : context.getApplicationInfo();
-            smsAuthCompatibility = mappings.getRequiresRuntimeRecovery();
+            smsAuthCompatibility = mappings.getSupportsSmsAuth();
             installPreludeNativeCompatibility(context, classLoader);
             installRepackagedStartupCompatibility(context, classLoader);
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
@@ -709,6 +709,7 @@ public final class BeRealModule extends XposedModule {
                                             if (replacement != null) {
                                                 Object compatible = getInvoker(method).setType(XposedInterface.Invoker.Type.ORIGIN).invoke(replacement);
                                                 captureFromBuiltOkHttpRequest(request);
+                                                info("Applied SMS request payload compatibility repair");
                                                 return compatible;
                                             }
                                         } catch (Throwable failure) {

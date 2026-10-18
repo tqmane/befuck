@@ -9,6 +9,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     abstract val classes: Map<HostClass, String>
     abstract val methods: Map<HostMethod, String>
     open val requiresRuntimeRecovery: Boolean = false
+    open val supportsSmsAuth: Boolean = true
     open val signingCertificateSha256: String? = null
     open val lifecycleDexAsset: String? = null
     open val lifecycleBindings: List<LifecycleBinding> = emptyList()
@@ -24,7 +25,53 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open fun authDiagnosticConstructors(loader: ClassLoader): Map<String, java.lang.reflect.Constructor<*>> = emptyMap()
     open fun textFieldFocusGuard(loader: ClassLoader): TextFieldFocusGuard? = null
     open fun smsRequestConstructor(loader: ClassLoader): java.lang.reflect.Constructor<*>? = null
-    open fun smsRequestShape(loader: ClassLoader, args: Array<Any?>): String = "unsupportedVersion=true"
+    open fun smsRequestShape(loader: ClassLoader, args: Array<Any?>): String {
+        if (args.size != 4) return "unexpectedArguments=true"
+        val tokens = args[3] as? List<*> ?: return "tokenListPresent=false"
+        var recaptcha = 0
+        var prelude = 0
+        var unknown = 0
+        var missingTokens = 0
+        var invalidEntries = 0
+        for (entry in tokens) {
+            if (entry == null) {
+                invalidEntries++
+                continue
+            }
+            val entryClass = entry.javaClass
+            val tokenField = runCatching { entryClass.getDeclaredField("token").apply { isAccessible = true } }.getOrNull()
+            val idField = runCatching { entryClass.getDeclaredField("identifier").apply { isAccessible = true } }.getOrNull()
+            if (tokenField == null || idField == null) {
+                invalidEntries++
+                continue
+            }
+            if ((tokenField.get(entry) as? String).isNullOrBlank()) missingTokens++
+            when (idField.get(entry)) {
+                "RE" -> recaptcha++
+                "PR" -> prelude++
+                else -> unknown++
+            }
+        }
+        return "tokens=${tokens.size}; recaptcha=$recaptcha; prelude=$prelude; unknown=$unknown; missing=$missingTokens; invalid=$invalidEntries"
+    }
+
+    protected fun resolveSmsRequestConstructor(loader: ClassLoader, className: String): java.lang.reflect.Constructor<*>? = runCatching {
+        val requestClass = Class.forName(className, false, loader)
+        for ((fieldName, type) in mapOf(
+            "deviceId" to String::class.java, "stableDeviceId" to String::class.java,
+            "phoneNumber" to String::class.java, "tokens" to List::class.java,
+        )) {
+            val field = requestClass.getDeclaredField(fieldName)
+            require(field.type == type && !Modifier.isStatic(field.modifiers))
+        }
+        requestClass.declaredConstructors.firstOrNull { ctor ->
+            ctor.parameterCount == 4 &&
+                ctor.parameterTypes[0] == String::class.java &&
+                ctor.parameterTypes[1] == String::class.java &&
+                ctor.parameterTypes[2] == String::class.java &&
+                List::class.java.isAssignableFrom(ctor.parameterTypes[3])
+        }?.apply { isAccessible = true }
+    }.getOrNull()
     open fun preludeLibraryLoad(loader: ClassLoader): Method? = null
     open fun preludeLibraryInterfaces(loader: ClassLoader): List<Class<*>> = emptyList()
     open fun repackagedStartupChecks(loader: ClassLoader): List<Method> = emptyList()

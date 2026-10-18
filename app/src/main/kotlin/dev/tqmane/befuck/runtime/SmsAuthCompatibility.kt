@@ -19,14 +19,17 @@ object SmsAuthCompatibility {
         "bereal-device-language" to "en", "bereal-app-language" to "en-US",
         "user-agent" to "BeReal/4.83.0 (AlexisBarreyat.BeReal; build:22948; iOS 27.0.0)",
     )
+    @Volatile private var lastKnownDeviceId: String? = null
 
     @JvmStatic
     fun matches(method: String, url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val path = uri.rawPath?.removeSuffix("/") ?: return false
         return method == "POST" && uri.scheme == "https" && uri.host == "auth-l7.bereal.com" &&
             uri.port in listOf(-1, 443) && uri.rawUserInfo == null && uri.rawQuery == null &&
-            uri.rawFragment == null && uri.rawPath in listOf(
-                "/api/vonage/request-code", "/api/vonage/check-code")
+            uri.rawFragment == null && path in listOf(
+                "/api/vonage/request-code", "/api/vonage/check-code",
+                "/vonage/request-code", "/vonage/check-code")
     }
 
     @JvmStatic
@@ -46,12 +49,15 @@ object SmsAuthCompatibility {
     @JvmStatic
     fun replacementBuilder(request: Any): Any? {
         val type = request.javaClass
-        val url = type.getMethod("url").invoke(request).toString()
+        val url = type.getMethod("url").invoke(request)?.toString() ?: return null
         if (!matches(type.getMethod("method").invoke(request) as String, url)) return null
-        val deviceId = type.getMethod("header", String::class.java).invoke(request, "bereal-device-id") as? String
-        if (deviceId.isNullOrBlank()) return null // Retrofit builds once before the identity interceptor runs.
+        val headerDeviceId = type.getMethod("header", String::class.java).invoke(request, "bereal-device-id") as? String
         val builder = type.getMethod("newBuilder").invoke(request)
-        if (URI(url).rawPath == "/api/vonage/request-code") {
+        val uri = URI(url)
+        val path = uri.rawPath?.removeSuffix("/")
+        var resolvedDeviceId = headerDeviceId ?: lastKnownDeviceId
+
+        if (path == "/api/vonage/request-code" || path == "/vonage/request-code") {
             val loader = type.classLoader
             val bodyType = Class.forName("okhttp3.RequestBody", false, loader)
             val bufferType = Class.forName("okio.Buffer", false, loader)
@@ -61,18 +67,23 @@ object SmsAuthCompatibility {
             val buffer = bufferType.getConstructor().newInstance()
             bodyType.getMethod("writeTo", sinkType).invoke(body, buffer)
             val original = JSONObject(bufferType.getMethod("readUtf8").invoke(buffer) as String)
-            require(original.getString("deviceId") == deviceId)
-            val phone = original.getString("phoneNumber")
-            require(phone.isNotBlank())
-            val json = JSONObject().put("deviceId", deviceId).put("phoneNumber", phone).put("tokens", JSONArray())
+            val bodyDeviceId = original.optString("deviceId").takeIf { it.isNotBlank() }
+            val effectiveDeviceId = headerDeviceId ?: bodyDeviceId ?: resolvedDeviceId ?: return null
+            val phone = original.optString("phoneNumber").takeIf { it.isNotBlank() } ?: return null
+            resolvedDeviceId = effectiveDeviceId
+            lastKnownDeviceId = effectiveDeviceId
+
+            val json = JSONObject().put("deviceId", effectiveDeviceId).put("phoneNumber", phone).put("tokens", JSONArray())
             val contentType = bodyType.getMethod("contentType").invoke(body)
             val replacement = bodyType.getMethod("create", mediaType, String::class.java)
                 .invoke(null, contentType, json.toString())
             builder.javaClass.getMethod("post", bodyType).invoke(builder, replacement)
             builder.javaClass.getMethod("removeHeader", String::class.java).invoke(builder, "Content-Length")
         }
+
+        val finalDeviceId = resolvedDeviceId ?: return null
         val setHeader = builder.javaClass.getMethod("header", String::class.java, String::class.java)
-        for ((name, value) in headers(deviceId, System.currentTimeMillis() / 1000, TimeZone.getDefault().id)) {
+        for ((name, value) in headers(finalDeviceId, System.currentTimeMillis() / 1000, TimeZone.getDefault().id)) {
             setHeader.invoke(builder, name, value)
         }
         return builder
