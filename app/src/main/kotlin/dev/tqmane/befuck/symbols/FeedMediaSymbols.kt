@@ -43,6 +43,8 @@ data class FeedMediaSymbols(
     val friendGraphSymbols: FriendGraphSymbols? = null,
     val remotePostLocationSymbols: RemotePostLocationSymbols? = null,
     val postDataOwnerUidField: Field? = null,
+    /** Host l29.a(String, Continuation) resolves the location without opening a map UI. */
+    val hostMapPlaceholderFetchMethod: Method? = null,
 ) {
     val canCaptureFeedMedia: Boolean
         get() = postModelClass != null && postDeserializerMethod != null && postIdField != null &&
@@ -208,6 +210,7 @@ object FeedMediaSymbolResolver {
         } else {
             null to null
         }
+        val hostMapLocation = resolveMapPlaceholderLocation(bridge, classLoader, logger, diagnostics)
         val result = FeedMediaSymbols(
             postModelClass = postClass,
             postDeserializerMethod = deserializer,
@@ -234,10 +237,11 @@ object FeedMediaSymbolResolver {
             blurredMediaRenderMethod = blur.blurredMediaMethod,
             blurredOverlayComposableMethod = blur.blurredOverlayMethod,
             corePostLocationSymbols = resolveCorePostLocation(bridge, classLoader, logger, diagnostics),
-            mapPlaceholderLocationSymbols = resolveMapPlaceholderLocation(bridge, classLoader, logger, diagnostics),
+            mapPlaceholderLocationSymbols = hostMapLocation,
             friendGraphSymbols = FriendGraphSymbols.resolve(bridge, classLoader),
             remotePostLocationSymbols = remoteLocation,
             postDataOwnerUidField = postDataOwnerUidField,
+            hostMapPlaceholderFetchMethod = resolveHostMapFetcher(bridge, classLoader, hostMapLocation, logger, diagnostics),
         )
         emit(
             logger,
@@ -264,6 +268,40 @@ object FeedMediaSymbolResolver {
         RemotePostLocationSymbols(remote, id, location, lat, lon)
     } catch (failure: Throwable) {
         diagnostics += "PostRemoteModel.location resolution failed: ${failure.javaClass.simpleName}"
+        null
+    }
+
+    /** Resolve the host's own map-placeholder builder, which fetches CorePost by ID
+     * and applies its native friend/approximate permission decision. Never invoke
+     * an arbitrary method from its return type or an obfuscated class name alone.
+     */
+    private fun resolveHostMapFetcher(
+        bridge: DexKitBridge,
+        loader: ClassLoader,
+        mapSymbols: MapPlaceholderLocationSymbols?,
+        logger: Consumer<String>,
+        diagnostics: MutableList<String>,
+    ): Method? = try {
+        val resultClass = mapSymbols?.constructors?.firstOrNull()?.declaringClass ?: return null
+        val candidates = bridge.findMethod(FindMethod.create().matcher(
+            MethodMatcher.create().returnType(Any::class.java).paramCount(2),
+        )).filter { data ->
+            data.paramTypeNames.firstOrNull() == String::class.java.name &&
+                data.invokes.any { it.isConstructor && it.declaredClassName == resultClass.name }
+        }.distinctBy { it.descriptor }
+        require(candidates.size == 1) { "host map fetch candidates=${candidates.size}" }
+        candidates.single().getMethodInstance(loader).takeIf { method ->
+            !Modifier.isStatic(method.modifiers) &&
+                method.parameterTypes.size == 2 &&
+                method.parameterTypes[0] == String::class.java &&
+                method.returnType == Any::class.java &&
+                method.parameterTypes[1].isInterface
+        }?.apply {
+            isAccessible = true
+            emit(logger, "[SymbolResolver] Host post-map location fetch contract resolved")
+        }
+    } catch (failure: Throwable) {
+        diagnostics += "Host post-map fetch unavailable: ${failure.javaClass.simpleName}"
         null
     }
 
