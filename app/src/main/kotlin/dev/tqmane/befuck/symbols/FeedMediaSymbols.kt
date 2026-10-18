@@ -114,6 +114,11 @@ class RemotePostLocationSymbols internal constructor(
     private val latitude: Field,
     private val longitude: Field,
 ) {
+    /** Presence-only diagnostic; does not read or log any coordinate. */
+    fun hasLocationFieldValue(model: Any): Boolean = runCatching {
+        remoteClass.isInstance(model) && location.get(model) != null
+    }.getOrDefault(false)
+
     fun snapshot(model: Any, canLocate: (String) -> Boolean): Pair<String, PostLocation>? = runCatching {
         if (!remoteClass.isInstance(model)) return@runCatching null
         val id = (postId.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 } ?: return@runCatching null
