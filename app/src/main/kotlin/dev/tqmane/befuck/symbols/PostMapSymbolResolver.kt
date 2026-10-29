@@ -44,6 +44,10 @@ object PostMapSymbolResolver {
             host.packageManager.getApplicationInfo(host.packageName, PackageManager.GET_META_DATA)
         }.getOrNull() ?: return null
         if (installed.metaData?.containsKey("npatch") != true) return null
+        KnownMappings.find(versionName, versionCode)?.postMapSymbols(loader)?.let {
+            logger.accept("[PostMap] Resolved version-verified display-state and Compose contracts")
+            return it
+        }
         val settings = host.getSharedPreferences("befuck_runtime", Context.MODE_PRIVATE)
         val identity = RuntimeSymbolCache.identity(host.applicationInfo, module, versionName, versionCode)
         val cached = settings.getString(CACHE_KEY, null)
@@ -284,7 +288,7 @@ object PostMapSymbolResolver {
         }
     }
 
-    private fun androidView(loader: ClassLoader, modifier: Class<*>): Method = type(ANDROID_VIEW, loader).declaredMethods.filter { method ->
+    internal fun androidView(loader: ClassLoader, modifier: Class<*>): Method = type(ANDROID_VIEW, loader).declaredMethods.filter { method ->
         val p = method.parameterTypes
         Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE && p.size == 8 &&
             p[0].isInterface && p[1] == modifier && p[2] == p[0] && p[3] == p[0] && p[4] == p[0] &&

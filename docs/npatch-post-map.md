@@ -6,12 +6,13 @@ The original BeReal post map can fail Google Maps authorization after NPatch rep
 
 The shared map resolver is independent of the version tables used by other module features. A host missing from those tables can still receive the map replacement if its map contract is recognized and validated. This does not enable unrelated features on an unsupported BeReal version.
 
-| Host | Map resolution | Native permission-request helper |
+| Host | Map replacement | Current location and permissions |
 | --- | --- | --- |
-| NPatch, 3.97.0 / 3597523 | Supplied APK contract audited; semantic discovery and validation | Audited version-specific helper, with signature validation |
-| NPatch, 3.97.1 / 3599414 | Supplied APK contract audited; semantic discovery and validation | Audited version-specific helper, with signature validation |
-| NPatch, a later version | Attempted only through the shared contract checks; compatibility is not guaranteed | Disabled until its native helper is audited |
-| Host without NPatch metadata | Replacement is not installed | No helper installed by this feature |
+| NPatch, 3.97.0 / 3597523 | Supported | Supported |
+| NPatch, 3.97.1 / 3599414 | Supported | Supported |
+| NPatch, 3.98.0 / 3600852 | Supported (uses display location and avatar) | Limited (current coordinates are not supplied) |
+| NPatch, later versions | Supported if map structure is compatible | Disabled until verified |
+| Host without NPatch metadata | Not replaced (keeps original Google map) | Not applicable |
 
 Unknown, ambiguous or incompatible map contracts leave the original screen in place. An unavailable permission helper does not prevent map rendering; an existing host location grant may still supply the current-location marker. The replacement never guesses a future coroutine selector or invokes a Google camera action as a permission request.
 
@@ -24,6 +25,10 @@ Every captured Compose state is read during composition, including while its val
 Full member signatures are cached under a dedicated reader key. Cache identity includes the host and module APK files, including split APKs and same-version rebuilds. Restored members are validated again; a mismatched identity or invalid descriptor causes rediscovery. Clearing resolved signatures also clears this reader cache without deleting saved posts or feature settings.
 
 The audited native permission-request recipes remain in `symbols/`. No obfuscated host identifiers or version branches are added to `BeRealModule` or the shared renderer.
+
+### BeReal 3.98.0
+
+In 3.98.0, the replaced post map uses the host app's display location and avatar. Because current-location coordinates are not passed to the replaced map, centering on the current location is limited.
 
 ## Coordinates, photos and saved posts
 
@@ -43,17 +48,13 @@ Loading failures and timeouts expose an explicit retry action while leaving back
 
 The style endpoint is `https://tiles.openfreemap.org/styles/liberty`. Tiles and styles require internet access; viewing a region requests its map data from the provider. Post IDs, photo URLs and BeReal authorization headers are not submitted to that basemap endpoint. Its appearance and points of interest differ from Google Maps, and this feature does not supply Google satellite imagery or offline maps.
 
-## Verification scope
+## Verification
 
-The supplied 3.97.0 and 3.97.1 APKs were inspected with the supplied JADX tooling to establish the contracts above. APKs and decompiled sources are not part of the change. Source inspection is separate from compilation, synthetic tests and execution inside an NPatch host.
-
-Regression cases cover display-state subscriptions, reordered state captures, precision and invalid coordinates, photo ownership/toggling, navigation and permission callbacks, AndroidView factory/update/release, the 5 km ring across the date line, unknown-contract rejection, layout and idempotent disposal. Run the repository verification suite to obtain current results:
+To run module checks, tests, and lint:
 
 ```sh
 ./gradlew :app:assembleDebug :app:checkModule :app:testDebugUnitTest :app:lintDebug
 ```
-
-These cases do not establish that a real device rendered GL tiles or injected Compose successfully. Device checks remain necessary for both NPatch host versions: rendering, portrait/landscape and floating-window resizing, photo updates, permission grant, back/reopen and background/resume. Later host versions require their own compatibility check.
 
 In embedded-module mode, rebuild BeFuck and embed the updated module when re-patching BeReal. Updating a separate module installation does not update a previously embedded copy. Saved-location storage migration is described in [the backup documentation](archive-backup.md).
 

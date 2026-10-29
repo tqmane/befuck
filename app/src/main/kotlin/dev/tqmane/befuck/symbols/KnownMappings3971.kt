@@ -2,6 +2,7 @@ package dev.tqmane.befuck.symbols
 
 internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
     override val classes = mapOf(
+        HostClass.FeedPostRemoteModel to "xqg",
         HostClass.RealMojiMenuItem to "t7i",
         HostClass.DualViewImageSize to "dh6",
         HostClass.HomeFeedItemEmitter to "om9",
@@ -93,6 +94,7 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
         HostMethod.SecondaryCameraOrigin to "O",
         HostMethod.CameraOrigin to "T",
         HostMethod.KoinResolve to "e",
+        HostMethod.ComposeTraceBegin to "z",
     )
 
 

@@ -1,6 +1,7 @@
 package dev.tqmane.befuck.symbols
 
 import dev.tqmane.befuck.download.PostLocation
+import dev.tqmane.befuck.runtime.RuntimeKnowledge
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.query.FindClass
 import org.luckypray.dexkit.query.FindMethod
@@ -126,7 +127,9 @@ class RemotePostLocationSymbols internal constructor(
         val id = (postId.get(model) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 } ?: return@runCatching null
         if (!canLocate(id)) return@runCatching null
         val value = location.get(model) ?: return@runCatching null
-        id to (PostLocation.create(latitude.getDouble(value), longitude.getDouble(value), approximate = false)
+        val lat = (latitude.get(value) as? Number)?.toDouble() ?: return@runCatching null
+        val lon = (longitude.get(value) as? Number)?.toDouble() ?: return@runCatching null
+        id to (PostLocation.create(lat, lon, approximate = false)
             ?: return@runCatching null)
     }.getOrNull()
 }
@@ -163,6 +166,11 @@ object FeedMediaSymbolResolver {
     private const val COMPOSER_TYPE = "androidx.compose.runtime.Composer"
     private const val MODIFIER_TYPE = "androidx.compose.ui.Modifier"
 
+    internal fun isBlurredMediaParameters(parameters: List<String>, dualMedia: String): Boolean =
+        parameters.size in 18..19 && parameters[0] == MODIFIER_TYPE && parameters[1] == dualMedia &&
+            parameters[2] == "boolean" && parameters[parameters.size - 2] == COMPOSER_TYPE && parameters.last() == "int" &&
+            (parameters.size == 18 || parameters[16] == String::class.java.name)
+
     fun resolve(
         bridge: DexKitBridge,
         classLoader: ClassLoader,
@@ -175,7 +183,10 @@ object FeedMediaSymbolResolver {
             listOf("PostRemoteModel(id=", ", primary=", ", secondary=", ", btsMedia="),
             logger,
             diagnostics,
-        )
+        ) ?: KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)?.let {
+            // 3.98.0 strips the DTO's toString; its serializer and member contracts still validate below.
+            runCatching { bridge.getClassData(it.type(HostClass.FeedPostRemoteModel, classLoader)) }.getOrNull()
+        }
         val postClass = loadClass(postClassData, classLoader, "PostRemoteModel", logger, diagnostics)
         val fields = postClass?.let { resolvePostFields(it, logger, diagnostics) }
         val mediaClass = fields?.primary?.type
@@ -270,11 +281,15 @@ object FeedMediaSymbolResolver {
         require(!Modifier.isStatic(location.modifiers))
         val verified = bridge.getClassData(location.type)?.findMethod(FindMethod.create().matcher(
             MethodMatcher.create().name("toString").returnType(String::class.java).paramCount(0),
-        ))?.any { it.usingStrings.containsAll(listOf("LocationRemoteModel(latitude=", ", longitude=")) } == true
+        ))?.any { method ->
+            method.usingStrings.contains(", longitude=") && method.usingStrings.any {
+                it == "LocationRemoteModel(latitude=" || it == "LocationMemoryV2ApiModel(latitude="
+            }
+        } == true
         require(verified) { "Unverified LocationRemoteModel" }
         val lat = declaredField(location.type, "latitude")
         val lon = declaredField(location.type, "longitude")
-        require(lat.type == Double::class.javaPrimitiveType && lon.type == Double::class.javaPrimitiveType)
+        require(lat.type in setOf(Double::class.javaPrimitiveType, Double::class.javaObjectType) && lat.type == lon.type)
         require(!Modifier.isStatic(lat.modifiers) && !Modifier.isStatic(lon.modifiers))
         emit(logger, "[SymbolResolver] PostRemoteModel.location available alongside image URLs")
         RemotePostLocationSymbols(remote, id, location, lat, lon)
@@ -496,7 +511,13 @@ object FeedMediaSymbolResolver {
         } catch (_: Throwable) {
             false
         }
-        if (!validToString) {
+        val knownMedia = runCatching {
+            KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)
+                ?.type(HostClass.FeedPostRemoteModel, classLoader)
+                ?.getDeclaredField("primary")?.type == mediaClass
+        }.getOrDefault(false)
+        // Some host DTOs retain their serialized fields but strip toString entirely.
+        if (!validToString && !knownMedia) {
             emit(logger, "[SymbolResolver] Failed to validate PostRemoteModel media type: ${mediaClass.name}")
             return null
         }
@@ -602,9 +623,8 @@ object FeedMediaSymbolResolver {
                     params[11] == COMPOSER_TYPE && params[12] == "int" && params[13] == "int" &&
                     method.invokes.any { invoke ->
                         val childParams = invoke.paramTypeNames
-                        !invoke.isConstructor && invoke.returnTypeName == "void" && childParams.size == 18 &&
-                            childParams[0] == MODIFIER_TYPE && childParams[1] == dualMediaClass.name &&
-                            childParams[2] == "boolean" && childParams[16] == COMPOSER_TYPE && childParams[17] == "int"
+                        !invoke.isConstructor && invoke.returnTypeName == "void" &&
+                            isBlurredMediaParameters(childParams, dualMediaClass.name)
                     } && method.invokes.any { invoke ->
                         val childParams = invoke.paramTypeNames
                         !invoke.isConstructor && invoke.returnTypeName == "void" && childParams.size == 5 &&
@@ -627,9 +647,7 @@ object FeedMediaSymbolResolver {
         val invokedMethods = renderer.invokes.filter { !it.isConstructor }
         val mediaCandidates = invokedMethods.filter { invoke ->
             val params = invoke.paramTypeNames
-            invoke.returnTypeName == "void" && params.size == 18 &&
-                params[0] == MODIFIER_TYPE && params[1] == dualMediaClass.name &&
-                params[2] == "boolean" && params[16] == COMPOSER_TYPE && params[17] == "int"
+            invoke.returnTypeName == "void" && isBlurredMediaParameters(params, dualMediaClass.name)
         }.distinctBy { it.descriptor }
         val overlayCandidates = invokedMethods.filter { invoke ->
             val params = invoke.paramTypeNames

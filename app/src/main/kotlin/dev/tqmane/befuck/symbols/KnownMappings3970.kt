@@ -6,6 +6,7 @@ import java.lang.reflect.Modifier
 
 internal object KnownMappings3970 : HostMappings("3.97.0", 3597523L) {
     override val classes = mapOf(
+        HostClass.FeedPostRemoteModel to "eqg",
         HostClass.RealMojiMenuItem to "a7i",
         HostClass.DualViewImageSize to "ai6",
         HostClass.HomeFeedItemEmitter to "an9",
@@ -97,6 +98,7 @@ internal object KnownMappings3970 : HostMappings("3.97.0", 3597523L) {
         HostMethod.SecondaryCameraOrigin to "N",
         HostMethod.CameraOrigin to "S",
         HostMethod.KoinResolve to "e",
+        HostMethod.ComposeTraceBegin to "z",
     )
 
     override val requiresRuntimeRecovery = true

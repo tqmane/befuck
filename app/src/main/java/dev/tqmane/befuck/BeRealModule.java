@@ -122,6 +122,7 @@ public final class BeRealModule extends XposedModule {
     private final ThreadLocal<Object> protobufMessageInfo = new ThreadLocal<>();
     private final ThreadLocal<Boolean> homeFeedModelMapping = new ThreadLocal<>();
     private final ThreadLocal<Boolean> friendsOfFriendsModelMapping = new ThreadLocal<>();
+    private final ThreadLocal<Boolean> inlineMediaComposition = new ThreadLocal<>();
     private final Map<Object, Map<String, String>> pendingAuthHeadersByBuilder =
             Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Class<?>, Field> okHttpBuilderUrlFields = new ConcurrentHashMap<>();
@@ -249,8 +250,10 @@ public final class BeRealModule extends XposedModule {
                 return;
             }
             hook(symbols.getRender()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> dev.tqmane.befuck.ui.NpatchPostMap.compose(
-                            symbols, chain.getThisObject(), chain.getArg(1), moduleResources));
+                    .intercept(chain -> symbols.matches(chain.getThisObject())
+                            ? dev.tqmane.befuck.ui.NpatchPostMap.compose(symbols, chain.getThisObject(),
+                                    chain.getArg(symbols.getComposerArgument()), moduleResources)
+                            : chain.proceed());
             info("Installed NPatch post map using OpenStreetMap/OpenFreeMap; Google API identity unchanged");
         } catch (Throwable failure) {
             error("Could not install NPatch post map replacement", failure);
@@ -606,10 +609,11 @@ public final class BeRealModule extends XposedModule {
             Class<?> viewerItemClass = mappings.type(HostClass.RealMojiViewerItem, loader);
             Class<?> listClass = mappings.type(HostClass.PersistentList, loader);
             Constructor<?> selected = selectedClass.getDeclaredConstructor(viewerItemClass, String.class, listClass, int.class);
-            Constructor<?> item = itemClass.getDeclaredConstructor(String.class, String.class, String.class, boolean.class, Integer.class);
             Constructor<?> entry = entryClass.getDeclaredConstructor(actionClass, itemClass, String.class);
             Method immutableList = mappings.type(HostClass.ImmutableListFactory, loader).getDeclaredMethod(mappings.methodName(HostMethod.ImmutableListCopy), Iterable.class);
-            Method clicked = mappings.type(HostClass.RealMojiViewModel, loader).getDeclaredMethod("G", actionClass);
+            Method clicked = mappings.realMojiMenuClick(loader);
+            Object clickedResult = clicked.getReturnType() == Void.TYPE ? null
+                    : mappings.type(HostClass.Unit, loader).getDeclaredField("a").get(null);
             Field realMoji = viewerItemClass.getDeclaredField("a");
             Field tag = entryClass.getDeclaredField("c");
             String downloadTag = "befuck.realmoji.download";
@@ -622,7 +626,7 @@ public final class BeRealModule extends XposedModule {
                     InvocationHandler handler = Proxy.getInvocationHandler(action);
                     if (handler instanceof dev.tqmane.befuck.download.RealMojiDownloadAction) {
                         ((dev.tqmane.befuck.download.RealMojiDownloadAction) handler).download(applicationContext, moduleResources);
-                        return null;
+                        return clickedResult;
                     }
                 }
                 return chain.proceed();
@@ -636,7 +640,7 @@ public final class BeRealModule extends XposedModule {
                     if (!present) {
                         Object model = realMoji.get(args[0]);
                         Object action = dev.tqmane.befuck.download.RealMojiDownloadAction.create(actionClass, model);
-                        Object menuItem = item.newInstance(label, null, label, false, icon == 0 ? null : Integer.valueOf(icon));
+                        Object menuItem = mappings.realMojiMenuItem(loader, label, icon == 0 ? null : Integer.valueOf(icon));
                         List<Object> items = new ArrayList<>(existing);
                         items.add(entry.newInstance(action, menuItem, downloadTag));
                         args[2] = immutableList.invoke(null, items);
@@ -1434,6 +1438,9 @@ public final class BeRealModule extends XposedModule {
         if (renderMedia != null) {
             try {
                 ComposeDownloadOverlaySymbols overlaySymbols = resolveComposeDownloadOverlaySymbols(classLoader);
+                final int feedComposerIndex = java.util.Arrays.asList(renderMedia.getParameterTypes())
+                        .indexOf(Class.forName("androidx.compose.runtime.Composer", false, classLoader));
+                if (feedComposerIndex < 0) throw new NoSuchMethodException("Feed media Composer parameter");
                 hook(renderMedia)
                         .setPriority(XposedInterface.PRIORITY_HIGHEST)
                         .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -1447,17 +1454,26 @@ public final class BeRealModule extends XposedModule {
                                 if (localUnblurLogged.compareAndSet(false, true)) info("Disabled BeReal feed media blur at its local rendering boundary");
                             }
                             ComposeHookScope.Frame frame = null;
-                            if (composeInjectionReady && overlaySymbols != null && args.length > 16 && args[16] != null) {
-                                frame = ComposeHookScope.push(args[16], () -> {
+                            if (composeInjectionReady && overlaySymbols != null && args[feedComposerIndex] != null) {
+                                frame = ComposeHookScope.push(args[feedComposerIndex], () -> {
                                     if (FeedPostMediaCache.hasPendingGridPostForDetail()) return;
                                     Object post = FeedPostMediaCache.postForDualMedia(args[1]);
                                     if (post == null) return;
-                                    try { injectInlineDownloadOverlay(args[16], classLoader, overlaySymbols, null, post, false); }
+                                    try { injectInlineDownloadOverlay(args[feedComposerIndex], classLoader, overlaySymbols, null, post, false); }
                                     catch (Throwable failure) { throw new IllegalStateException("Could not compose the feed download control", failure); }
                                 });
                             }
+                            Boolean previousInline = inlineMediaComposition.get();
+                            boolean ownsDownload = frame != null && !FeedPostMediaCache.hasPendingGridPostForDetail();
+                            if (ownsDownload) inlineMediaComposition.set(Boolean.TRUE);
                             try { return chain.proceed(args); }
-                            finally { if (frame != null) ComposeHookScope.pop(frame); }
+                            finally {
+                                if (ownsDownload) {
+                                    if (previousInline == null) inlineMediaComposition.remove();
+                                    else inlineMediaComposition.set(previousInline);
+                                }
+                                if (frame != null) ComposeHookScope.pop(frame);
+                            }
                         });
                 info("Hooked resolved feed-media renderer for local-only unblur and per-post downloads");
                 installCurrentPostMediaOrientationHook(classLoader);
@@ -1530,7 +1546,7 @@ public final class BeRealModule extends XposedModule {
                             }
                             if (pullDownGridCardSeenLogged.compareAndSet(false, true)) {
                                 info("gsh.a card renderer invoked; blur-gate argument index 16=" +
-                                        (args.length > 16 ? args[16] : "missing"));
+                                        args[mappings.getGridCardBlurArgument()]);
                             }
                             try {
                                 boolean modified = false;
@@ -1541,8 +1557,8 @@ public final class BeRealModule extends XposedModule {
                                         info("Bound gsh.a tile clicks to the details callback instead of the camera callback");
                                     }
                                 }
-                                if (args.length > 16 && Boolean.TRUE.equals(args[16])) {
-                                    args[16] = Boolean.FALSE;
+                                if (Boolean.TRUE.equals(args[mappings.getGridCardBlurArgument()])) {
+                                    args[mappings.getGridCardBlurArgument()] = Boolean.FALSE;
                                     modified = true;
                                     if (pullDownGridCardUnblurLogged.compareAndSet(false, true)) {
                                         info("Disabled the gsh.a card blur gate at its local Compose rendering boundary");
@@ -1604,11 +1620,12 @@ public final class BeRealModule extends XposedModule {
                                 if (pullDownGridMediaUnblurLogged.compareAndSet(false, true)) info("Disabled the mi6.a isBlurred gate at its local rendering boundary");
                             }
                             final Object detailPost = selectedDetailPost;
+                            final boolean hasInlineDownload = Boolean.TRUE.equals(inlineMediaComposition.get());
                             ComposeHookScope.Frame frame = ComposeHookScope.push(composer, () -> {
                                 try {
                                     beginGroup.invoke(composer, 0x42524644);
                                     try {
-                                        if (detailPost instanceof dev.tqmane.befuck.download.FeedPostMedia) {
+                                        if (!hasInlineDownload && detailPost instanceof dev.tqmane.befuck.download.FeedPostMedia) {
                                             dev.tqmane.befuck.download.FeedPostMedia post = (dev.tqmane.befuck.download.FeedPostMedia) detailPost;
                                             Object callback = Proxy.newProxyInstance(classLoader, new Class<?>[]{functionType},
                                                     composeFunctionHandler(overlaySymbols, ignored -> {
@@ -1717,7 +1734,7 @@ public final class BeRealModule extends XposedModule {
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
                     .intercept(chain -> {
                         Object clickLambda = chain.getThisObject();
-                        if (clickLambda != null && branchField.getInt(clickLambda) == 12) {
+                        if (clickLambda != null && branchField.getInt(clickLambda) == mappings.getGridClickBranch()) {
                             Object tileContainer = tileContainerField.get(clickLambda);
                             Object tileModel = tileContainerClass.isInstance(tileContainer)
                                     ? tileModelField.get(tileContainer)
@@ -2203,20 +2220,7 @@ public final class BeRealModule extends XposedModule {
 
     private void installCurrentPostMediaOrientationHook(ClassLoader classLoader) {
         try {
-            Class<?> composerClass = Class.forName("androidx.compose.runtime.Composer", false, classLoader);
-            Class<?> mediaRenderer = mappings.type(HostClass.DualMediaRenderer, classLoader);
-            Method orientationMethod = null;
-            for (Method method : mediaRenderer.getDeclaredMethods()) {
-                Class<?>[] parameters = method.getParameterTypes();
-                if (Modifier.isStatic(method.getModifiers()) && method.getName().equals("c") &&
-                        method.getReturnType() == Void.TYPE && parameters.length == 34 &&
-                        parameters[0].getName().equals(mappings.className(HostClass.DualViewData)) && parameters[9] == Boolean.TYPE &&
-                        parameters[30] == composerClass && parameters[31] == Integer.TYPE &&
-                        parameters[32] == Integer.TYPE && parameters[33] == Integer.TYPE) {
-                    orientationMethod = method;
-                    break;
-                }
-            }
+            Method orientationMethod = mappings.mediaOrientationMethod(classLoader);
             if (orientationMethod == null) throw new NoSuchMethodException("mi6.c dual-media orientation renderer");
             hook(orientationMethod)
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
@@ -2224,9 +2228,9 @@ public final class BeRealModule extends XposedModule {
                     .intercept(chain -> {
                         Object[] args = chain.getArgs().toArray();
                         String postId = args.length > 0 ? FeedPostMediaCache.beginDualMediaComposition(args[0]) : null;
-                        if (args.length > 9 && postId != null) {
+                        if (postId != null) {
                             // mi6.c's remembered state starts from this value; a separate eu callback tracks later taps.
-                            FeedPostMediaCache.setComposingPrimaryDisplayed(!Boolean.TRUE.equals(args[9]));
+                            FeedPostMediaCache.setComposingPrimaryDisplayed(!Boolean.TRUE.equals(args[mappings.getMediaOrientationArgument()]));
                         }
                         try {
                             return chain.proceed();
@@ -2258,7 +2262,7 @@ public final class BeRealModule extends XposedModule {
                     .intercept(chain -> {
                         Object[] args = chain.getArgs().toArray();
                         Object result = chain.proceed();
-                        if (args.length == 2 && args[1] instanceof Integer && ((Integer) args[1]) == 27) {
+                        if (args.length == 2 && args[1] instanceof Integer && ((Integer) args[1]) == mappings.getMediaFlipBranch()) {
                             FeedPostMediaCache.associateFlipStateWithComposingPost(args[0]);
                         }
                         return result;
@@ -2272,7 +2276,7 @@ public final class BeRealModule extends XposedModule {
                     .intercept(chain -> {
                         Object result = chain.proceed();
                         Object callback = chain.getThisObject();
-                        if (callback != null && selectedPostKindField.getInt(callback) == 27 && result instanceof Boolean) {
+                        if (callback != null && selectedPostKindField.getInt(callback) == mappings.getMediaFlipBranch() && result instanceof Boolean) {
                             FeedPostMediaCache.updatePrimaryDisplayedFromFlipState(
                                     selectedPostStateField.get(callback),
                                     (Boolean) result
@@ -2587,7 +2591,10 @@ public final class BeRealModule extends XposedModule {
             Field unitField = unitClass.getDeclaredField("a");
             unitField.setAccessible(true);
             Object unit = unitField.get(null);
-            Method beginTrace = tracingContext.getDeclaredMethod("z");
+            Method beginTrace = tracingContext.getDeclaredMethod(mappings.methodName(HostMethod.ComposeTraceBegin));
+            if (beginTrace.getReturnType() != Object.class || Modifier.isStatic(beginTrace.getModifiers())) {
+                throw new NoSuchMethodException("Compose tracing begin signature");
+            }
             hook(beginTrace)
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)

@@ -9,6 +9,7 @@ object KnownMappings {
         val mapping = when (code) {
             3597523L -> KnownMappings3970
             3599414L -> KnownMappings3971
+            3600852L -> KnownMappings3980
             else -> return null
         }
         return mapping.takeIf { it.isKnownVersion(name, code) }
@@ -54,6 +55,7 @@ enum class HostClass {
     BtsMedia,
     PullDownGridCard,
     CorePost,
+    FeedPostRemoteModel,
     ResultSuccess,
     GridCardIconAction,
     User,
@@ -114,4 +116,4 @@ enum class HostClass {
     ImageData,
 }
 
-enum class HostMethod { ImmutableListCopy, KoinApplication, FlowFirst, SecondaryCameraOrigin, CameraOrigin, KoinResolve }
+enum class HostMethod { ImmutableListCopy, KoinApplication, FlowFirst, SecondaryCameraOrigin, CameraOrigin, KoinResolve, ComposeTraceBegin }

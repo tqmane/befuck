@@ -22,6 +22,7 @@ import java.util.Arrays;
 public final class MetadataCheck {
     private static final HostMappings LEGACY = KnownMappings.find("3.97.0", 3597523L);
     private static final HostMappings CURRENT = KnownMappings.find("3.97.1", 3599414L);
+    private static final HostMappings LATEST = KnownMappings.find("3.98.0", 3600852L);
     public static void main(String[] args) throws Exception {
         checkComposeScopes();
         checkVideoEdits();
@@ -30,6 +31,7 @@ public final class MetadataCheck {
         assert !LEGACY.isKnownVersion("3.98.0", 3597523L);
         assert !LEGACY.isKnownVersion(null, 3597523L);
         checkVersionMappings();
+        checkLatestMapping();
         checkSmsRequestPayload();
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
@@ -320,6 +322,33 @@ public final class MetadataCheck {
                 : "Fixture preserves non-null ad selection for the unhooked path";
         // Any class loader without the verified symbol shape must fail closed.
         assert CURRENT.resolveFeedAdSelector(new ClassLoader(null) {}) == null;
+    }
+
+    private static void checkLatestMapping() throws Exception {
+        assert LATEST != null && LATEST != CURRENT && LATEST != LEGACY;
+        assert LATEST.methodName(HostMethod.ComposeTraceBegin).equals("A");
+        assert CURRENT.methodName(HostMethod.ComposeTraceBegin).equals("z");
+        assert KnownMappings.find("3.98.0", 3600853L) == null;
+        assert KnownMappings.find("3.97.1", 3600852L) == null;
+        assert KnownMappings.find("3.98.1", 3600852L) == null;
+        assert KnownMappings.find(null, 3600852L) == null;
+        for (var role : HostClass.values()) {
+            // The detail card no longer receives a separate GridCardAction.
+            if (role != HostClass.GridCardAction) assert !LATEST.className(role).isBlank() : role;
+        }
+        var item = (a0i) LATEST.realMojiMenuItem(MetadataCheck.class.getClassLoader(), "Save", 42);
+        assert item.title.equals("Save") && item.subtitle == null;
+        assert item.icon == 42 && item.accessibility.equals("Save") && !item.destructive;
+        var noIcon = (a0i) LATEST.realMojiMenuItem(MetadataCheck.class.getClassLoader(), "Save", null);
+        assert noIcon.icon == null;
+        assert LATEST.realMojiMenuClick(MetadataCheck.class.getClassLoader()).getDeclaringClass() == wif.class;
+        var absent = new ClassLoader(null) {};
+        assert LATEST.resolvePullDownGridCardComposable(absent) == null;
+        assert LATEST.resolvePullDownGridMediaComposable(absent) == null;
+        assert LATEST.resolveFeedAdSelector(absent) == null;
+        assert LATEST.mediaOrientationMethod(absent) == null;
+        assert LATEST.resolveTimelineBlurredCardComposable(absent) == null;
+        assert LATEST.postMapSymbols(absent) == null;
     }
 
     private static void checkRepackagedLicenseCompatibility() throws Exception {

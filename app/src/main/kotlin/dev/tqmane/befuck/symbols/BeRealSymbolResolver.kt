@@ -854,7 +854,8 @@ object BeRealSymbolResolver {
         }
         uniqueToStringMethod(contentsData, "PostContents", logger, diagnostics)
             ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
-        val contentsConstructorData = uniqueConstructorMethodData(contentsData, 5, "PostContents", logger, diagnostics)
+        val contentsArity = KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)?.postContentsArity ?: 5
+        val contentsConstructorData = uniqueConstructorMethodData(contentsData, contentsArity, "PostContents", logger, diagnostics)
             ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
         val contentsConstructor = try {
             contentsConstructorData.getConstructorInstance(classLoader).apply { isAccessible = true }
@@ -862,7 +863,7 @@ object BeRealSymbolResolver {
             emit(logger, "[SymbolResolver] Failed to resolve PostContents constructor reason=${failure.javaClass.simpleName}")
             return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
         }
-        val contentsFields = writeFieldOrder(contentsConstructorData, contentsClass, 5, "PostContents", classLoader, logger, diagnostics)
+        val contentsFields = writeFieldOrder(contentsConstructorData, contentsClass, contentsArity, "PostContents", classLoader, logger, diagnostics)
             ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass, contentsConstructor = contentsConstructor)
 
         val mediaClass = contentsConstructor.parameterTypes[0]
