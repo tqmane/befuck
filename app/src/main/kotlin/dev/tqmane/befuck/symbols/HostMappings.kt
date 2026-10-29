@@ -13,6 +13,29 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open val signingCertificateSha256: String? = null
     open val lifecycleDexAsset: String? = null
     open val lifecycleBindings: List<LifecycleBinding> = emptyList()
+    open val postContentsArity: Int = 5
+    open val publishedPostIdField: String = "id"
+    open val gridCardBlurArgument: Int = 16
+    open val gridClickBranch: Int = 12
+    open val mediaFlipBranch: Int = 27
+    open val mediaOrientationArgument: Int = 9
+    open fun postMapSymbols(loader: ClassLoader): PostMapSymbols? = null
+
+    open fun realMojiMenuClick(loader: ClassLoader): Method =
+        type(HostClass.RealMojiViewModel, loader).getDeclaredMethod("G", type(HostClass.RealMojiMenuAction, loader))
+
+    open fun realMojiMenuItem(loader: ClassLoader, label: String, icon: Int?): Any =
+        type(HostClass.RealMojiMenuItem, loader)
+            .getDeclaredConstructor(String::class.java, String::class.java, String::class.java, Boolean::class.javaPrimitiveType, Int::class.javaObjectType)
+            .newInstance(label, null, label, false, icon)
+
+    open fun mediaOrientationMethod(loader: ClassLoader): Method? =
+        type(HostClass.DualMediaRenderer, loader).declaredMethods.singleOrNull { method ->
+            val p = method.parameterTypes
+            Modifier.isStatic(method.modifiers) && method.name == "c" && method.returnType == Void.TYPE && p.size == 34 &&
+                p[0] == type(HostClass.DualViewData, loader) && p[9] == Boolean::class.javaPrimitiveType &&
+                p[30].name == "androidx.compose.runtime.Composer" && p.drop(31).all { it == Int::class.javaPrimitiveType }
+        }
 
     fun isKnownVersion(name: String?, code: Long) =
         name == versionName && code == versionCode
@@ -336,7 +359,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
         }
     }
 
-    fun resolveTimelineBlurredCardComposable(classLoader: ClassLoader): Method? {
+    open fun resolveTimelineBlurredCardComposable(classLoader: ClassLoader): Method? {
         return try {
             val composer = Class.forName("androidx.compose.runtime.Composer", false, classLoader)
             val modifier = Class.forName("androidx.compose.ui.Modifier", false, classLoader)
@@ -363,7 +386,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
         }
     }
 
-    fun resolvePullDownGridCardComposable(classLoader: ClassLoader): Method? {
+    open fun resolvePullDownGridCardComposable(classLoader: ClassLoader): Method? {
         return try {
             val expected = arrayOf(
                 Class.forName(className(HostClass.BeRealImageLoader), false, classLoader),
@@ -398,7 +421,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
         }
     }
 
-    fun resolvePullDownGridMediaComposable(classLoader: ClassLoader): Method? {
+    open fun resolvePullDownGridMediaComposable(classLoader: ClassLoader): Method? {
         return try {
             val modifier = Class.forName("androidx.compose.ui.Modifier", false, classLoader)
             val state = Class.forName("androidx.compose.runtime.State", false, classLoader)

@@ -159,7 +159,8 @@ object GalleryPostController {
             val post = result.javaClass.getDeclaredField("a").apply { isAccessible = true }.get(result) ?: return
             if (post.javaClass.simpleName != KnownMappings.current().className(HostClass.PublishedPost)) return
             val localId = core.javaClass.getDeclaredField("a").apply { isAccessible = true }.get(core) as? String ?: return
-            val remoteId = post.javaClass.getDeclaredField("id").apply { isAccessible = true }.get(post) as? String ?: return
+            val remoteId = post.javaClass.getDeclaredField(KnownMappings.current().publishedPostIdField)
+                .apply { isAccessible = true }.get(post) as? String ?: return
             if (remoteId.isBlank() || remoteId.startsWith("berealLocal")) return
             synchronized(publishedPostIds) { publishedPostIds.put(localId, remoteId) }
             Log.i(TAG, "Server confirmed official post creation: $remoteId")

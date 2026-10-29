@@ -28,21 +28,7 @@ Capture keeps the post ID, account scope and coordinate together. If the account
 
 ## Why opening a map can still reveal a previously missing location
 
-JADX 1.5.6 inspection of the provided BeReal 3.97.0 and 3.97.1 APKs confirms that a normal feed `PostRemoteModel` contains an **optional** `LocationRemoteModel` alongside its image URLs, and that the native `CorePost` location is also nullable. BeFuck now observes both the incoming remote DTO and the loaded CorePost, retains a small bounded number of original CorePost objects until the account is verified, and reconciles these fields with the already saved image record without opening the post screen. It never fabricates a coordinate for an absent or `(0,0)` location.
-
-The host's map placeholder builder follows a different path: it first requests the chosen post by ID through the host repository, then reads the returned CorePost location and applies the host friendship/approximation decision before building the marker. Consequently, **a location absent from both normal-feed models cannot be obtained from those feed observations alone**. For such posts the module now **invokes that same host map use case in the background**, without opening any post screen. It runs only for feed posts that already have saved media, a host-verified author, no saved location, and an author authorized for exact GPS (own post, host-`Accepted` friend or member of the verified Friends graph). Requests are one-per-post per account session, serialized, spaced about 300 ms apart and limited to a 64-entry queue. The host builds its own `MapPlaceholder` with its own friendship/approximation decision, and the existing constructor hook stores only what the host would have displayed; the module never reads coordinates itself. The use case, its DI factory and the `Class -> KClass` helper are resolved by DexKit; if any is ambiguous the prefetch is disabled and the previous behavior remains. The host DI scope is obtained (weakly) from the first call of that factory at startup. Log lines: `Background location prefetch armed through the host map use case`, `Background location prefetch is running`, `Host DI scope or use case not available yet; location prefetch deferred`. Startup readiness is retried: a request made before a host DI scope exists is not marked attempted, and the first available scope revisits loaded feed records. This avoids permanently skipping posts just because the feed arrived before DI initialization. The original host map result remains the source of the saved location.
-
-The October 18 device logs show visible-feed media capture working, while earlier startup logs also show a distinct bootstrap ClassLoader failing to load obfuscated host classes after a successful resolution under a different loader. That failure must not invalidate a working saved resolver signature; the resolver now avoids caching results from a known-incompatible host loader.
-
-New diagnostic log messages use only the presence of a location field and the archive operation status. They never log post IDs, usernames, raw latitude/longitude, or the account UID:
-
-- `Feed PostRemoteModel contains a shared location field`: a feed DTO carried a non-null location model (not necessarily yet authorized for archive use)
-- `Feed PostRemoteModel location is null`: this particular feed DTO cannot supply its location without additional host data
-- `Feed was loaded before viewer identity`: ownership reconciliation is pending
-- `Host-verified post location queued for persistent archive`: validated coordinates were queued for database persistence
-- `Host CorePost absent from this ClassLoader`: an incompatible early/secondary class loader has been excluded from the symbol cache
-
-`SecurityException` from Android FusedLocationProvider concerns permission to obtain the **device's own** current location, not permission to read social posts' host-provided location metadata.
+A post in the normal feed might not carry location data until the host app requests it when preparing the map. BeFuck observes feed models and background prefetch results where available, but cannot fabricate missing coordinates. Opening a post or its map allows the host to fetch the location, which BeFuck can then observe and save.
 
 ## Daily saved-post map
 
@@ -70,11 +56,9 @@ Database schema 3 stores the coordinate and precision as one nullable observed v
 
 Backup format 2 includes saved locations and their observation times. Older schema-2 / format-1 backups remain importable; missing location in an old backup does not delete newer destination data. Backups remain unencrypted and include any saved coordinates. See [backup and merge](archive-backup.md) for account isolation, validation and limits.
 
-## Verification scope and source references
+## Implementation references
 
-On October 18, BeReal 3.97.1 was checked on an OPD2415 using an updated NPatch embedded module. The host map prefetch ran without opening a post map, and the archive contained 36 account-assigned posts, 15 with saved locations refreshed during the run. All previously stored posts and locations were retained after the update. The other 21 records remained without locations; this observation does not establish whether their host data shares a usable point. This is a bounded device check, not proof of complete feed coverage or LSPosed behavior. A regression test covers feed arrival before the DI scope, automatic capture when the scope arrives, and avoiding duplicate attempts.
-
-Synthetic regression cases cover host-native `Accepted` observation before a Friends SQL query, rejection of other relationship statuses, complete graph precedence, CorePost constructor observation and account boundaries, 0,0 placeholder handling, exact and approximate GPS behavior, schema migration and backup compatibility, local-day/author filtering, stacked markers and screen disposal without initializing GL. Device-native stability still requires a patched APK test. The current build/test results must be reported separately. These cases do not prove real-host capture coverage, expired-URL recovery or MapLibre rendering on a device.
+In BeReal 3.98.0, coordinates are saved when valid coordinates and account/friendship permissions are present (missing values are never converted to zero). The map replacement reads the host's displayed marker.
 
 - [Location capture and account scope](../app/src/main/kotlin/dev/tqmane/befuck/download/FeedPostMediaCache.kt)
 - [Resolved CorePost and placeholder readers](../app/src/main/kotlin/dev/tqmane/befuck/symbols/FeedMediaSymbols.kt)

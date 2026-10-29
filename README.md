@@ -4,7 +4,7 @@
 
 An Xposed module for BeReal.  
 Supports **LSPosed** and **NPatch**.  
-Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** (`com.bereal.ft`).
+Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** / **3.98.0 (3600852)** (`com.bereal.ft`).
 
 ## Screenshots
 
@@ -76,7 +76,7 @@ Saved posts show small back/front previews. Tap a preview for a full-screen view
 
 ## Post locations and NPatch maps
 
-Under **NPatch only**, the original post map uses MapLibre/OpenFreeMap. Its semantic resolver is independent of other feature version tables: the supplied **3.97.0 / 3.97.1** APK contracts were audited, and later versions are accepted only when the required contracts validate. Unknown or ambiguous shapes keep the original map. Native permission-request helpers remain limited to the two audited versions. [NPatch map details](docs/npatch-post-map.md).
+In NPatch environments, post maps are replaced with MapLibre/OpenFreeMap (LSPosed environments retain the original map). In 3.98.0, the map uses the host app's display location and avatar. Because current-location coordinates are not passed to the replaced map in 3.98.0, centering on the current location is limited. See [NPatch map details](docs/npatch-post-map.md).
 
 In **Saved posts**, choose a calendar day and **Show this day on map**. All saved locations for that day and author filter are plotted, including posts beyond the timeline page limit. Photo pins identify accounts when tapped; stacked posts can be cycled. The screen reports missing locations. Capture uses exact own-post locations and normal-feed locations for authors in the host's validated complete Friends graph. Additional map observations require an author known in the current account; exact capture also requires that author to be self or a current verified friend. Existing posts are not automatically backfilled, and coverage depends on the account, friendship and post data actually observed.
 

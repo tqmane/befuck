@@ -1,0 +1,874 @@
+{
+  "schema": 1,
+  "version_code": 3600852,
+  "package": "com.bereal.ft",
+  "symbols": {
+    "kind": "symbols",
+    "values": {
+      "packageName": "com.bereal.ft",
+      "versionName": "3.98.0",
+      "sourceIdentity": "bundled:com.bereal.ft:3600852",
+      "dexKitAvailable": true,
+      "stringFields": {
+        "kind": "map",
+        "values": {}
+      },
+      "cameraCountdownComposableMethod": {
+        "kind": "method",
+        "owner": "l27",
+        "name": "a",
+        "parameters": [
+          "float",
+          "int",
+          "long",
+          "androidx.compose.runtime.Composer",
+          "androidx.compose.ui.Modifier",
+          "java.lang.String"
+        ],
+        "returns": "void"
+      },
+      "feedMediaSymbols": {
+        "kind": "feed",
+        "values": {
+          "postModelClass": {
+            "kind": "class",
+            "name": "qhc"
+          },
+          "postDeserializerMethod": {
+            "kind": "method",
+            "owner": "ohc",
+            "name": "deserialize",
+            "parameters": [
+              "kotlinx.serialization.encoding.Decoder"
+            ],
+            "returns": "java.lang.Object"
+          },
+          "postIdField": {
+            "kind": "field",
+            "owner": "qhc",
+            "name": "id",
+            "type": "java.lang.String"
+          },
+          "postTakenAtField": {
+            "kind": "field",
+            "owner": "qhc",
+            "name": "takenAt",
+            "type": "java.lang.String"
+          },
+          "postCaptionField": {
+            "kind": "field",
+            "owner": "qhc",
+            "name": "caption",
+            "type": "java.lang.String"
+          },
+          "postPrimaryField": {
+            "kind": "field",
+            "owner": "qhc",
+            "name": "primary",
+            "type": "ehc"
+          },
+          "postPrimaryMediaField": null,
+          "postSecondaryField": {
+            "kind": "field",
+            "owner": "qhc",
+            "name": "secondary",
+            "type": "ehc"
+          },
+          "postSecondaryMediaField": null,
+          "postBtsMediaField": {
+            "kind": "field",
+            "owner": "qhc",
+            "name": "btsMedia",
+            "type": "ehc"
+          },
+          "mediaUrlField": {
+            "kind": "field",
+            "owner": "ehc",
+            "name": "url",
+            "type": "java.lang.String"
+          },
+          "mediaWidthField": {
+            "kind": "field",
+            "owner": "ehc",
+            "name": "width",
+            "type": "int"
+          },
+          "mediaHeightField": {
+            "kind": "field",
+            "owner": "ehc",
+            "name": "height",
+            "type": "int"
+          },
+          "mediaTypeField": {
+            "kind": "field",
+            "owner": "ehc",
+            "name": "mediaType",
+            "type": "java.lang.String"
+          },
+          "postFeedCardComposableMethod": {
+            "kind": "method",
+            "owner": "dmg",
+            "name": "a",
+            "parameters": [
+              "androidx.compose.ui.Modifier",
+              "tdg",
+              "yo8",
+              "x6a",
+              "ma6",
+              "androidx.compose.runtime.State",
+              "int",
+              "ve7",
+              "boolean",
+              "dp8",
+              "java.lang.String",
+              "androidx.compose.runtime.Composer",
+              "int",
+              "int"
+            ],
+            "returns": "void"
+          },
+          "postDataIdField": {
+            "kind": "field",
+            "owner": "rag",
+            "name": "a",
+            "type": "java.lang.String"
+          },
+          "postDataIsMineField": {
+            "kind": "field",
+            "owner": "rag",
+            "name": "h",
+            "type": "boolean"
+          },
+          "viewStatePostDataField": {
+            "kind": "field",
+            "owner": "tdg",
+            "name": "a",
+            "type": "rag"
+          },
+          "viewStateDualMediaField": {
+            "kind": "field",
+            "owner": "tdg",
+            "name": "c",
+            "type": "xe6"
+          },
+          "viewStateRealSponsoredPostUiStateField": {
+            "kind": "field",
+            "owner": "tdg",
+            "name": "h",
+            "type": "vci"
+          },
+          "dualMediaPrimaryField": {
+            "kind": "field",
+            "owner": "xe6",
+            "name": "a",
+            "type": "qe6"
+          },
+          "dualMediaSecondaryField": {
+            "kind": "field",
+            "owner": "xe6",
+            "name": "b",
+            "type": "qe6"
+          },
+          "blurredMediaRenderMethod": {
+            "kind": "method",
+            "owner": "rfg",
+            "name": "a",
+            "parameters": [
+              "androidx.compose.ui.Modifier",
+              "xe6",
+              "boolean",
+              "androidx.compose.runtime.State",
+              "fg6",
+              "androidx.compose.runtime.State",
+              "ye6",
+              "boolean",
+              "androidx.compose.runtime.State",
+              "uo8",
+              "boolean",
+              "yo8",
+              "yo8",
+              "yo8",
+              "yo8",
+              "yo8",
+              "java.lang.String",
+              "androidx.compose.runtime.Composer",
+              "int"
+            ],
+            "returns": "void"
+          },
+          "blurredOverlayComposableMethod": {
+            "kind": "method",
+            "owner": "pk7",
+            "name": "a",
+            "parameters": [
+              "androidx.compose.ui.Modifier",
+              "mw1",
+              "uo8",
+              "androidx.compose.runtime.Composer",
+              "int"
+            ],
+            "returns": "void"
+          },
+          "corePostLocationSymbols": {
+            "kind": "core-location",
+            "values": {
+              "coreClass": {
+                "kind": "class",
+                "name": "w05"
+              },
+              "owner": {
+                "kind": "field",
+                "owner": "w05",
+                "name": "b",
+                "type": "cd1"
+              },
+              "ownerUid": {
+                "kind": "field",
+                "owner": "cd1",
+                "name": "uid",
+                "type": "java.lang.String"
+              },
+              "point": {
+                "kind": "field",
+                "owner": "w05",
+                "name": "f",
+                "type": "kbb"
+              },
+              "latitude": {
+                "kind": "field",
+                "owner": "kbb",
+                "name": "latitude",
+                "type": "double"
+              },
+              "longitude": {
+                "kind": "field",
+                "owner": "kbb",
+                "name": "longitude",
+                "type": "double"
+              },
+              "postId": {
+                "kind": "field",
+                "owner": "w05",
+                "name": "a",
+                "type": "java.lang.String"
+              },
+              "nativeFriendStatus": {
+                "kind": "field",
+                "owner": "cd1",
+                "name": "status",
+                "type": "p5j"
+              }
+            }
+          },
+          "postDataOwnerUidField": {
+            "kind": "field",
+            "owner": "rag",
+            "name": "c",
+            "type": "java.lang.String"
+          },
+          "remotePostLocationSymbols": {
+            "kind": "remote-location",
+            "values": {
+              "remoteClass": {
+                "kind": "class",
+                "name": "qhc"
+              },
+              "postId": {
+                "kind": "field",
+                "owner": "qhc",
+                "name": "id",
+                "type": "java.lang.String"
+              },
+              "location": {
+                "kind": "field",
+                "owner": "qhc",
+                "name": "location",
+                "type": "ccb"
+              },
+              "latitude": {
+                "kind": "field",
+                "owner": "ccb",
+                "name": "latitude",
+                "type": "java.lang.Double"
+              },
+              "longitude": {
+                "kind": "field",
+                "owner": "ccb",
+                "name": "longitude",
+                "type": "java.lang.Double"
+              }
+            }
+          },
+          "mapPlaceholderLocationSymbols": null,
+          "friendGraphSymbols": null
+        }
+      },
+      "timelineBlurredCardComposableMethod": null,
+      "pullDownGridCardComposableMethod": {
+        "kind": "method",
+        "owner": "skh",
+        "name": "b",
+        "parameters": [
+          "x1m",
+          "java.lang.String",
+          "java.lang.String",
+          "k50",
+          "xe6",
+          "sz9",
+          "uo8",
+          "uo8",
+          "uo8",
+          "yo8",
+          "nnh",
+          "hkh",
+          "boolean",
+          "boolean",
+          "uo8",
+          "boolean",
+          "uo8",
+          "boolean",
+          "androidx.compose.ui.Modifier",
+          "androidx.compose.runtime.Composer",
+          "int"
+        ],
+        "returns": "void"
+      },
+      "pullDownGridMediaComposableMethod": {
+        "kind": "method",
+        "owner": "jf6",
+        "name": "a",
+        "parameters": [
+          "xe6",
+          "androidx.compose.ui.Modifier",
+          "androidx.compose.runtime.State",
+          "boolean",
+          "me6",
+          "fg6",
+          "yo8",
+          "androidx.compose.runtime.State",
+          "androidx.compose.runtime.State",
+          "androidx.compose.runtime.State",
+          "androidx.compose.runtime.State",
+          "uo8",
+          "yo8",
+          "uo8",
+          "yo8",
+          "uo8",
+          "yo8",
+          "yo8",
+          "boolean",
+          "x1m",
+          "yo8",
+          "yo8",
+          "ye6",
+          "boolean",
+          "android.graphics.Bitmap$Config",
+          "ze6",
+          "yo8",
+          "uo8",
+          "boolean",
+          "boolean",
+          "boolean",
+          "uo8",
+          "java.lang.String",
+          "androidx.compose.runtime.Composer",
+          "int",
+          "int",
+          "int",
+          "int",
+          "int",
+          "int"
+        ],
+        "returns": "void"
+      },
+      "homeGridPostTileComposableMethod": {
+        "kind": "method",
+        "owner": "f59",
+        "name": "b",
+        "parameters": [
+          "cwh",
+          "uo8",
+          "x1m",
+          "androidx.compose.runtime.Composer",
+          "int"
+        ],
+        "returns": "void"
+      },
+      "homeFeedCanBlurMapperMethod": {
+        "kind": "method",
+        "owner": "bi7",
+        "name": "a",
+        "parameters": [
+          "bi7",
+          "pj7",
+          "java.lang.String",
+          "boolean",
+          "kb0",
+          "glg",
+          "ap8",
+          "yo8",
+          "pvf",
+          "si7",
+          "ap8",
+          "java.util.List",
+          "hl7",
+          "svf",
+          "pvf",
+          "ejd",
+          "boolean",
+          "nc7",
+          "int"
+        ],
+        "returns": "ai7"
+      },
+      "homeFeedItemEmitterMethod": {
+        "kind": "method",
+        "owner": "wj9",
+        "name": "emit",
+        "parameters": [
+          "java.lang.Object",
+          "ku4"
+        ],
+        "returns": "java.lang.Object"
+      },
+      "friendsOfFriendsFeedItemEmitterMethod": {
+        "kind": "method",
+        "owner": "e38",
+        "name": "emit",
+        "parameters": [
+          "java.lang.Object",
+          "ku4"
+        ],
+        "returns": "java.lang.Object"
+      },
+      "postDomainModelClass": {
+        "kind": "class",
+        "name": "knk"
+      },
+      "postDomainModelConstructor": {
+        "kind": "constructor",
+        "owner": "knk",
+        "parameters": [
+          "fag",
+          "smg",
+          "dgg",
+          "bba",
+          "kbb",
+          "int",
+          "val",
+          "long",
+          "long",
+          "boolean",
+          "boolean",
+          "ecf",
+          "boolean",
+          "boolean",
+          "boolean",
+          "java.lang.String",
+          "java.util.List",
+          "java.util.ArrayList",
+          "java.lang.String",
+          "java.lang.String",
+          "java.lang.Integer",
+          "java.util.List",
+          "dh6",
+          "dh6",
+          "dh6",
+          "b6k",
+          "boolean",
+          "boolean"
+        ]
+      },
+      "postDomainModelFieldOrder": [
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "a",
+          "type": "fag"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "b",
+          "type": "smg"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "c",
+          "type": "dgg"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "d",
+          "type": "bba"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "e",
+          "type": "kbb"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "f",
+          "type": "int"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "g",
+          "type": "val"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "h",
+          "type": "long"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "i",
+          "type": "long"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "j",
+          "type": "boolean"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "k",
+          "type": "boolean"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "l",
+          "type": "ecf"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "m",
+          "type": "boolean"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "n",
+          "type": "boolean"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "o",
+          "type": "boolean"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "p",
+          "type": "java.lang.String"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "q",
+          "type": "java.util.List"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "r",
+          "type": "java.util.List"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "s",
+          "type": "java.lang.String"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "t",
+          "type": "java.lang.String"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "u",
+          "type": "java.lang.Integer"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "v",
+          "type": "java.util.List"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "w",
+          "type": "dh6"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "x",
+          "type": "dh6"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "y",
+          "type": "dh6"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "z",
+          "type": "b6k"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "A",
+          "type": "boolean"
+        },
+        {
+          "kind": "field",
+          "owner": "knk",
+          "name": "B",
+          "type": "boolean"
+        }
+      ],
+      "postContentsClass": {
+        "kind": "class",
+        "name": "fag"
+      },
+      "postContentsConstructor": {
+        "kind": "constructor",
+        "owner": "fag",
+        "parameters": [
+          "jh1",
+          "jh1",
+          "jh1",
+          "jh1",
+          "jh1",
+          "j42"
+        ]
+      },
+      "postContentsFieldOrder": [
+        {
+          "kind": "field",
+          "owner": "fag",
+          "name": "backContent",
+          "type": "jh1"
+        },
+        {
+          "kind": "field",
+          "owner": "fag",
+          "name": "backContentPlaceHolder",
+          "type": "jh1"
+        },
+        {
+          "kind": "field",
+          "owner": "fag",
+          "name": "frontContent",
+          "type": "jh1"
+        },
+        {
+          "kind": "field",
+          "owner": "fag",
+          "name": "frontContentPlaceHolder",
+          "type": "jh1"
+        },
+        {
+          "kind": "field",
+          "owner": "fag",
+          "name": "btsContent",
+          "type": "jh1"
+        },
+        {
+          "kind": "field",
+          "owner": "fag",
+          "name": "btsSlot",
+          "type": "j42"
+        }
+      ],
+      "postMediaClass": {
+        "kind": "class",
+        "name": "jh1"
+      },
+      "postMediaConstructor": {
+        "kind": "constructor",
+        "owner": "jh1",
+        "parameters": [
+          "java.lang.String",
+          "int",
+          "int",
+          "ih1"
+        ]
+      },
+      "postCoreDraftClass": {
+        "kind": "class",
+        "name": "o15"
+      },
+      "postCoreDraftConstructor": {
+        "kind": "constructor",
+        "owner": "o15",
+        "parameters": [
+          "java.lang.String",
+          "fag",
+          "smg",
+          "dgg",
+          "bba",
+          "kbb",
+          "int",
+          "val",
+          "long",
+          "long",
+          "boolean",
+          "boolean",
+          "ecf",
+          "boolean",
+          "boolean",
+          "boolean",
+          "java.lang.String",
+          "java.util.List",
+          "java.util.List",
+          "java.lang.String",
+          "java.lang.String",
+          "java.lang.Integer",
+          "java.util.List",
+          "dh6",
+          "dh6",
+          "dh6",
+          "java.lang.Boolean",
+          "java.lang.Boolean"
+        ]
+      },
+      "sendPostCoroutineConstructor": {
+        "kind": "constructor",
+        "owner": "re3",
+        "parameters": [
+          "ncg",
+          "o15",
+          "java.lang.String",
+          "ku4"
+        ]
+      },
+      "sendPostRepositoryInterface": {
+        "kind": "class",
+        "name": "jcg"
+      },
+      "postUploadWorkerClass": {
+        "kind": "class",
+        "name": "bereal.app.data.post.repository.mypost.worker.UploadUnsentPostWorker"
+      },
+      "sendDraftMethod": {
+        "kind": "method",
+        "owner": "i4k",
+        "name": "a",
+        "parameters": [
+          "knk",
+          "java.lang.String",
+          "ll2"
+        ],
+        "returns": "java.lang.Object"
+      },
+      "friendsVisibility": {
+        "kind": "singleton",
+        "owner": "qmg",
+        "name": "INSTANCE"
+      },
+      "friendOfFriendsVisibility": {
+        "kind": "singleton",
+        "owner": "pmg",
+        "name": "INSTANCE"
+      },
+      "globalVisibility": {
+        "kind": "singleton",
+        "owner": "rmg",
+        "name": "INSTANCE"
+      },
+      "currentUserProviderClass": {
+        "kind": "class",
+        "name": "ey8"
+      },
+      "currentUserProviderMethod": {
+        "kind": "method",
+        "owner": "ey8",
+        "name": "a",
+        "parameters": [
+          "ku4"
+        ],
+        "returns": "java.lang.Object"
+      },
+      "currentUserUidField": {
+        "kind": "field",
+        "owner": "hln",
+        "name": "uid",
+        "type": "java.lang.String"
+      },
+      "cameraViewModelClass": {
+        "kind": "class",
+        "name": "rm2"
+      },
+      "cameraFacingEnumClass": {
+        "kind": "class",
+        "name": "mb7"
+      },
+      "cameraBindConcurrentMethod": {
+        "kind": "method",
+        "owner": "rm2",
+        "name": "I",
+        "parameters": [
+          "androidx.lifecycle.LifecycleOwner",
+          "mb7"
+        ],
+        "returns": "void"
+      },
+      "cameraOriginParserMethods": [
+        {
+          "kind": "method",
+          "owner": "pzm",
+          "name": "Q",
+          "parameters": [
+            "android.os.Bundle"
+          ],
+          "returns": "sm2"
+        }
+      ],
+      "locationRepositoryClass": {
+        "kind": "class",
+        "name": "rbb"
+      },
+      "locationRequestMethod": {
+        "kind": "method",
+        "owner": "rbb",
+        "name": "b",
+        "parameters": [
+          "boolean",
+          "lu4"
+        ],
+        "returns": "java.lang.Object"
+      },
+      "locationClientGetter": {
+        "kind": "method",
+        "owner": "rbb",
+        "name": "a",
+        "parameters": [],
+        "returns": "com.google.android.gms.location.FusedLocationProviderClient"
+      },
+      "diagnostics": []
+    }
+  }
+}

@@ -20,7 +20,7 @@ data class PostMapSnapshot(
 )
 
 /** All host reflection is resolved and shape-checked before installing the replacement. */
-class PostMapSymbols internal constructor(
+open class PostMapSymbols internal constructor(
     val render: Method,
     private val androidView: Method,
     private val fillModifier: Any,
@@ -35,10 +35,12 @@ class PostMapSymbols internal constructor(
     private val postIdReader: ((Any) -> String?)? = null,
     private val permissionActionAvailable: Boolean = true,
 ) {
+    open val composerArgument: Int = 1
+    open fun matches(owner: Any): Boolean = true
     private fun field(name: String) = fields.getValue(name)
     private fun state(owner: Any, name: String): Any? = readState.invoke(field(name).get(owner))
 
-    fun snapshot(owner: Any): PostMapSnapshot {
+    open fun snapshot(owner: Any): PostMapSnapshot {
         // Read Compose State HERE, not in the AndroidView update callback: these reads
         // must subscribe the enclosing composition to new locations and loaded photos.
         // R8 can reorder/name lambda captures. Their current value types identify
@@ -77,14 +79,14 @@ class PostMapSymbols internal constructor(
             LocationData(lat, lon) else null
     }
 
-    fun toggle(owner: Any) {
+    open fun toggle(owner: Any) {
         val state = field("toggle").get(owner)
         val selected = readState.invoke(state)
         if (selected is Boolean) writeState.invoke(state, !selected)
     }
 
-    fun close(owner: Any) { back.invoke(field("navigation").get(owner)) }
-    fun requestLocationPermission(owner: Any) { if (permissionActionAvailable) askLocation(owner) }
+    open fun close(owner: Any) { back.invoke(field("navigation").get(owner)) }
+    open fun requestLocationPermission(owner: Any) { if (permissionActionAvailable) askLocation(owner) }
 
     fun compose(composer: Any, factory: (Context) -> View, update: (View) -> Unit, release: (View) -> Unit) {
         require(androidView.parameterTypes[5].isInstance(composer))

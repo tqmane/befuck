@@ -22,7 +22,8 @@ object GalleryPostModelRewriter {
         val mediaConstructor = requireNotNull(symbols.postMediaConstructor) {
             "BeRealMedia constructor unresolved"
         }
-        require(symbols.postContentsFieldOrder.size == 5) { "PostContents shape unresolved" }
+        val contentsArity = contentsConstructor.parameterCount
+        require(contentsArity in 5..6 && symbols.postContentsFieldOrder.size == contentsArity) { "PostContents shape unresolved" }
 
         fun createMedia(uri: String, width: Int, height: Int, video: Boolean): Any {
             require(width > 0 && height > 0) { "Media dimensions must be positive" }
@@ -60,7 +61,8 @@ object GalleryPostModelRewriter {
         require(back.isVideo == front.isVideo) { "Front and back media must both be photos or both be videos" }
         val (backContent, backPlaceholder) = createSlot(back)
         val (frontContent, frontPlaceholder) = createSlot(front)
-        val contentsArgs = arrayOf(backContent, backPlaceholder, frontContent, frontPlaceholder, null)
+        // The optional sixth slot identifies BTS's camera; gallery pairs have no BTS.
+        val contentsArgs = arrayOf(backContent, backPlaceholder, frontContent, frontPlaceholder, null).copyOf(contentsArity)
         val contents = contentsConstructor.newInstance(*contentsArgs)
 
         val params = domainConstructor.parameterTypes

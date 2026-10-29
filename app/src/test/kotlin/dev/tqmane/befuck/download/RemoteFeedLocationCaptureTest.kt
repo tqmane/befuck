@@ -19,6 +19,8 @@ class RemoteFeedLocationCaptureTest {
     private enum class Friendship { Accepted, Pending, Rejected, Unknown }
     private class Person(val uid: String, val status: Friendship)
     private class Geo(val latitude: Double, val longitude: Double)
+    private class NullableGeo(val latitude: Double?, val longitude: Double?)
+    private class NullableRemote(val id: String, val location: NullableGeo?)
     private class Core(val id: String, val owner: Person, val point: Geo?)
     private class Image(val url: String = "https://example.invalid/back.jpg",
         val width: Int = 640, val height: Int = 480)
@@ -140,5 +142,17 @@ class RemoteFeedLocationCaptureTest {
         assertEquals("no-read" to PostLocation(35.0, 139.0, false),
             remoteReader.snapshot(model) { it == "no-read" })
         assertNull(remoteReader.snapshot(Remote("zero", location = Geo(0.0, 0.0))) { true })
+    }
+
+    @Test fun nullableRemoteCoordinatesRequireBothValuesAndPermission() {
+        val reader = RemotePostLocationSymbols(NullableRemote::class.java,
+            field(NullableRemote::class.java, "id"), field(NullableRemote::class.java, "location"),
+            field(NullableGeo::class.java, "latitude"), field(NullableGeo::class.java, "longitude"))
+        val valid = NullableRemote("nullable", NullableGeo(35.0, 139.0))
+        assertNull(reader.snapshot(valid) { false })
+        assertEquals("nullable" to PostLocation(35.0, 139.0, false), reader.snapshot(valid) { true })
+        for (location in listOf(null, NullableGeo(null, 139.0), NullableGeo(35.0, null), NullableGeo(0.0, 0.0))) {
+            assertNull(reader.snapshot(NullableRemote("missing", location)) { true })
+        }
     }
 }
