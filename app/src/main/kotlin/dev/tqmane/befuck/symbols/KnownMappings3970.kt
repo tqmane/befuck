@@ -98,6 +98,7 @@ internal object KnownMappings3970 : HostMappings("3.97.0", 3597523L) {
         HostMethod.SecondaryCameraOrigin to "N",
         HostMethod.CameraOrigin to "S",
         HostMethod.KoinResolve to "e",
+        HostMethod.ComposeTraceBegin to "z",
     )
 
     override val requiresRuntimeRecovery = true

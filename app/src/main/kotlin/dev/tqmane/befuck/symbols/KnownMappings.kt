@@ -116,4 +116,4 @@ enum class HostClass {
     ImageData,
 }
 
-enum class HostMethod { ImmutableListCopy, KoinApplication, FlowFirst, SecondaryCameraOrigin, CameraOrigin, KoinResolve }
+enum class HostMethod { ImmutableListCopy, KoinApplication, FlowFirst, SecondaryCameraOrigin, CameraOrigin, KoinResolve, ComposeTraceBegin }

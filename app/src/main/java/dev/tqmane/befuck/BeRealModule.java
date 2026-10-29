@@ -122,6 +122,7 @@ public final class BeRealModule extends XposedModule {
     private final ThreadLocal<Object> protobufMessageInfo = new ThreadLocal<>();
     private final ThreadLocal<Boolean> homeFeedModelMapping = new ThreadLocal<>();
     private final ThreadLocal<Boolean> friendsOfFriendsModelMapping = new ThreadLocal<>();
+    private final ThreadLocal<Boolean> inlineMediaComposition = new ThreadLocal<>();
     private final Map<Object, Map<String, String>> pendingAuthHeadersByBuilder =
             Collections.synchronizedMap(new WeakHashMap<>());
     private final Map<Class<?>, Field> okHttpBuilderUrlFields = new ConcurrentHashMap<>();
@@ -1462,8 +1463,17 @@ public final class BeRealModule extends XposedModule {
                                     catch (Throwable failure) { throw new IllegalStateException("Could not compose the feed download control", failure); }
                                 });
                             }
+                            Boolean previousInline = inlineMediaComposition.get();
+                            boolean ownsDownload = frame != null && !FeedPostMediaCache.hasPendingGridPostForDetail();
+                            if (ownsDownload) inlineMediaComposition.set(Boolean.TRUE);
                             try { return chain.proceed(args); }
-                            finally { if (frame != null) ComposeHookScope.pop(frame); }
+                            finally {
+                                if (ownsDownload) {
+                                    if (previousInline == null) inlineMediaComposition.remove();
+                                    else inlineMediaComposition.set(previousInline);
+                                }
+                                if (frame != null) ComposeHookScope.pop(frame);
+                            }
                         });
                 info("Hooked resolved feed-media renderer for local-only unblur and per-post downloads");
                 installCurrentPostMediaOrientationHook(classLoader);
@@ -1610,11 +1620,12 @@ public final class BeRealModule extends XposedModule {
                                 if (pullDownGridMediaUnblurLogged.compareAndSet(false, true)) info("Disabled the mi6.a isBlurred gate at its local rendering boundary");
                             }
                             final Object detailPost = selectedDetailPost;
+                            final boolean hasInlineDownload = Boolean.TRUE.equals(inlineMediaComposition.get());
                             ComposeHookScope.Frame frame = ComposeHookScope.push(composer, () -> {
                                 try {
                                     beginGroup.invoke(composer, 0x42524644);
                                     try {
-                                        if (detailPost instanceof dev.tqmane.befuck.download.FeedPostMedia) {
+                                        if (!hasInlineDownload && detailPost instanceof dev.tqmane.befuck.download.FeedPostMedia) {
                                             dev.tqmane.befuck.download.FeedPostMedia post = (dev.tqmane.befuck.download.FeedPostMedia) detailPost;
                                             Object callback = Proxy.newProxyInstance(classLoader, new Class<?>[]{functionType},
                                                     composeFunctionHandler(overlaySymbols, ignored -> {
@@ -2580,7 +2591,10 @@ public final class BeRealModule extends XposedModule {
             Field unitField = unitClass.getDeclaredField("a");
             unitField.setAccessible(true);
             Object unit = unitField.get(null);
-            Method beginTrace = tracingContext.getDeclaredMethod("z");
+            Method beginTrace = tracingContext.getDeclaredMethod(mappings.methodName(HostMethod.ComposeTraceBegin));
+            if (beginTrace.getReturnType() != Object.class || Modifier.isStatic(beginTrace.getModifiers())) {
+                throw new NoSuchMethodException("Compose tracing begin signature");
+            }
             hook(beginTrace)
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)

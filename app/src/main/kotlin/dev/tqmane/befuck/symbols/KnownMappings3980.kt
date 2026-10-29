@@ -93,6 +93,7 @@ internal object KnownMappings3980 : HostMappings("3.98.0", 3600852L) {
         HostMethod.SecondaryCameraOrigin to "N",
         HostMethod.CameraOrigin to "Q",
         HostMethod.KoinResolve to "e",
+        HostMethod.ComposeTraceBegin to "A",
     )
 
     override val postContentsArity = 6

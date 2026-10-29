@@ -326,6 +326,8 @@ public final class MetadataCheck {
 
     private static void checkLatestMapping() throws Exception {
         assert LATEST != null && LATEST != CURRENT && LATEST != LEGACY;
+        assert LATEST.methodName(HostMethod.ComposeTraceBegin).equals("A");
+        assert CURRENT.methodName(HostMethod.ComposeTraceBegin).equals("z");
         assert KnownMappings.find("3.98.0", 3600853L) == null;
         assert KnownMappings.find("3.97.1", 3600852L) == null;
         assert KnownMappings.find("3.98.1", 3600852L) == null;

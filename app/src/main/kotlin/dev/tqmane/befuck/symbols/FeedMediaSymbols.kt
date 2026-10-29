@@ -511,7 +511,13 @@ object FeedMediaSymbolResolver {
         } catch (_: Throwable) {
             false
         }
-        if (!validToString) {
+        val knownMedia = runCatching {
+            KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)
+                ?.type(HostClass.FeedPostRemoteModel, classLoader)
+                ?.getDeclaredField("primary")?.type == mediaClass
+        }.getOrDefault(false)
+        // Some host DTOs retain their serialized fields but strip toString entirely.
+        if (!validToString && !knownMedia) {
             emit(logger, "[SymbolResolver] Failed to validate PostRemoteModel media type: ${mediaClass.name}")
             return null
         }

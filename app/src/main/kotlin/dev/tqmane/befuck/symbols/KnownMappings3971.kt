@@ -94,6 +94,7 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
         HostMethod.SecondaryCameraOrigin to "O",
         HostMethod.CameraOrigin to "T",
         HostMethod.KoinResolve to "e",
+        HostMethod.ComposeTraceBegin to "z",
     )
 
 

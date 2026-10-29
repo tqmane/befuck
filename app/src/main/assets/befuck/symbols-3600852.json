@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 10,
   "version_code": 3600852,
   "package": "com.bereal.ft",
   "symbols": {
@@ -260,11 +260,139 @@
               }
             }
           },
-          "postDataOwnerUidField": {
-            "kind": "field",
-            "owner": "rag",
-            "name": "c",
-            "type": "java.lang.String"
+          "mapPlaceholderLocationSymbols": {
+            "kind": "map-placeholder-location",
+            "values": {
+              "constructors": [
+                {
+                  "kind": "constructor",
+                  "owner": "crb",
+                  "parameters": [
+                    "int",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "boolean",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double",
+                    "double",
+                    "java.lang.String",
+                    "boolean",
+                    "boolean",
+                    "boolean",
+                    "boolean"
+                  ]
+                },
+                {
+                  "kind": "constructor",
+                  "owner": "crb",
+                  "parameters": [
+                    "java.lang.String",
+                    "java.lang.String",
+                    "boolean",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "java.lang.String",
+                    "double",
+                    "double",
+                    "java.lang.String",
+                    "boolean",
+                    "boolean",
+                    "boolean",
+                    "boolean"
+                  ]
+                }
+              ],
+              "postId": {
+                "kind": "field",
+                "owner": "crb",
+                "name": "postId",
+                "type": "java.lang.String"
+              },
+              "isFriend": {
+                "kind": "field",
+                "owner": "crb",
+                "name": "isFriend",
+                "type": "boolean"
+              },
+              "latitude": {
+                "kind": "field",
+                "owner": "crb",
+                "name": "latitude",
+                "type": "double"
+              },
+              "longitude": {
+                "kind": "field",
+                "owner": "crb",
+                "name": "longitude",
+                "type": "double"
+              },
+              "fetchMethod": {
+                "kind": "method",
+                "owner": "lz8",
+                "name": "a",
+                "parameters": [
+                  "java.lang.String",
+                  "lu4"
+                ],
+                "returns": "java.lang.Object"
+              },
+              "factoryMethod": {
+                "kind": "method",
+                "owner": "lo1",
+                "name": "invoke",
+                "parameters": [
+                  "java.lang.Object",
+                  "java.lang.Object"
+                ],
+                "returns": "java.lang.Object"
+              },
+              "coroutineBridgeClass": {
+                "kind": "class",
+                "name": "hfa"
+              }
+            }
+          },
+          "friendGraphSymbols": {
+            "kind": "friend-graph",
+            "values": {
+              "query": {
+                "kind": "method",
+                "owner": "t1j",
+                "name": "invoke",
+                "parameters": [
+                  "java.lang.Object"
+                ],
+                "returns": "java.lang.Object"
+              },
+              "connectionType": {
+                "kind": "class",
+                "name": "androidx.sqlite.SQLiteConnection"
+              },
+              "statementType": {
+                "kind": "class",
+                "name": "androidx.sqlite.SQLiteStatement"
+              },
+              "friendsConverter": {
+                "kind": "method",
+                "owner": "x1j",
+                "name": "a",
+                "parameters": [
+                  "p2j"
+                ],
+                "returns": "java.lang.String"
+              },
+              "friendsType": {
+                "kind": "enum",
+                "owner": "p2j",
+                "name": "Friends"
+              }
+            }
           },
           "remotePostLocationSymbols": {
             "kind": "remote-location",
@@ -299,8 +427,12 @@
               }
             }
           },
-          "mapPlaceholderLocationSymbols": null,
-          "friendGraphSymbols": null
+          "postDataOwnerUidField": {
+            "kind": "field",
+            "owner": "rag",
+            "name": "c",
+            "type": "java.lang.String"
+          }
         }
       },
       "timelineBlurredCardComposableMethod": null,
