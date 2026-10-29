@@ -13,13 +13,6 @@ internal object PostMapMappings3980 {
             require(this.type == expected && !Modifier.isStatic(modifiers))
             isAccessible = true
         }
-        val content = type("c3a")
-        val vm = type("hfg")
-        require(type("androidx.lifecycle.ViewModel").isAssignableFrom(vm))
-        val branch = field(content, "a", Int::class.javaPrimitiveType!!)
-        val viewModel = field(content, "b", Any::class.java)
-        val displayState = field(content, "d", Any::class.java)
-        val permissionState = field(content, "e", Any::class.java)
         val state = type("androidx.compose.runtime.State")
         val read = state.getMethod("getValue").apply { require(returnType == Any::class.java) }
         val write = type("androidx.compose.runtime.MutableState").getMethod("setValue", Any::class.java)
@@ -37,17 +30,22 @@ internal object PostMapMappings3980 {
         val avatar = field(precise, "c", type("androidx.compose.ui.graphics.ImageBitmap"))
         val imageBitmap = type("androidx.compose.ui.graphics.AndroidImageBitmap")
         val bitmap = field(imageBitmap, "a", Bitmap::class.java)
-        val close = type("l9e").getDeclaredConstructor(Any::class.java, Int::class.javaPrimitiveType)
-        val closeInvoke = type("l9e").getDeclaredMethod("invoke")
-        val ask = type("uag").getDeclaredConstructor(Int::class.javaPrimitiveType, Any::class.java, Class::class.java,
-            String::class.java, String::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
-        val askInvoke = type("uag").getDeclaredMethod("invoke")
-        val render = content.getDeclaredMethod("invoke", Any::class.java, Any::class.java)
-        require(render.returnType == Any::class.java && !Modifier.isStatic(render.modifiers))
+        // bfg.c is the map body inside the host's ModalBottomSheet. Hooking c3a.invoke
+        // instead would replace the sheet itself, losing its drag and dismissal behavior.
         val modifier = type("androidx.compose.ui.Modifier")
+        val function0 = type("uo8")
+        val render = type("bfg").getDeclaredMethod("c", modifier, display,
+            Boolean::class.javaPrimitiveType, function0, type("androidx.compose.foundation.layout.PaddingValues"),
+            type("androidx.compose.runtime.Composer"), Int::class.javaPrimitiveType)
+        require(Modifier.isStatic(render.modifiers) && render.returnType == Void.TYPE)
+        val askInvoke = function0.getMethod("invoke").apply {
+            require(parameterCount == 0 && returnType == Any::class.java)
+        }
+        val closeInvoke = type("l9e").getDeclaredMethod("invoke")
         val companion = type("androidx.compose.ui.Modifier\$Companion").getDeclaredField("a").get(null)
-        val fill = type("androidx.compose.foundation.layout.SizeKt")
-            .getDeclaredMethod("e", modifier, Float::class.javaPrimitiveType).invoke(null, companion, 1f)
+        val fillMaxSize = type("androidx.compose.foundation.layout.SizeKt")
+            .getDeclaredMethod("e", modifier, Float::class.javaPrimitiveType)
+        val fill = fillMaxSize.invoke(null, companion, 1f)
         require(modifier.isInstance(fill) && fill.javaClass.name == "androidx.compose.foundation.layout.FillElement")
         require(fill.javaClass.declaredFields.filter { it.type == String::class.java }.single()
             .apply { isAccessible = true }.get(fill) == "fillMaxSize")
@@ -79,15 +77,25 @@ internal object PostMapMappings3980 {
 
         object : PostMapSymbols(render, PostMapSymbolResolver.androidView(loader, modifier), fill, unit, type("yo8"),
             read, write, closeInvoke, emptyMap(), {}) {
-            override val composerArgument = 0
-            override fun matches(owner: Any): Boolean = content.isInstance(owner) && branch.getInt(owner) == 22 &&
-                vm.isInstance(viewModel.get(owner)) && state.isInstance(displayState.get(owner)) && state.isInstance(permissionState.get(owner))
-            override fun snapshot(owner: Any) = snapshot(read.invoke(displayState.get(owner)), read.invoke(permissionState.get(owner)) == true)
-            // This version has one avatar bitmap, rather than two photo resolutions.
+            override val composerArgument = 5
+            override val inHostSheet = true
+            override fun matches(owner: Any) = display.isInstance(owner)
+            override fun snapshot(owner: Any) = snapshot(owner, false)
+            override fun snapshotInvocation(owner: Any, arguments: Array<Any?>): PostMapSnapshot {
+                require(arguments.size == 7 && arguments[1] === owner && arguments[2] is Boolean)
+                return snapshot(owner, arguments[2] == true)
+            }
+            override fun modifierForInvocation(arguments: Array<Any?>): Any {
+                // Preserve the sheet's own width, height and inset modifiers.
+                require(modifier.isInstance(arguments[0]))
+                return requireNotNull(fillMaxSize.invoke(null, arguments[0], 1f))
+            }
+            // The host sheet keeps the close button; the 3.98.0 marker has one avatar.
             override fun toggle(owner: Any) = Unit
-            override fun close(owner: Any) { closeInvoke.invoke(close.newInstance(viewModel.get(owner), 16)) }
-            override fun requestLocationPermission(owner: Any) {
-                askInvoke.invoke(ask.newInstance(0, viewModel.get(owner), vm, "onAskPermissionClick", "onAskPermissionClick()V", 0, 2))
+            override fun close(owner: Any) = Unit
+            override fun requestLocationPermissionInvocation(owner: Any, arguments: Array<Any?>) {
+                val callback = arguments.getOrNull(3)?.takeIf(function0::isInstance) ?: return
+                askInvoke.invoke(callback)
             }
         }
     }.getOrNull()
