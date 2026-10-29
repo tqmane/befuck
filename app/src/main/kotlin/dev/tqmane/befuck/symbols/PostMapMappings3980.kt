@@ -47,7 +47,7 @@ internal object PostMapMappings3980 {
         val modifier = type("androidx.compose.ui.Modifier")
         val companion = type("androidx.compose.ui.Modifier\$Companion").getDeclaredField("a").get(null)
         val fill = type("androidx.compose.foundation.layout.SizeKt")
-            .getDeclaredMethod("f", modifier, Float::class.javaPrimitiveType).invoke(null, companion, 1f)
+            .getDeclaredMethod("e", modifier, Float::class.javaPrimitiveType).invoke(null, companion, 1f)
         require(modifier.isInstance(fill) && fill.javaClass.name == "androidx.compose.foundation.layout.FillElement")
         require(fill.javaClass.declaredFields.filter { it.type == String::class.java }.single()
             .apply { isAccessible = true }.get(fill) == "fillMaxSize")
