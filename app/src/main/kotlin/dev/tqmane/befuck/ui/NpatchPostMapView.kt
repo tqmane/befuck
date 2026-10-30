@@ -29,6 +29,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
@@ -146,9 +147,8 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
             // The native sheet supplies the close button. Keep our map actions off it.
             val actions = LinearLayout(context).apply {
                 gravity = Gravity.CENTER_VERTICAL
-                setBackgroundColor(ExpressiveUi.BACKGROUND)
                 addView(photo, LayoutParams(dp(48), dp(48)))
-                addView(current, LayoutParams(dp(48), dp(48)))
+                addView(current, LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
             }
             mapContainer.addView(actions, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
                 marginStart = dp(12)
@@ -234,7 +234,11 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
         var created: MapView? = null
         try {
             MapLibre.getInstance(appContext)
-            created = MapView(renderContext)
+            // SurfaceView draws over the host sheet's rounded clip; TextureView stays inside it.
+            created = MapView(renderContext, MapLibreMapOptions.createFromAttributes(renderContext)
+                .textureMode(true)
+                .compassGravity(Gravity.BOTTOM or Gravity.END)
+                .compassMargins(intArrayOf(dp(16), dp(16), dp(16), dp(16))))
             mapView = created
             created.onCreate(null)
             mapContainer.addView(created, 0, FrameLayout.LayoutParams(-1, -1))

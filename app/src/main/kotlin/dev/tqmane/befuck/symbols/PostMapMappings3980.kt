@@ -25,8 +25,8 @@ internal object PostMapMappings3980 {
         val displayMarker = field(display, "c", marker)
         val latLng = type("com.google.android.gms.maps.model.LatLng")
         val location = marker.getMethod("getLocation").apply { require(returnType == latLng && parameterCount == 0) }
-        val latitude = field(latLng, "latitude", Double::class.javaPrimitiveType!!)
-        val longitude = field(latLng, "longitude", Double::class.javaPrimitiveType!!)
+        val latitude = field(latLng, "a", Double::class.javaPrimitiveType!!)
+        val longitude = field(latLng, "b", Double::class.javaPrimitiveType!!)
         val avatar = field(precise, "c", type("androidx.compose.ui.graphics.ImageBitmap"))
         val imageBitmap = type("androidx.compose.ui.graphics.AndroidImageBitmap")
         val bitmap = field(imageBitmap, "a", Bitmap::class.java)
