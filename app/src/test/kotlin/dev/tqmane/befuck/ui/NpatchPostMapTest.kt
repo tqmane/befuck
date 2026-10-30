@@ -197,4 +197,22 @@ class NpatchPostMapTest {
         assertFalse(image.isRecycled)
         controller.pause().stop().destroy()
     }
+
+    @Test fun hostSheetKeepsItsOwnCloseButtonAndSeparatesMapActions() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        val activity = controller.get()
+        val view = NpatchPostMapView(activity, activity.resources, hostSheet = true)
+        val mapArea = (0 until view.childCount).map(view::getChildAt).filterIsInstance<FrameLayout>().single()
+        val actions = (0 until mapArea.childCount).map(mapArea::getChildAt).filterIsInstance<ViewGroup>().single()
+        assertNull(actions.background)
+        assertEquals(2, actions.childCount)
+        for ((width, height) in listOf(320 to 720, 1200 to 800)) {
+            view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+            view.layout(0, 0, width, height)
+            assertTrue(actions.getChildAt(0).right + ExpressiveUi.dp(activity, 8) <= actions.getChildAt(1).left)
+            assertTrue(actions.right <= mapArea.width)
+        }
+        view.dispose()
+        controller.pause().stop().destroy()
+    }
 }

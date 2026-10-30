@@ -250,10 +250,19 @@ public final class BeRealModule extends XposedModule {
                 return;
             }
             hook(symbols.getRender()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                    .intercept(chain -> symbols.matches(chain.getThisObject())
-                            ? dev.tqmane.befuck.ui.NpatchPostMap.compose(symbols, chain.getThisObject(),
-                                    chain.getArg(symbols.getComposerArgument()), moduleResources)
-                            : chain.proceed());
+                    .intercept(chain -> {
+                        if (symbols.getInHostSheet()) {
+                            Object display = chain.getArg(1);
+                            return display != null && symbols.matches(display)
+                                    ? dev.tqmane.befuck.ui.NpatchPostMap.composeSheet(
+                                            symbols, display, chain.getArgs().toArray(), moduleResources)
+                                    : chain.proceed();
+                        }
+                        return symbols.matches(chain.getThisObject())
+                                ? dev.tqmane.befuck.ui.NpatchPostMap.compose(symbols, chain.getThisObject(),
+                                        chain.getArg(symbols.getComposerArgument()), moduleResources)
+                                : chain.proceed();
+                    });
             info("Installed NPatch post map using OpenStreetMap/OpenFreeMap; Google API identity unchanged");
         } catch (Throwable failure) {
             error("Could not install NPatch post map replacement", failure);

@@ -36,7 +36,11 @@ open class PostMapSymbols internal constructor(
     private val permissionActionAvailable: Boolean = true,
 ) {
     open val composerArgument: Int = 1
+    open val inHostSheet: Boolean = false
     open fun matches(owner: Any): Boolean = true
+    open fun snapshotInvocation(owner: Any, arguments: Array<Any?>): PostMapSnapshot = snapshot(owner)
+    open fun requestLocationPermissionInvocation(owner: Any, arguments: Array<Any?>) = requestLocationPermission(owner)
+    open fun modifierForInvocation(arguments: Array<Any?>): Any = fillModifier
     private fun field(name: String) = fields.getValue(name)
     private fun state(owner: Any, name: String): Any? = readState.invoke(field(name).get(owner))
 
@@ -88,8 +92,9 @@ open class PostMapSymbols internal constructor(
     open fun close(owner: Any) { back.invoke(field("navigation").get(owner)) }
     open fun requestLocationPermission(owner: Any) { if (permissionActionAvailable) askLocation(owner) }
 
-    fun compose(composer: Any, factory: (Context) -> View, update: (View) -> Unit, release: (View) -> Unit) {
-        require(androidView.parameterTypes[5].isInstance(composer))
+    fun compose(composer: Any, factory: (Context) -> View, update: (View) -> Unit, release: (View) -> Unit,
+                modifier: Any = fillModifier) {
+        require(androidView.parameterTypes[5].isInstance(composer) && androidView.parameterTypes[1].isInstance(modifier))
         fun callback(block: (Any?) -> Any?): Any = Proxy.newProxyInstance(function1.classLoader, arrayOf(function1)) { proxy, method, args ->
             when (method.name) {
                 "invoke" -> block(args?.getOrNull(0))
@@ -99,7 +104,7 @@ open class PostMapSymbols internal constructor(
                 else -> error("Unexpected Function1 method: ${method.name}")
             }
         }
-        androidView.invoke(null, callback { factory(it as Context) }, fillModifier,
+        androidView.invoke(null, callback { factory(it as Context) }, modifier,
             null, // No view reuse across different post-map compositions.
             callback { release(it as View); unit }, callback { update(it as View); unit },
             composer, 0, 0)

@@ -29,6 +29,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
@@ -45,18 +46,35 @@ import kotlin.math.*
 /** Replaces only the post-map content; the host still owns navigation and post state. */
 object NpatchPostMap {
     @JvmStatic fun compose(symbols: PostMapSymbols, owner: Any, composer: Any, resources: Resources): Any {
-        val account = ArchiveAccounts.snapshot()
         val snapshot = symbols.snapshot(owner)
+        captureDisplayedLocation(snapshot)
+        symbols.compose(composer, { NpatchPostMapView(it, resources) }, {
+            (it as NpatchPostMapView).update(snapshot, { symbols.close(owner) }, { symbols.toggle(owner) }, { symbols.requestLocationPermission(owner) })
+        }, { (it as NpatchPostMapView).dispose() })
+        return symbols.unit
+    }
+
+    /** Replace only the Google map body; the host retains its drag handle and dismiss action. */
+    @JvmStatic fun composeSheet(symbols: PostMapSymbols, display: Any, arguments: Array<Any?>, resources: Resources): Any? {
+        val snapshot = symbols.snapshotInvocation(display, arguments)
+        captureDisplayedLocation(snapshot)
+        val composer = requireNotNull(arguments.getOrNull(symbols.composerArgument))
+        symbols.compose(composer, { NpatchPostMapView(it, resources, hostSheet = true) }, {
+            (it as NpatchPostMapView).update(snapshot, {}, {}, {
+                symbols.requestLocationPermissionInvocation(display, arguments)
+            })
+        }, { (it as NpatchPostMapView).dispose() }, symbols.modifierForInvocation(arguments))
+        return null // bfg.c is a void Composable.
+    }
+
+    private fun captureDisplayedLocation(snapshot: PostMapSnapshot) {
+        val account = ArchiveAccounts.snapshot()
         if (account.uid != null) snapshot.post?.let { location ->
             runCatching {
                 FeedPostMediaCache.captureDisplayedLocation(snapshot.postId,
                     PostLocation.create(location.latitude, location.longitude, snapshot.approximate), account)
             }.onFailure { Log.w("BeFuck/Map", "Could not record the displayed post location") }
         }
-        symbols.compose(composer, { NpatchPostMapView(it, resources) }, {
-            (it as NpatchPostMapView).update(snapshot, { symbols.close(owner) }, { symbols.toggle(owner) }, { symbols.requestLocationPermission(owner) })
-        }, { (it as NpatchPostMapView).dispose() })
-        return symbols.unit
     }
 
     // Same 5km radius as the original post map. Only the host's randomized display
@@ -76,7 +94,7 @@ object NpatchPostMap {
     }
 }
 
-internal class NpatchPostMapView(context: Context, private val moduleResources: Resources) : LinearLayout(context) {
+internal class NpatchPostMapView(context: Context, private val moduleResources: Resources, private val hostSheet: Boolean = false) : LinearLayout(context) {
     private val activity = findActivity(context)
     private val mapContainer = FrameLayout(context)
     private val status = ExpressiveUi.text(context, "", 13f, ExpressiveUi.SECONDARY)
@@ -125,15 +143,28 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
     init {
         orientation = VERTICAL
         setBackgroundColor(ExpressiveUi.BACKGROUND)
-        val header = LinearLayout(context).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            addView(ExpressiveUi.iconButton(context, TablerIcon.X, text(R.string.befuck_close)) { close?.invoke() }, LayoutParams(dp(48), dp(48)))
-            addView(ExpressiveUi.text(context, text(R.string.befuck_post_map_title), 20f, bold = true), LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
-            addView(photo, LayoutParams(dp(48), dp(48)))
-            addView(current, LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
+        if (hostSheet) {
+            // The native sheet supplies the close button. Keep our map actions off it.
+            val actions = LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(photo, LayoutParams(dp(48), dp(48)))
+                addView(current, LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
+            }
+            mapContainer.addView(actions, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START).apply {
+                marginStart = dp(12)
+                topMargin = dp(12)
+            })
+        } else {
+            val header = LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(8), dp(4), dp(8), dp(4))
+                addView(ExpressiveUi.iconButton(context, TablerIcon.X, text(R.string.befuck_close)) { close?.invoke() }, LayoutParams(dp(48), dp(48)))
+                addView(ExpressiveUi.text(context, text(R.string.befuck_post_map_title), 20f, bold = true), LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+                addView(photo, LayoutParams(dp(48), dp(48)))
+                addView(current, LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
+            }
+            addView(header, LayoutParams(-1, -2))
         }
-        addView(header, LayoutParams(-1, -2))
         status.setPadding(dp(16), dp(4), dp(16), dp(8))
         status.accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         addView(status, LayoutParams(-1, -2))
@@ -145,10 +176,13 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
             gravity = Gravity.CENTER
             setPadding(dp(8), dp(8), dp(8), dp(8))
         }, LayoutParams(-1, -2))
-        @Suppress("DEPRECATION")
-        setOnApplyWindowInsetsListener { _, insets ->
-            setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
-            insets
+        // The host sheet has already applied its own window insets.
+        if (!hostSheet) {
+            @Suppress("DEPRECATION")
+            setOnApplyWindowInsetsListener { _, insets ->
+                setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                insets
+            }
         }
         updateControls()
     }
@@ -200,7 +234,11 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
         var created: MapView? = null
         try {
             MapLibre.getInstance(appContext)
-            created = MapView(renderContext)
+            // SurfaceView draws over the host sheet's rounded clip; TextureView stays inside it.
+            created = MapView(renderContext, MapLibreMapOptions.createFromAttributes(renderContext)
+                .textureMode(true)
+                .compassGravity(Gravity.BOTTOM or Gravity.END)
+                .compassMargins(intArrayOf(dp(16), dp(16), dp(16), dp(16))))
             mapView = created
             created.onCreate(null)
             mapContainer.addView(created, 0, FrameLayout.LayoutParams(-1, -1))
@@ -339,6 +377,7 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
     }
 
     private fun updateControls() {
+        status.visibility = if (hostSheet && !failed && style != null && snapshot?.post != null) GONE else VISIBLE
         current.isEnabled = !disposed && snapshot != null
         photo.isEnabled = snapshot?.bitmap != null
         photo.alpha = if (photo.isEnabled) 1f else .4f
