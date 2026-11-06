@@ -155,4 +155,8 @@
     <string name="befuck_saved_loading">Loading saved posts…</string>
     <string name="befuck_saved_load_failed">The saved index could not be read. Try refreshing.</string>
     <string name="befuck_saved_date_invalid">Enter a date as YYYY-MM-DD.</string>
+    <string name="befuck_daily_sync_section">Background synchronization</string>
+    <string name="befuck_daily_sync_toggle">Sync the feed every 24 hours</string>
+    <string name="befuck_daily_sync_hint">When enabled, BeReal periodically refreshes the feed in the background and adds newly observed posts, photo URLs and metadata to Saved posts. Photos and videos are not automatically downloaded. Android may delay the refresh to save battery.</string>
+    <string name="befuck_daily_sync_error">Could not schedule background sync. Try again.</string>
 </resources>
