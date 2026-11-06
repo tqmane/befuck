@@ -1,6 +1,7 @@
 package dev.tqmane.befuck.posting
 
 import android.app.Activity
+import android.content.Context
 import android.util.Log
 import dev.tqmane.befuck.symbols.KnownMappings
 import dev.tqmane.befuck.symbols.HostMethod
@@ -78,6 +79,89 @@ object GalleryPostController {
                 main.removeCallbacks(timeout)
                 Log.w(TAG, "Current-account provider failed (${failure.javaClass.simpleName}); archive identity remains unavailable")
                 deliver(null)
+            }
+        }
+    }
+
+    /**
+     * The periodic sync runs without an Activity. Read the authenticated account from
+     * the same host Koin provider used by the foreground archive UI.
+     */
+    @JvmStatic
+    fun readCurrentAccountInBackground(context: Context, symbols: ResolvedSymbols, completion: Consumer<String?>) {
+        val once = AtomicBoolean(false)
+        val requestedGeneration = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot().generation
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        fun deliver(uid: String?) { if (once.compareAndSet(false, true)) completion.accept(uid) }
+        val timeout = Runnable { Log.w(TAG, "Background current-user provider timed out"); deliver(null) }
+        main.postDelayed(timeout, 15000L)
+        executor.execute {
+            try {
+                val type = requireNotNull(symbols.currentUserProviderClass)
+                val method = requireNotNull(symbols.currentUserProviderMethod)
+                val uid = requireNotNull(symbols.currentUserUidField)
+                val loader = context.classLoader
+                val receiver = resolveKoinInstance(type, loader, symbols.versionName)
+                val coroutine = coroutineContext(lifecycleScope(processLifecycleOwner(loader), loader))
+                invokeSuspend(receiver, method, emptyArray(), method.parameterTypes.single(), coroutine) { user, failure ->
+                    main.removeCallbacks(timeout)
+                    val value = if (failure == null && user != null && uid.declaringClass.isInstance(user)) {
+                        runCatching { uid.get(user) as? String }.getOrNull()
+                    } else null
+                    if (failure != null) Log.w(TAG, "Background current-user provider returned an error")
+                    val validated = value?.takeIf(String::isNotBlank)
+                    if (validated != null && once.get()) {
+                        // Never resurrect the identity of an account which changed during the task.
+                        dev.tqmane.befuck.archive.ArchiveAccounts.accept(requestedGeneration, validated)
+                    } else deliver(validated)
+                }
+            } catch (failure: Throwable) {
+                main.removeCallbacks(timeout)
+                Log.w(TAG, "Background current-user provider unavailable (" + failure.javaClass.simpleName + ")")
+                deliver(null)
+            }
+        }
+    }
+
+    /** Fetch feed DTOs via the host repository without opening or mutating an Activity. */
+    @JvmStatic
+    fun refreshHomeFeedInBackground(context: Context, versionName: String?, completion: Consumer<Boolean>) {
+        if (!KnownMappings.isSupportedVersion(versionName)) {
+            completion.accept(false)
+            return
+        }
+        val once = AtomicBoolean(false)
+        fun deliver(success: Boolean) {
+            if (once.compareAndSet(false, true)) completion.accept(success)
+        }
+        executor.execute {
+            try {
+                val loader = context.classLoader
+                val stateHolderClass = Class.forName(KnownMappings.current().className(HostClass.HomeFeedStateHolder), false, loader)
+                val stateHolder = resolveKoinInstance(stateHolderClass, loader, versionName)
+                val feedSource = requireNotNull(
+                    stateHolderClass.getDeclaredField("b").apply { isAccessible = true }.get(stateHolder)
+                ) { "Feed source unavailable" }
+                val forceFetch = feedSource.javaClass.declaredMethods.singleOrNull { method ->
+                    method.name == "a" && method.parameterTypes.contentEquals(arrayOf(Boolean::class.javaPrimitiveType))
+                } ?: error("Feed force-fetch entry point unresolved")
+                forceFetch.isAccessible = true
+                val feedFlow = requireNotNull(forceFetch.invoke(feedSource, true))
+                val flowClass = Class.forName(KnownMappings.current().className(HostClass.Flow), false, loader)
+                val continuationType = Class.forName(KnownMappings.current().className(HostClass.Continuation), false, loader)
+                val first = Class.forName(KnownMappings.current().className(HostClass.FlowOperators), false, loader)
+                    .getDeclaredMethod(KnownMappings.current().methodName(HostMethod.FlowFirst), flowClass, continuationType)
+                    .apply { isAccessible = true }
+                require(flowClass.isInstance(feedFlow)) { "Feed source returned an unexpected Flow type" }
+                val feedClass = Class.forName(KnownMappings.current().className(HostClass.HomeFeed), false, loader)
+                val coroutine = coroutineContext(lifecycleScope(processLifecycleOwner(loader), loader))
+                invokeSuspend(feedFlow, first, arrayOf(feedFlow), continuationType, coroutine) { feed, failure ->
+                    if (failure != null) Log.w(TAG, "Background feed refresh returned an error")
+                    deliver(failure == null && feedClass.isInstance(feed))
+                }
+            } catch (failure: Throwable) {
+                Log.w(TAG, "Background feed refresh unavailable (" + failure.javaClass.simpleName + ")")
+                deliver(false)
             }
         }
     }
@@ -258,16 +342,29 @@ object GalleryPostController {
         }
     }
 
-    private fun lifecycleScope(activity: Activity, classLoader: ClassLoader): Any {
+    private fun lifecycleScope(owner: Any, classLoader: ClassLoader): Any {
         val lifecycleOwner = Class.forName("androidx.lifecycle.LifecycleOwner", false, classLoader)
+        require(lifecycleOwner.isInstance(owner)) { "Expected host LifecycleOwner" }
         val extension = Class.forName("androidx.lifecycle.LifecycleOwnerKt", false, classLoader)
         val candidates = extension.declaredMethods.filter { method ->
             Modifier.isStatic(method.modifiers) && method.parameterTypes.contentEquals(arrayOf(lifecycleOwner)) &&
                 method.returnType != Void.TYPE
         }
         require(candidates.size == 1) { "LifecycleOwner coroutine scope factory candidateCount=${candidates.size}" }
-        return candidates.single().apply { isAccessible = true }.invoke(null, activity)
+        return candidates.single().apply { isAccessible = true }.invoke(null, owner)
             ?: error("LifecycleOwner coroutine scope factory returned null")
+    }
+
+    /** Process-scoped coroutine context stays valid even if no BeReal Activity exists. */
+    private fun processLifecycleOwner(classLoader: ClassLoader): Any {
+        val lifecycleOwner = Class.forName("androidx.lifecycle.LifecycleOwner", false, classLoader)
+        val processType = Class.forName("androidx.lifecycle.ProcessLifecycleOwner", false, classLoader)
+        val accessor = processType.declaredMethods.singleOrNull { method ->
+            Modifier.isStatic(method.modifiers) && method.parameterCount == 0 &&
+                lifecycleOwner.isAssignableFrom(method.returnType)
+        } ?: error("ProcessLifecycleOwner accessor unavailable")
+        accessor.isAccessible = true
+        return requireNotNull(accessor.invoke(null)) { "ProcessLifecycleOwner returned null" }
     }
 
     private fun coroutineContext(scope: Any): Any {
