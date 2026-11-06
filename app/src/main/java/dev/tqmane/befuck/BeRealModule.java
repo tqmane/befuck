@@ -625,9 +625,10 @@ public final class BeRealModule extends XposedModule {
                     .intercept(chain -> {
                         Object worker = chain.getThisObject();
                         if (!DailySync.isMarkedWork(worker)) return chain.proceed();
-                        boolean success = applicationContext != null
-                                && DailySync.run(applicationContext, symbols);
-                        return DailySync.workResult(classLoader, success);
+                        if (applicationContext != null) {
+                            DailySync.run(applicationContext, symbols, worker);
+                        }
+                        return DailySync.workResult(classLoader);
                     });
             info("Installed opt-in 24-hour background feed sync worker hook");
         } catch (Throwable failure) {
