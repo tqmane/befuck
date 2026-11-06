@@ -359,12 +359,14 @@ object GalleryPostController {
     private fun processLifecycleOwner(classLoader: ClassLoader): Any {
         val lifecycleOwner = Class.forName("androidx.lifecycle.LifecycleOwner", false, classLoader)
         val processType = Class.forName("androidx.lifecycle.ProcessLifecycleOwner", false, classLoader)
-        val accessor = processType.declaredMethods.singleOrNull { method ->
-            Modifier.isStatic(method.modifiers) && method.parameterCount == 0 &&
-                lifecycleOwner.isAssignableFrom(method.returnType)
-        } ?: error("ProcessLifecycleOwner accessor unavailable")
-        accessor.isAccessible = true
-        return requireNotNull(accessor.invoke(null)) { "ProcessLifecycleOwner returned null" }
+        // BeReal 3.98.0 R8-inlines the companion accessor but retains a static singleton field.
+        val singleton = processType.declaredFields.singleOrNull { field ->
+            Modifier.isStatic(field.modifiers) && processType.isAssignableFrom(field.type)
+        } ?: error("ProcessLifecycleOwner singleton unavailable")
+        singleton.isAccessible = true
+        val owner = requireNotNull(singleton.get(null)) { "ProcessLifecycleOwner is uninitialized" }
+        require(lifecycleOwner.isInstance(owner))
+        return owner
     }
 
     private fun coroutineContext(scope: Any): Any {
