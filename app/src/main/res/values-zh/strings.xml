@@ -155,4 +155,8 @@
     <string name="befuck_saved_loading">正在加载已保存帖子…</string>
     <string name="befuck_saved_load_failed">无法读取已保存的索引。请尝试刷新。</string>
     <string name="befuck_saved_date_invalid">请输入 YYYY-MM-DD 格式的日期。</string>
+    <string name="befuck_daily_sync_section">后台同步</string>
+    <string name="befuck_daily_sync_toggle">每 24 小时同步动态</string>
+    <string name="befuck_daily_sync_hint">启用后，BeReal 会定期在后台刷新动态，并将新获取的帖子、照片网址和元数据加入已保存帖子列表。照片和视频文件本身不会自动下载。Android 省电限制可能延迟执行。</string>
+    <string name="befuck_daily_sync_error">无法安排后台同步，请重试。</string>
 </resources>
