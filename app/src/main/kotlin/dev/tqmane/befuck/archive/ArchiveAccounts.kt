@@ -1,9 +1,11 @@
 package dev.tqmane.befuck.archive
 
 import android.app.Activity
+import android.content.Context
 import dev.tqmane.befuck.posting.GalleryPostController
 import dev.tqmane.befuck.symbols.ResolvedSymbols
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.function.Consumer
 
 /** Account attribution uses the host's CURRENT-USER provider, not constructors of arbitrary author models. */
 internal object ArchiveAccounts {
@@ -51,6 +53,14 @@ internal object ArchiveAccounts {
             GalleryPostController.readCurrentAccount(activity, symbols, callback)
         }, completion)
     }
+    /** Periodic synchronization resolves account identity from the host's process scope. */
+    @JvmStatic
+    fun refreshInBackground(context: Context, symbols: ResolvedSymbols, completion: Consumer<Scope>) {
+        resolve(true, android.os.SystemClock.elapsedRealtime(), { callback ->
+            GalleryPostController.readCurrentAccountInBackground(context, symbols, callback)
+        }) { scope -> completion.accept(scope) }
+    }
+
     /** Explicit archive opens join the current read instead of capturing its unresolved scope. */
     internal fun resolve(force: Boolean, now: Long, read: (java.util.function.Consumer<String?>) -> Unit, completion: ((Scope) -> Unit)? = null) {
         var immediate: Scope? = null
