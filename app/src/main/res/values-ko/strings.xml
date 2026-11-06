@@ -155,4 +155,8 @@
     <string name="befuck_saved_loading">저장 목록 불러오는 중…</string>
     <string name="befuck_saved_load_failed">저장 목록을 불러오지 못했습니다. 다시 시도해 보세요.</string>
     <string name="befuck_saved_date_invalid">YYYY-MM-DD 형식으로 날짜를 입력하세요.</string>
+    <string name="befuck_daily_sync_section">백그라운드 동기화</string>
+    <string name="befuck_daily_sync_toggle">24시간마다 피드 동기화</string>
+    <string name="befuck_daily_sync_hint">활성화하면 BeReal 피드를 백그라운드에서 주기적으로 가져와 새로운 게시물, 사진 URL, 메타데이터를 저장된 게시물 목록에 추가합니다. 사진과 동영상 파일 자체는 자동 다운로드하지 않습니다. Android 절전 설정으로 실행이 지연될 수 있습니다.</string>
+    <string name="befuck_daily_sync_error">백그라운드 동기화를 예약하지 못했습니다. 다시 시도하세요.</string>
 </resources>
