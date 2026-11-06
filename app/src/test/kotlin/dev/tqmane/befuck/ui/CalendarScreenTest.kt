@@ -154,7 +154,7 @@ class CalendarScreenTest {
             BeFuckGalleryUi.openSettings(activity,activity.resources)
             val dialog=ShadowDialog.getLatestDialog(); val root=content(dialog)
             val switches=views(root).filterIsInstance<MaterialSwitch>()
-            assertEquals(3,switches.size)
+            assertEquals(4,switches.size)
             assertTrue(switches.all { it.context.resources===activity.resources && it.context.theme!==hostTheme })
             val automatic=tagged(root,"setting-auto_repair") as MaterialSwitch
             assertTrue(automatic.isChecked); automatic.performClick()
