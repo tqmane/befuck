@@ -57,6 +57,7 @@ import dev.tqmane.befuck.symbols.HostMappings;
 import dev.tqmane.befuck.symbols.HostMethod;
 import dev.tqmane.befuck.symbols.HostClass;
 import dev.tqmane.befuck.runtime.RuntimeKnowledge;
+import dev.tqmane.befuck.runtime.DailySync;
 import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
 import dev.tqmane.befuck.posting.BeFakeUploadController;
@@ -600,12 +601,38 @@ public final class BeRealModule extends XposedModule {
         installBeFakeAuthHeaderCapture(classLoader);
         installComposeInjectionScope(classLoader);
         installFeedMediaCaptureAndUnblur(classLoader, symbols);
+        installDailyFeedSync(classLoader, symbols);
         installHomeGridPostTileUnblurHook(classLoader, symbols);
         installFeedOptionsCanBlurHooks(classLoader, symbols);
         installBeFuckGalleryFeature(classLoader, symbols);
         installRealMojiDownloadMenu(classLoader);
         installFeedAdSelectionSuppression(classLoader);
         installAdViewSuppression();
+    }
+
+    /**
+     * Hook only the periodically scheduled, explicitly marked BeFuck work.
+     * Unmarked DiagnosticsWorker instances retain their original AndroidX behavior.
+     * The Worker class and WorkManager database belong to the host application.
+     */
+    private void installDailyFeedSync(ClassLoader classLoader, ResolvedSymbols symbols) {
+        try {
+            Class<?> diagnostics = Class.forName(
+                    "androidx.work.impl.workers.DiagnosticsWorker", false, classLoader);
+            Method doWork = diagnostics.getDeclaredMethod("doWork");
+            hook(doWork)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> {
+                        Object worker = chain.getThisObject();
+                        if (!DailySync.isMarkedWork(worker)) return chain.proceed();
+                        boolean success = applicationContext != null
+                                && DailySync.run(applicationContext, symbols);
+                        return DailySync.workResult(classLoader, success);
+                    });
+            info("Installed opt-in 24-hour background feed sync worker hook");
+        } catch (Throwable failure) {
+            error("Could not install the background feed sync worker hook", failure);
+        }
     }
 
     private void installRealMojiDownloadMenu(ClassLoader loader) {
