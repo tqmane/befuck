@@ -16,29 +16,31 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 
 /**
- * Periodic work belongs to the hooked BeReal process and its WorkManager database.
- * A dedicated manifest Worker is impossible for an LSPosed-only module because
- * BeReal's package manifest cannot register a service from the separate module APK.
+ * Opt-in feed URL/metadata synchronization in the target's WorkManager process.
  *
- * WorkManager's built-in DiagnosticsWorker is used only as a process entry point.
- * Our input marker separates BeFuck work from genuine diagnostics requests.
- * Never invoke the diagnostics implementation for marked work.
+ * The separate LSPosed APK cannot register a Worker in BeReal's manifest. BeReal
+ * 3.98.0 also does not expose unique periodic WorkManager enqueue after R8.
+ * Instead we schedule a uniquely named *one-time* DiagnosticsWorker and hook
+ * only jobs carrying our private input marker. Each run schedules its successor
+ * for 24 hours later, with alternating unique names to avoid KEEP of RUNNING work.
+ * No token, Authorization header, or downloaded media is persisted by this class.
  */
 internal object DailySync {
     private const val TAG = "BeFuck/DailySync"
     private const val PREFERENCES = "befuck_daily_sync"
     private const val ENABLED = "enabled"
+    private const val PENDING_SLOT = "pending_slot"
     private const val LAST_SUCCESS = "last_success"
-    private const val UNIQUE_WORK = "befuck.daily_feed_sync.v1"
     private const val INPUT_KEY = "dev.tqmane.befuck.daily_sync"
+    private const val INPUT_SLOT = "dev.tqmane.befuck.daily_sync.slot"
     private const val INPUT_VALUE = "v1"
     private const val WORKER = "androidx.work.impl.workers.DiagnosticsWorker"
-    private const val INTERVAL_HOURS = 24L
+    private const val DELAY_HOURS = 24L
 
     private val scheduler = Executors.newSingleThreadExecutor { job ->
         Thread(job, "BeFuckDailySyncScheduler")
     }
-    private val scheduling = AtomicBoolean(false)
+    private val reconciling = AtomicBoolean(false)
 
     @JvmStatic
     fun enabled(context: Context): Boolean =
@@ -48,60 +50,81 @@ internal object DailySync {
     fun lastSuccess(context: Context): Long =
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getLong(LAST_SUCCESS, 0L)
 
-    /** Explicit user opt-in; do not schedule daily requests by default. */
+    /** Never schedule or download anything without an explicit opt-in. */
     @JvmStatic
     fun configure(context: Context, value: Boolean): Boolean {
         val app = context.applicationContext ?: context
         val preferences = app.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        return if (value) {
-            try {
-                enqueue(app)
-                preferences.edit().putBoolean(ENABLED, true).commit()
-            } catch (failure: Throwable) {
-                Log.w(TAG, "Could not enable periodic sync (" + failure.javaClass.simpleName + ")")
-                false
-            }
-        } else {
-            // Disable the hook even if cancellation fails; never fetch while disabled.
-            preferences.edit().putBoolean(ENABLED, false).commit()
+        if (!value) {
+            preferences.edit().putBoolean(ENABLED, false).remove(PENDING_SLOT).commit()
             runCatching { cancel(app) }
-                .onFailure { Log.w(TAG, "Could not cancel periodic work (" + it.javaClass.simpleName + ")") }
+                .onFailure { Log.w(TAG, "Background work cancellation incomplete (" + it.javaClass.simpleName + ")") }
+            return true
+        }
+        preferences.edit().putBoolean(ENABLED, true).commit()
+        return try {
+            // The first run is due immediately; subsequent runs are delayed by 24 hours.
+            val slot = preferences.getString(PENDING_SLOT, null) ?: "a"
+            enqueue(app, slot, 0L)
             true
+        } catch (failure: Throwable) {
+            preferences.edit().putBoolean(ENABLED, false).remove(PENDING_SLOT).commit()
+            Log.w(TAG, "Could not schedule daily feed sync (" + failure.javaClass.simpleName + ")")
+            false
         }
     }
 
-    /** After an app update, KEEP reconciles the previous 24-hour schedule without resetting its interval. */
+    /** Reconcile a pending one-time job after app/module updates without changing its due time. */
     @JvmStatic
     fun reconcile(context: Context) {
         val app = context.applicationContext ?: context
-        if (!enabled(app) || !scheduling.compareAndSet(false, true)) return
+        if (!enabled(app) || !reconciling.compareAndSet(false, true)) return
         scheduler.execute {
-            try { enqueue(app) }
-            catch (failure: Throwable) {
-                Log.w(TAG, "Periodic work reconciliation failed (" + failure.javaClass.simpleName + ")")
-            } finally { scheduling.set(false) }
+            try {
+                val slot = preferences(app).getString(PENDING_SLOT, null) ?: "a"
+                enqueue(app, slot, DELAY_HOURS)
+            } catch (failure: Throwable) {
+                Log.w(TAG, "Background sync schedule reconciliation failed (" + failure.javaClass.simpleName + ")")
+            } finally {
+                reconciling.set(false)
+            }
         }
     }
 
+    /** Check all input markers and never replace an unmarked host diagnostics run. */
     @JvmStatic
-    fun isMarkedWork(worker: Any): Boolean = runCatching {
-        if (worker.javaClass.name != WORKER) return@runCatching false
-        val data = allMethods(worker.javaClass).firstOrNull {
-            it.name == "getInputData" && it.parameterCount == 0
-        }?.apply { isAccessible = true }?.invoke(worker) ?: return@runCatching false
-        val getString = allMethods(data.javaClass).firstOrNull {
-            it.parameterCount == 1 && it.parameterTypes[0] == String::class.java &&
-                it.returnType == String::class.java
-        } ?: return@runCatching false
-        getString.isAccessible = true
-        getString.invoke(data, INPUT_KEY) == INPUT_VALUE
-    }.getOrDefault(false)
+    fun isMarkedWork(worker: Any): Boolean =
+        worker.javaClass.name == WORKER && inputDataString(worker, INPUT_KEY) == INPUT_VALUE
 
-    /** Executed on the host's WorkManager thread. No Activity or persistent auth token is required. */
+    /** Return the host's own WorkManager Result; never pass an Xposed module type. */
     @JvmStatic
-    fun run(context: Context, symbols: ResolvedSymbols?): Boolean {
-        if (!enabled(context) || symbols == null) return false
+    fun workResult(loader: ClassLoader): Any {
+        val resultType = Class.forName("androidx.work.ListenableWorker\$Result", false, loader)
+        val successType = Class.forName("androidx.work.ListenableWorker\$Result\$Success", false, loader)
+        val factory = allMethods(resultType).singleOrNull {
+            Modifier.isStatic(it.modifiers) && it.parameterCount == 0 &&
+                successType.isAssignableFrom(it.returnType)
+        } ?: error("WorkManager Result.Success factory is missing")
+        factory.isAccessible = true
+        return requireNotNull(factory.invoke(null))
+    }
+
+    /** Executes on WorkManager's background worker thread, without a visible Activity. */
+    @JvmStatic
+    fun run(context: Context, symbols: ResolvedSymbols?, worker: Any): Boolean {
         val app = context.applicationContext ?: context
+        if (!enabled(app) || !isMarkedWork(worker)) return false
+        try {
+            val currentSlot = inputDataString(worker, INPUT_SLOT) ?: return failure("slot_unavailable")
+            if (currentSlot != "a" && currentSlot != "b") return failure("invalid_slot")
+            // Register before completing this job: its own name is still RUNNING.
+            // A and B alternate so KEEP never suppresses the 24-hour successor.
+            enqueue(app, if (currentSlot == "a") "b" else "a", DELAY_HOURS)
+        } catch (failure: Throwable) {
+            Log.w(TAG, "Could not register the next daily sync (" + failure.javaClass.simpleName + ")")
+            return false
+        }
+        if (symbols == null) return failure("host_symbols_unavailable")
         FeedPostMediaCache.initialize(app)
         val accountLatch = CountDownLatch(1)
         var account: ArchiveAccounts.Scope? = null
@@ -113,7 +136,6 @@ internal object DailySync {
             if (!accountLatch.await(22, TimeUnit.SECONDS)) return failure("account_timeout")
             val scope = account ?: return failure("account_unavailable")
             if (scope.uid.isNullOrEmpty() || scope != ArchiveAccounts.snapshot()) return failure("account_unavailable")
-
             val feedLatch = CountDownLatch(1)
             var feedLoaded = false
             GalleryPostController.refreshHomeFeedInBackground(app, symbols.versionName, Consumer { loaded ->
@@ -123,147 +145,161 @@ internal object DailySync {
             if (!feedLatch.await(100, TimeUnit.SECONDS)) return failure("feed_timeout")
             if (!feedLoaded || scope != ArchiveAccounts.snapshot()) return failure("feed_unavailable")
 
-            // Feed hooks enqueue SQLite writes asynchronously. Wait for all preceding captures.
+            // Host deserializer hooks enqueue SQLite writes asynchronously.
             val storageLatch = CountDownLatch(1)
             ArchiveRepository.executor.execute { storageLatch.countDown() }
             if (!storageLatch.await(30, TimeUnit.SECONDS)) return failure("archive_timeout")
             if (ArchiveRepository.lastError != null || scope != ArchiveAccounts.snapshot()) {
                 return failure("archive_unavailable")
             }
-            app.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-                .edit().putLong(LAST_SUCCESS, System.currentTimeMillis()).apply()
-            Log.i(TAG, "Periodic host feed refresh and archive capture finished")
+            preferences(app).edit().putLong(LAST_SUCCESS, System.currentTimeMillis()).apply()
+            Log.i(TAG, "Daily host feed refresh completed; observed post URLs were archived")
             return true
         } catch (interrupted: InterruptedException) {
             Thread.currentThread().interrupt()
             return failure("interrupted")
         } catch (failure: Throwable) {
-            Log.w(TAG, "Periodic feed refresh failed (" + failure.javaClass.simpleName + ")")
+            Log.w(TAG, "Daily feed sync failed (" + failure.javaClass.simpleName + ")")
             return false
         }
     }
 
+    private fun preferences(context: Context) =
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+
     private fun failure(reason: String): Boolean {
-        Log.w(TAG, "Periodic feed refresh incomplete: " + reason)
+        Log.w(TAG, "Daily feed refresh incomplete: " + reason)
         return false
     }
 
-    /** Result factory comes from the target's WorkManager classloader, not the module classloader. */
-    @JvmStatic
-    fun workResult(loader: ClassLoader, success: Boolean): Any {
-        val resultType = Class.forName("androidx.work.ListenableWorker\$Result", false, loader)
-        val name = if (success) "success" else "retry"
-        val factory = allMethods(resultType).firstOrNull {
-            it.name == name && Modifier.isStatic(it.modifiers) &&
-                it.parameterCount == 0 && resultType.isAssignableFrom(it.returnType)
-        } ?: error("WorkManager Result." + name + "() is unavailable")
-        factory.isAccessible = true
-        return requireNotNull(factory.invoke(null))
-    }
+    private fun inputDataString(worker: Any, key: String): String? = runCatching {
+        val data = allMethods(worker.javaClass).firstOrNull {
+            it.name == "getInputData" && it.parameterCount == 0
+        }?.apply { isAccessible = true }?.invoke(worker) ?: return@runCatching null
+        val getter = allMethods(data.javaClass).singleOrNull {
+            it.parameterTypes.contentEquals(arrayOf(String::class.java)) &&
+                it.returnType == String::class.java
+        } ?: return@runCatching null
+        getter.isAccessible = true
+        getter.invoke(data, key) as? String
+    }.getOrNull()
 
-    private fun enqueue(context: Context) {
+    /** Match the minified AndroidX methods by signatures, not unobfuscated names. */
+    private fun enqueue(context: Context, slot: String, delayHours: Long) {
+        require(slot == "a" || slot == "b")
         val loader = context.classLoader
         val worker = Class.forName(WORKER, false, loader)
         val dataType = Class.forName("androidx.work.Data", false, loader)
         val dataBuilderType = Class.forName("androidx.work.Data\$Builder", false, loader)
         val dataBuilder = dataBuilderType.getDeclaredConstructor().newInstance()
-        val putString = allMethods(dataBuilderType).firstOrNull {
-            it.parameterTypes.contentEquals(arrayOf(String::class.java, String::class.java)) &&
+        val writer = allMethods(dataBuilderType).singleOrNull {
+            it.parameterCount == 2 && it.parameterTypes[0] == String::class.java &&
+                (it.parameterTypes[1] == Any::class.java || it.parameterTypes[1] == String::class.java) &&
                 (it.returnType == Void.TYPE || dataBuilderType.isAssignableFrom(it.returnType))
-        } ?: error("WorkManager Data string writer unavailable")
-        putString.isAccessible = true
-        putString.invoke(dataBuilder, INPUT_KEY, INPUT_VALUE)
-        val buildData = allMethods(dataBuilderType).firstOrNull {
+        } ?: error("Host WorkManager Data writer unavailable")
+        writer.isAccessible = true
+        writer.invoke(dataBuilder, INPUT_KEY, INPUT_VALUE)
+        writer.invoke(dataBuilder, INPUT_SLOT, slot)
+        val data = allMethods(dataBuilderType).singleOrNull {
             it.parameterCount == 0 && it.returnType == dataType
-        } ?: error("WorkManager Data builder unavailable")
-        buildData.isAccessible = true
-        val data = requireNotNull(buildData.invoke(dataBuilder))
+        }?.apply { isAccessible = true }?.invoke(dataBuilder) ?: error("Host WorkManager Data build unavailable")
 
-        val builderType = Class.forName("androidx.work.PeriodicWorkRequest\$Builder", false, loader)
-        val requestType = Class.forName("androidx.work.PeriodicWorkRequest", false, loader)
+        val requestBuilderType = Class.forName("androidx.work.OneTimeWorkRequest\$Builder", false, loader)
+        val requestType = Class.forName("androidx.work.OneTimeWorkRequest", false, loader)
         val baseBuilderType = Class.forName("androidx.work.WorkRequest\$Builder", false, loader)
-        val builder = builderType.declaredConstructors.firstOrNull {
-            it.parameterTypes.contentEquals(arrayOf(Class::class.java, Long::class.javaPrimitiveType, TimeUnit::class.java))
-        }?.apply { isAccessible = true }?.newInstance(worker, INTERVAL_HOURS, TimeUnit.HOURS)
-            ?: error("PeriodicWorkRequest.Builder(Class,long,TimeUnit) unavailable")
-
-        val inputSetter = allMethods(builderType).firstOrNull {
+        val builder = requestBuilderType.getDeclaredConstructor(Class::class.java).newInstance(worker)
+        val setInput = allMethods(requestBuilderType).singleOrNull {
             it.parameterTypes.contentEquals(arrayOf(dataType)) &&
                 baseBuilderType.isAssignableFrom(it.returnType)
-        } ?: error("PeriodicWorkRequest input setter unavailable")
-        inputSetter.isAccessible = true
-        inputSetter.invoke(builder, data)
+        } ?: error("Host WorkManager WorkRequest input setter unavailable")
+        setInput.isAccessible = true
+        setInput.invoke(builder, data)
 
-        // Network gating prevents a 24-hour run from consuming a retry while offline.
+        val setDelay = allMethods(requestBuilderType).singleOrNull {
+            it.parameterTypes.contentEquals(arrayOf(Long::class.javaPrimitiveType, TimeUnit::class.java)) &&
+                baseBuilderType.isAssignableFrom(it.returnType)
+        } ?: error("Host WorkManager initial delay setter unavailable")
+        setDelay.isAccessible = true
+        setDelay.invoke(builder, delayHours, TimeUnit.HOURS)
+
         val constraintsBuilderType = Class.forName("androidx.work.Constraints\$Builder", false, loader)
         val networkType = Class.forName("androidx.work.NetworkType", false, loader)
         val constraintsType = Class.forName("androidx.work.Constraints", false, loader)
-        val connected = requireNotNull(networkType.enumConstants)
-            .firstOrNull { (it as Enum<*>).name == "CONNECTED" }
-            ?: error("WorkManager CONNECTED network type unavailable")
+        val connected = networkType.enumConstants?.firstOrNull { (it as Enum<*>).name == "CONNECTED" }
+            ?: error("CONNECTED network requirement unavailable")
         val constraintsBuilder = constraintsBuilderType.getDeclaredConstructor().newInstance()
-        val networkSetter = allMethods(constraintsBuilderType).firstOrNull {
+        val setNetwork = allMethods(constraintsBuilderType).singleOrNull {
             it.parameterTypes.contentEquals(arrayOf(networkType))
-        } ?: error("WorkManager network constraint unavailable")
-        networkSetter.isAccessible = true
-        networkSetter.invoke(constraintsBuilder, connected)
-        val constraints = allMethods(constraintsBuilderType).firstOrNull {
+        } ?: error("Host WorkManager network constraint unavailable")
+        setNetwork.isAccessible = true
+        setNetwork.invoke(constraintsBuilder, connected)
+        val constraints = allMethods(constraintsBuilderType).singleOrNull {
             it.parameterCount == 0 && it.returnType == constraintsType
         }?.apply { isAccessible = true }?.invoke(constraintsBuilder)
-            ?: error("WorkManager constraints builder unavailable")
+            ?: error("Host WorkManager constraints builder unavailable")
         val specType = Class.forName("androidx.work.impl.model.WorkSpec", false, loader)
-        val spec = allFields(builderType).singleOrNull { it.type == specType }
+        val spec = allFields(requestBuilderType).singleOrNull { it.type == specType }
             ?.apply { isAccessible = true }?.get(builder)
-            ?: error("PeriodicWorkRequest WorkSpec unavailable")
-        allFields(specType).singleOrNull { it.type == constraintsType }
-            ?.apply { isAccessible = true }?.set(spec, constraints)
-            ?: error("WorkSpec constraints setter unavailable")
+            ?: error("Host WorkSpec unavailable")
+        val constraintField = allFields(specType).singleOrNull { it.type == constraintsType }
+            ?: error("Host WorkSpec constraints field unavailable")
+        constraintField.isAccessible = true
+        constraintField.set(spec, constraints)
 
-        val request = allMethods(builderType).firstOrNull {
-            it.name == "build" && it.parameterCount == 0 && requestType.isAssignableFrom(it.returnType)
+        val request = allMethods(requestBuilderType).firstOrNull {
+            it.parameterCount == 0 && requestType.isAssignableFrom(it.returnType)
         }?.apply { isAccessible = true }?.invoke(builder)
-            ?: allMethods(builderType).firstOrNull {
-                it.parameterCount == 0 && requestType.isAssignableFrom(it.returnType) &&
+            ?: allMethods(requestBuilderType).singleOrNull {
+                it.parameterCount == 0 && it.returnType.name == "androidx.work.WorkRequest" &&
                     Modifier.isFinal(it.modifiers)
             }?.apply { isAccessible = true }?.invoke(builder)
-            ?: error("PeriodicWorkRequest build unavailable")
-
+            ?: error("Host WorkRequest build unavailable")
+        require(requestType.isInstance(request)) { "Host WorkManager did not build a OneTimeWorkRequest" }
         val manager = manager(context, loader)
         val managerType = Class.forName("androidx.work.WorkManager", false, loader)
-        val policyType = Class.forName("androidx.work.ExistingPeriodicWorkPolicy", false, loader)
-        val keep = requireNotNull(policyType.enumConstants).firstOrNull {
-            (it as Enum<*>).name == "KEEP"
-        } ?: error("ExistingPeriodicWorkPolicy.KEEP unavailable")
-        val enqueue = allMethods(managerType).firstOrNull {
+        val policyType = Class.forName("androidx.work.ExistingWorkPolicy", false, loader)
+        val keep = policyType.enumConstants?.firstOrNull { (it as Enum<*>).name == "KEEP" }
+            ?: error("Host ExistingWorkPolicy.KEEP unavailable")
+        val enqueue = allMethods(managerType).singleOrNull {
             it.parameterCount == 3 && it.parameterTypes[0] == String::class.java &&
                 it.parameterTypes[1] == policyType && it.parameterTypes[2].isInstance(request)
-        } ?: error("Unique periodic WorkManager enqueue unavailable")
+        } ?: error("Host unique one-time enqueue method unavailable")
         enqueue.isAccessible = true
-        enqueue.invoke(manager, UNIQUE_WORK, keep, request)
+        enqueue.invoke(manager, workName(slot), keep, request)
+        // The WorkManager operation has been accepted asynchronously, and the
+        // pending slot can safely be retained for reconciliation after process death.
+        preferences(context).edit().putString(PENDING_SLOT, slot).apply()
     }
+
+    private fun workName(slot: String) = "befuck.daily_feed_sync.$slot.v1"
 
     private fun cancel(context: Context) {
         val loader = context.classLoader
         val manager = manager(context, loader)
         val managerType = Class.forName("androidx.work.WorkManager", false, loader)
-        val cancel = allMethods(managerType).firstOrNull {
+        val operationType = Class.forName("androidx.work.Operation", false, loader)
+        val actions = allMethods(managerType).filter {
             it.parameterTypes.contentEquals(arrayOf(String::class.java)) &&
-                it.name == "cancelUniqueWork"
-        } ?: error("WorkManager.cancelUniqueWork unavailable")
-        cancel.isAccessible = true
-        cancel.invoke(manager, UNIQUE_WORK)
+                operationType.isAssignableFrom(it.returnType)
+        }
+        // Minified WorkManager retains both cancelUniqueWork and cancelAllWorkByTag.
+        // Calling both with private, unique BeFuck names is safe, independent of R8 names.
+        for (slot in listOf("a", "b")) for (action in actions) {
+            action.isAccessible = true
+            action.invoke(manager, workName(slot))
+        }
     }
 
     private fun manager(context: Context, loader: ClassLoader): Any {
-        val managerClass = Class.forName("androidx.work.WorkManager", false, loader)
-        val implClass = Class.forName("androidx.work.impl.WorkManagerImpl", false, loader)
-        val factory = allMethods(implClass).firstOrNull {
+        val managerType = Class.forName("androidx.work.WorkManager", false, loader)
+        val implType = Class.forName("androidx.work.impl.WorkManagerImpl", false, loader)
+        val accessor = allMethods(implType).singleOrNull {
             Modifier.isStatic(it.modifiers) &&
                 it.parameterTypes.contentEquals(arrayOf(Context::class.java)) &&
-                managerClass.isAssignableFrom(it.returnType)
-        } ?: error("Host WorkManager instance factory unavailable")
-        factory.isAccessible = true
-        return requireNotNull(factory.invoke(null, context))
+                managerType.isAssignableFrom(it.returnType)
+        } ?: error("Host WorkManager instance accessor unavailable")
+        accessor.isAccessible = true
+        return requireNotNull(accessor.invoke(null, context))
     }
 
     private fun allMethods(type: Class<*>): List<Method> =
