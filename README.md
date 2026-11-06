@@ -43,6 +43,10 @@ Saved files location: `Pictures/BeFuck` or `Movies/BeFuck`.
 
 After a BeReal or module update, symbol signatures are rebuilt automatically on the next launch. Saved posts, SQLite backups and feature settings are retained.
 
+## Background feed sync (opt-in)
+
+Open **Settings → Background synchronization → Sync the feed every 24 hours** to enable background feed refresh. BeFuck uses BeReal's own WorkManager and logged-in repository to load accessible current-feed posts, recording newly observed media URLs and post metadata into the Saved posts SQLite archive. The first refresh is queued immediately; later attempts are queued approximately 24 hours apart. Android Doze/battery policy may delay execution, and a force-stopped app cannot run scheduled jobs. **This indexes photos/videos but does not automatically download media files** or backfill old posts not returned by the current feed. No credentials are persisted by BeFuck. Disable this switch to stop future network refreshes. See [architecture and limitations](docs/daily-sync.md).
+
 ## Build
 
 Requires JDK 17+ and Android SDK.
