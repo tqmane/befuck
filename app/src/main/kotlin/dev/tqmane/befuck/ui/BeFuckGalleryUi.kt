@@ -51,6 +51,7 @@ import dev.tqmane.befuck.download.FeedPostMedia
 import dev.tqmane.befuck.download.FeedPostMediaCache
 import dev.tqmane.befuck.download.PostMediaMetadata
 import dev.tqmane.befuck.runtime.RuntimeKnowledge
+import dev.tqmane.befuck.runtime.DailySync
 import dev.tqmane.befuck.posting.GalleryMediaFile
 import dev.tqmane.befuck.posting.LocationData
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders
@@ -150,6 +151,7 @@ object BeFuckGalleryUi {
         activeActivity = WeakReference(activity)
         FeedPostMediaCache.initialize(activity.applicationContext)
         dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols, force = true)
+        DailySync.reconcile(activity.applicationContext)
         BeFakeLocationDialog.onActivityResume(activity)
         SavedPreviewSession.resume(activity)
         if (resources == null) {
@@ -1184,6 +1186,25 @@ object BeFuckGalleryUi {
                 toggles[key] = control
                 column.addView(grouped(control,index,3),gapParams(activity,0,0,0,4))
             }
+        section(R.string.befuck_daily_sync_section)
+        val dailySyncToggle = MaterialControls.switch(activity,resources).apply {
+            tag = "setting-daily-sync"
+            text = resources.getString(R.string.befuck_daily_sync_toggle)
+            minHeight = dp(activity,72)
+            setPadding(dp(activity,20),dp(activity,16),dp(activity,20),dp(activity,16))
+            isChecked = DailySync.enabled(activity)
+            setOnCheckedChangeListener { _, checked ->
+                if (refreshing) return@setOnCheckedChangeListener
+                val changed = DailySync.configure(activity, checked)
+                if (!changed) {
+                    refreshing = true
+                    try { isChecked = DailySync.enabled(activity) } finally { refreshing = false }
+                    Toast.makeText(activity, resources.getString(R.string.befuck_daily_sync_error), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        column.addView(grouped(dailySyncToggle,0,1),gapParams(activity,0,0,0,4))
+        column.addView(label(activity,resources.getString(R.string.befuck_daily_sync_hint)),gapParams(activity,4,8,4,28))
         column.addView(label(activity,resources.getString(R.string.befuck_settings_recovery_hint)),gapParams(activity,4,10,4,28))
         section(R.string.befuck_settings_recovery_section)
         fun item(label: Int, icon: TablerIcon, index: Int, count: Int, action: () -> Unit) {
