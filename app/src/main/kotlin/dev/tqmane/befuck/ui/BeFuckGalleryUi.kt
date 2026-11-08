@@ -51,6 +51,7 @@ import dev.tqmane.befuck.download.FeedPostMedia
 import dev.tqmane.befuck.download.FeedPostMediaCache
 import dev.tqmane.befuck.download.PostMediaMetadata
 import dev.tqmane.befuck.runtime.RuntimeKnowledge
+import dev.tqmane.befuck.runtime.DailySync
 import dev.tqmane.befuck.posting.GalleryMediaFile
 import dev.tqmane.befuck.posting.LocationData
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders
@@ -98,14 +99,14 @@ object BeFuckGalleryUi {
         private val activity: Activity,
         val root: ViewGroup,
         val resources: Resources,
-        private val symbols: ResolvedSymbols,
+        private val symbols: ResolvedSymbols?,
     ) : Runnable {
         override fun run() {
             if (activity.isFinishing || activity.isDestroyed || activity.window?.decorView !== root) {
                 onActivityPause(activity)
                 return
             }
-            dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols)
+            if (symbols != null) dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols)
             val onHome = reconcileEntry(activity, root, resources, symbols)
             if (onHome) removeDetailDownloadButton(activity)
             mainThread.postDelayed(this, 900L)
@@ -145,11 +146,12 @@ object BeFuckGalleryUi {
     private data class InlineFeedDownloadTarget(val post: FeedPostMedia)
 
     @JvmStatic
-    fun installEntryButton(activity: Activity, resources: Resources?, symbols: ResolvedSymbols) {
+    fun installEntryButton(activity: Activity, resources: Resources?, symbols: ResolvedSymbols?) {
         if (activity.isFinishing || activity.isDestroyed) return
         activeActivity = WeakReference(activity)
         FeedPostMediaCache.initialize(activity.applicationContext)
-        dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols, force = true)
+        if (symbols != null) dev.tqmane.befuck.archive.ArchiveAccounts.refresh(activity, symbols, force = true)
+        DailySync.reconcile(activity.applicationContext)
         BeFakeLocationDialog.onActivityResume(activity)
         SavedPreviewSession.resume(activity)
         if (resources == null) {
@@ -200,7 +202,7 @@ object BeFuckGalleryUi {
         }
     }
 
-    private fun reconcileEntry(activity: Activity, root: ViewGroup, resources: Resources, symbols: ResolvedSymbols): Boolean {
+    private fun reconcileEntry(activity: Activity, root: ViewGroup, resources: Resources, symbols: ResolvedSymbols?): Boolean {
         val onHome = isHomeFeed(activity, root)
         val wasHome = lastHomeState.put(activity, onHome)
         val entry = findEntry(root)
@@ -1184,6 +1186,49 @@ object BeFuckGalleryUi {
                 toggles[key] = control
                 column.addView(grouped(control,index,3),gapParams(activity,0,0,0,4))
             }
+        section(R.string.befuck_daily_sync_section)
+        val dailySyncToggle = MaterialControls.switch(activity,resources).apply {
+            tag = "setting-daily-sync"
+            text = resources.getString(R.string.befuck_daily_sync_toggle)
+            minHeight = dp(activity,72)
+            setPadding(dp(activity,20),dp(activity,16),dp(activity,20),dp(activity,16))
+            isChecked = DailySync.enabled(activity)
+            setOnCheckedChangeListener { _, checked ->
+                if (refreshing) return@setOnCheckedChangeListener
+                val changed = DailySync.configure(activity, checked)
+                if (!changed) {
+                    refreshing = true
+                    try { isChecked = DailySync.enabled(activity) } finally { refreshing = false }
+                    Toast.makeText(activity, resources.getString(R.string.befuck_daily_sync_error), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        column.addView(grouped(dailySyncToggle,0,1),gapParams(activity,0,0,0,4))
+        fun intervalText() = resources.getString(R.string.befuck_sync_interval,
+            resources.getString(R.string.befuck_sync_hours, DailySync.intervalHours(activity)))
+        val intervalButton = MaterialControls.button(activity, resources, intervalText(), icon = TablerIcon.REFRESH) {}.apply {
+            tag = "setting-sync-interval"
+            setOnClickListener { anchor ->
+                android.widget.PopupMenu(ModuleUiContext(activity, resources), anchor).apply {
+                    DailySync.INTERVALS.forEachIndexed { index, hours ->
+                        menu.add(0, index, index, resources.getString(R.string.befuck_sync_hours, hours)).apply {
+                            isCheckable = true
+                            isChecked = hours == DailySync.intervalHours(activity)
+                        }
+                    }
+                    setOnMenuItemClickListener { item ->
+                        if (!DailySync.setIntervalHours(activity, DailySync.INTERVALS[item.itemId])) {
+                            Toast.makeText(activity, resources.getString(R.string.befuck_daily_sync_error), Toast.LENGTH_LONG).show()
+                        }
+                        text = intervalText()
+                        true
+                    }
+                    show()
+                }
+            }
+        }
+        column.addView(intervalButton,gapParams(activity,0,0,0,4))
+        column.addView(label(activity,resources.getString(R.string.befuck_daily_sync_hint)),gapParams(activity,4,8,4,28))
         column.addView(label(activity,resources.getString(R.string.befuck_settings_recovery_hint)),gapParams(activity,4,10,4,28))
         section(R.string.befuck_settings_recovery_section)
         fun item(label: Int, icon: TablerIcon, index: Int, count: Int, action: () -> Unit) {
@@ -1192,10 +1237,22 @@ object BeFuckGalleryUi {
         }
         item(R.string.befuck_settings_add_rule,TablerIcon.PLUS,0,4) { editRepair(activity,resources) { refresh() } }
         item(R.string.befuck_settings_rules,TablerIcon.LIST_SEARCH,1,4) { openRepairRules(activity,resources) { refresh() } }
+        var testingRecovery = false
         item(R.string.befuck_settings_test_recovery,TablerIcon.SHIELD_CHECK,2,4) {
-            runCatching { RuntimeKnowledge.verifyRecovery() }.onSuccess { passed ->
-                refresh(); Toast.makeText(activity,resources.getString(if (passed) R.string.befuck_settings_test_passed else R.string.befuck_settings_test_failed),Toast.LENGTH_LONG).show()
-            }.onFailure { RuntimeKnowledge.recordFailure(it); Toast.makeText(activity,resources.getString(R.string.befuck_settings_test_failed),Toast.LENGTH_LONG).show() }
+            if (testingRecovery) return@item
+            testingRecovery = true
+            Toast.makeText(activity,resources.getString(R.string.befuck_settings_test_running),Toast.LENGTH_SHORT).show()
+            importer.execute {
+                val passed = runCatching { RuntimeKnowledge.verifyRecovery() }
+                    .onFailure { RuntimeKnowledge.recordFailure(it) }.getOrDefault(false)
+                activity.runOnUiThread {
+                    testingRecovery = false
+                    if (!activity.isDestroyed && !activity.isFinishing && dialog.isShowing) {
+                        refresh()
+                        Toast.makeText(activity,resources.getString(if (passed) R.string.befuck_settings_test_passed else R.string.befuck_settings_test_failed),Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
         }
         item(R.string.befuck_settings_view_log,TablerIcon.FILE_TEXT,3,4) {
             val text = runCatching { RuntimeKnowledge.logFile()?.takeIf(File::isFile)?.useLines { lines ->

@@ -44,6 +44,16 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     fun methodName(role: HostMethod): String = methods.getValue(role)
     fun type(role: HostClass, loader: ClassLoader): Class<*> = Class.forName(className(role), false, loader)
 
+    /** Force the host repository to fetch, rather than returning its cached feed. */
+    fun refreshFeedFlow(stateHolder: Any): Any {
+        val source = requireNotNull(stateHolder.javaClass.getDeclaredField("b")
+            .apply { isAccessible = true }.get(stateHolder)) { "Feed source unavailable" }
+        val fetch = source.javaClass.declaredMethods.single { method ->
+            method.name == "a" && method.parameterTypes.contentEquals(arrayOf(Boolean::class.javaPrimitiveType))
+        }.apply { isAccessible = true }
+        return requireNotNull(fetch.invoke(source, true)) { "Feed force-fetch returned null" }
+    }
+
     open fun emailAnalyticsGuard(loader: ClassLoader): EmailAnalyticsGuard? = null
     open fun authDiagnosticConstructors(loader: ClassLoader): Map<String, java.lang.reflect.Constructor<*>> = emptyMap()
     open fun textFieldFocusGuard(loader: ClassLoader): TextFieldFocusGuard? = null
@@ -113,6 +123,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open fun recoveryProbe(loader: ClassLoader): Pair<Field, java.lang.reflect.Constructor<*>>? = null
     /** A nullable host advertisement-slot selector, available only when verified for the APK version. */
     open fun resolveFeedAdSelector(loader: ClassLoader): Method? = null
+    open fun resolveNativeAdComposable(loader: ClassLoader): Method? = null
 
     companion object {
         @JvmStatic
@@ -330,11 +341,10 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     fun resolveCameraBindMethod(classLoader: ClassLoader, cameraViewModel: Class<*>?, facingEnum: Class<*>?): java.lang.reflect.Method? {
         if (cameraViewModel == null || facingEnum == null) return null
         return try {
-            cameraViewModel.getDeclaredMethod(
-                "I",
-                Class.forName("androidx.lifecycle.LifecycleOwner", false, classLoader),
-                facingEnum,
-            ).apply { isAccessible = true }
+            val parameters = arrayOf(Class.forName("androidx.lifecycle.LifecycleOwner", false, classLoader), facingEnum)
+            cameraViewModel.declaredMethods.singleOrNull {
+                it.parameterTypes.contentEquals(parameters) && it.returnType == Void.TYPE
+            }?.apply { isAccessible = true }
         } catch (_: Throwable) {
             null
         }
@@ -488,7 +498,8 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
             )
             Class.forName(className(HostClass.HomeGridTileRenderer), false, classLoader).declaredMethods.singleOrNull { method ->
                 Modifier.isStatic(method.modifiers) && method.name == "b" && method.returnType == Void.TYPE &&
-                    method.parameterTypes.contentEquals(expected)
+                    (method.parameterTypes.contentEquals(expected) ||
+                        method.parameterTypes.contentEquals(expected.take(3).toTypedArray() + String::class.java + expected.drop(3)))
             }?.apply { isAccessible = true }
         } catch (_: Throwable) {
             null
@@ -500,8 +511,8 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
             val candidates = Class.forName(className(HostClass.HomeFeedMapper), false, classLoader).declaredMethods.filter { method ->
                 val parameters = method.parameterTypes
                 Modifier.isStatic(method.modifiers) && method.name == "a" && method.returnType.name == className(HostClass.HomeFeedItem) &&
-                    parameters.size == 19 && parameters[0].name == className(HostClass.HomeFeedMapper) && parameters[1].name == className(HostClass.HomeFeedContent) &&
-                    parameters[9].name == className(HostClass.FeedBlurOptions) && parameters[18] == Int::class.javaPrimitiveType
+                    parameters.size in 19..20 && parameters[0].name == className(HostClass.HomeFeedMapper) && parameters[1].name == className(HostClass.HomeFeedContent) &&
+                    parameters.count { it.name == className(HostClass.FeedBlurOptions) } == 1 && parameters.last() == Int::class.javaPrimitiveType
             }
             candidates.singleOrNull()?.apply { isAccessible = true }
         } catch (_: Throwable) {

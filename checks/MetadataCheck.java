@@ -32,6 +32,7 @@ public final class MetadataCheck {
         assert !LEGACY.isKnownVersion(null, 3597523L);
         checkVersionMappings();
         checkLatestMapping();
+        check3991Mapping();
         checkSmsRequestPayload();
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
@@ -351,6 +352,38 @@ public final class MetadataCheck {
         assert LATEST.postMapSymbols(absent) == null;
     }
 
+    private static void check3991Mapping() throws Exception {
+        var mapping = KnownMappings.find("3.99.1", 3603560L);
+        assert mapping != null;
+        assert KnownMappings.find("3.99.1", 3603561L) == null;
+        assert KnownMappings.find("3.98.0", 3603560L) == null;
+        assert KnownMappings.find("3.99.2", 3603560L) == null;
+        assert KnownMappings.find(null, 3603560L) == null;
+        for (var role : HostClass.values()) {
+            // The retired MemoryV2 DTO and old detail-card action are absent from this APK.
+            if (role != HostClass.GridCardAction && role != HostClass.FeedPostRemoteModel)
+                assert !mapping.className(role).isBlank() : role;
+        }
+        for (var role : HostMethod.values()) assert !mapping.methodName(role).isBlank() : role;
+        var absent = new ClassLoader(null) {};
+        assert mapping.resolvePullDownGridCardComposable(absent) == null;
+        assert mapping.resolvePullDownGridMediaComposable(absent) == null;
+        assert mapping.postMapSymbols(absent) == null;
+        var selector = mapping.resolveFeedAdSelector(MetadataCheck.class.getClassLoader());
+        assert selector != null : "3.99.1 ad selector mapping missing";
+        assert selector.getDeclaringClass() == nq7.class && selector.getName().equals("d");
+        assert selector.getReturnType() == np.class && selector.getParameterTypes()[0] == pq.class;
+        assert selector.invoke(new nq7(), new pq()) instanceof np;
+        assert mapping.resolveFeedAdSelector(absent) == null;
+        var ad = mapping.resolveNativeAdComposable(MetadataCheck.class.getClassLoader());
+        assert ad != null : "3.99.1 native Compose ad mapping missing";
+        assert ad.getDeclaringClass() == h00.class && ad.getName().equals("a");
+        assert ad.getParameterCount() == 12 && ad.getReturnType() == Void.TYPE;
+        assert ad.getParameterTypes()[0] == sqe.class;
+        assert ad.getParameterTypes()[6] == androidx.compose.ui.Modifier.class;
+        assert mapping.resolveNativeAdComposable(absent) == null;
+    }
+
     private static void checkRepackagedLicenseCompatibility() throws Exception {
         var loader = MetadataCheck.class.getClassLoader();
         assert LEGACY.repackagedLicenseCheck(loader) == null : "Never alter original 3.97.0 license behavior";
@@ -405,6 +438,21 @@ public final class MetadataCheck {
 class eg7 { public ko c(lp placement) { return new ko(); } }
 class lp {}
 class ko {}
+
+// 3.99.1 moved the same nullable ad boundary to d; c is now a coroutine operation.
+class nq7 { public np d(pq placement) { return new np(); } }
+class pq {}
+class np {}
+class sqe {}
+interface a49 {}
+class h00 {
+    public static void a(sqe state, a49 action1, a49 action2, a49 action3, a49 action4, a49 action5,
+                         androidx.compose.ui.Modifier modifier, androidx.compose.ui.graphics.Shape shape,
+                         androidx.compose.runtime.internal.ComposableLambdaImpl content,
+                         androidx.compose.runtime.Composer composer, int flags, int flags2) {
+        throw new AssertionError("Resolving a renderer must not execute it");
+    }
+}
 
 class AdManagerViewFixture extends com.google.android.gms.ads.BaseAdView {}
 class OrdinaryAdViewNamedFixture {}

@@ -57,6 +57,7 @@ import dev.tqmane.befuck.symbols.HostMappings;
 import dev.tqmane.befuck.symbols.HostMethod;
 import dev.tqmane.befuck.symbols.HostClass;
 import dev.tqmane.befuck.runtime.RuntimeKnowledge;
+import dev.tqmane.befuck.runtime.DailySync;
 import dev.tqmane.befuck.runtime.ComposeHookScope;
 import dev.tqmane.befuck.posting.BeFakeAuthHeaders;
 import dev.tqmane.befuck.posting.BeFakeUploadController;
@@ -200,7 +201,15 @@ public final class BeRealModule extends XposedModule {
             // The post map resolves its own validated host contract. It must not be
             // blocked by the version tables used by unrelated module features.
             installRepackagedPostMap(context, classLoader, versionName, versionCode);
-            info("No mapping for other BeReal features: " + versionName + " (" + versionCode + ")");
+            try {
+                RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
+                resolvedSymbols = BeRealSymbolResolver.resolve(context.getApplicationInfo(), classLoader,
+                        versionName, versionCode, message -> info(message));
+            } catch (Throwable failure) {
+                error("Automatic symbol discovery incomplete; keeping settings accessible", failure);
+            }
+            installBeFuckGalleryFeature(classLoader, resolvedSymbols);
+            info("No version mapping; automatic discovery and the BeFuck entry remain available: " + versionName + " (" + versionCode + ")");
             return;
         }
 
@@ -600,12 +609,40 @@ public final class BeRealModule extends XposedModule {
         installBeFakeAuthHeaderCapture(classLoader);
         installComposeInjectionScope(classLoader);
         installFeedMediaCaptureAndUnblur(classLoader, symbols);
+        installDailyFeedSync(classLoader, symbols);
         installHomeGridPostTileUnblurHook(classLoader, symbols);
         installFeedOptionsCanBlurHooks(classLoader, symbols);
         installBeFuckGalleryFeature(classLoader, symbols);
         installRealMojiDownloadMenu(classLoader);
         installFeedAdSelectionSuppression(classLoader);
+        installNativeAdCompositionSuppression(classLoader);
         installAdViewSuppression();
+    }
+
+    /**
+     * Hook only the periodically scheduled, explicitly marked BeFuck work.
+     * Unmarked DiagnosticsWorker instances retain their original AndroidX behavior.
+     * The Worker class and WorkManager database belong to the host application.
+     */
+    private void installDailyFeedSync(ClassLoader classLoader, ResolvedSymbols symbols) {
+        try {
+            Class<?> diagnostics = Class.forName(
+                    "androidx.work.impl.workers.DiagnosticsWorker", false, classLoader);
+            Method doWork = diagnostics.getDeclaredMethod("doWork");
+            hook(doWork)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> {
+                        Object worker = chain.getThisObject();
+                        if (!DailySync.isMarkedWork(worker)) return chain.proceed();
+                        if (applicationContext != null) {
+                            DailySync.run(applicationContext, symbols, worker);
+                        }
+                        return DailySync.workResult(classLoader);
+                    });
+            info("Installed opt-in background feed sync worker hook");
+        } catch (Throwable failure) {
+            error("Could not install the background feed sync worker hook", failure);
+        }
     }
 
     private void installRealMojiDownloadMenu(ClassLoader loader) {
@@ -1385,7 +1422,7 @@ public final class BeRealModule extends XposedModule {
                                     if (sponsored &&
                                             feedCardMethod.getParameterTypes()[0].isInstance(hiddenSponsoredModifier)) {
                                         if (sponsoredFeedPostSuppressionLogged.compareAndSet(false, true)) {
-                                            info("Hid the sponsored feed card with a zero-size modifier while preserving its composition");
+                                            info("Hid the sponsored feed card with a clipped zero-size modifier while preserving its composition");
                                         }
                                         args[0] = hiddenSponsoredModifier;
                                     }
@@ -1787,6 +1824,7 @@ public final class BeRealModule extends XposedModule {
         }
         try {
             Class<?> optionsClass = mappings.type(HostClass.FeedBlurOptions, classLoader);
+            final int optionsArgument = java.util.Arrays.asList(mapper.getParameterTypes()).indexOf(optionsClass);
             FeedBlurModelRewriter blurModelRewriter = resolveFeedBlurModelRewriter(classLoader);
             Field[] optionFields = new Field[8];
             Class<?>[] booleanParameters = new Class<?>[8];
@@ -1898,14 +1936,14 @@ public final class BeRealModule extends XposedModule {
                                 error("Could not regularize a local blurred feed-post model", error);
                             }
                         }
-                        if (args.length > 9 &&
-                                args[9] != null && optionsClass.isInstance(args[9])) {
+                        if (optionsArgument >= 0 && args.length > optionsArgument &&
+                                args[optionsArgument] != null && optionsClass.isInstance(args[optionsArgument])) {
                             try {
                                 Object unblurredOptions = disableFeedCanBlur(
-                                        args[9], optionsClass, optionFields, optionsConstructor
+                                        args[optionsArgument], optionsClass, optionFields, optionsConstructor
                                 );
-                                if (unblurredOptions != args[9]) {
-                                    args[9] = unblurredOptions;
+                                if (unblurredOptions != args[optionsArgument]) {
+                                    args[optionsArgument] = unblurredOptions;
                                     changed = true;
                                     AtomicBoolean logged = inFriendsOfFriends
                                             ? friendsOfFriendsCanBlurDisabledLogged
@@ -2320,6 +2358,30 @@ public final class BeRealModule extends XposedModule {
         }
     }
 
+    private void installNativeAdCompositionSuppression(ClassLoader loader) {
+        try {
+            Method render = mappings.resolveNativeAdComposable(loader);
+            if (render == null) return;
+            Class<?> modifier = Class.forName("androidx.compose.ui.Modifier", false, loader);
+            int modifierArgument = java.util.Arrays.asList(render.getParameterTypes()).indexOf(modifier);
+            if (modifierArgument < 0) throw new NoSuchMethodException("Native ad Modifier argument");
+            Object hidden = createZeroSizeComposeModifier(loader);
+            hook(render).setPriority(XposedInterface.PRIORITY_LOWEST)
+                    .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                    .intercept(chain -> {
+                        Object[] args = chain.getArgs().toArray();
+                        args[modifierArgument] = hidden;
+                        if (sponsoredFeedPostSuppressionLogged.compareAndSet(false, true)) {
+                            info("Hid the native Compose ad card with clipped bounds while preserving its composition");
+                        }
+                        return chain.proceed(args);
+                    });
+            info("Hooked the version-verified native Compose ad renderer");
+        } catch (Throwable failure) {
+            error("Could not suppress the native Compose ad renderer", failure);
+        }
+    }
+
     private void installAdViewSuppression() {
         if (!KnownMappings.isSupportedVersion(RuntimeKnowledge.getVersionName(), RuntimeKnowledge.getVersionCode())) return;
         try {
@@ -2412,7 +2474,17 @@ public final class BeRealModule extends XposedModule {
             }
         }
         if (append == null) throw new NoSuchMethodException("Modifier.then(Modifier)");
-        return append.invoke(modifier, element);
+        Object sized = append.invoke(modifier, element);
+        // Compose children can draw outside a zero-size layout unless its bounds are clipped.
+        Class<?> clipClass = Class.forName("androidx.compose.ui.draw.ClipKt", false, classLoader);
+        for (Method candidate : clipClass.getDeclaredMethods()) {
+            if (Modifier.isStatic(candidate.getModifiers()) && candidate.getReturnType() == modifierClass
+                    && java.util.Arrays.equals(candidate.getParameterTypes(), new Class<?>[]{modifierClass})) {
+                candidate.setAccessible(true);
+                return candidate.invoke(null, sized);
+            }
+        }
+        throw new NoSuchMethodException("Compose clipToBounds(Modifier)");
     }
 
     private Method findActivityResultMethod(Class<?> activityClass) {

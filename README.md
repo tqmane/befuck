@@ -4,7 +4,7 @@
 
 An Xposed module for BeReal.  
 Supports **LSPosed** and **NPatch**.  
-Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** / **3.98.0 (3600852)** (`com.bereal.ft`).
+Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** / **3.98.0 (3600852)** / **3.99.1 (3603560)** (`com.bereal.ft`).
 
 ## Screenshots
 
@@ -81,3 +81,7 @@ In NPatch environments, post maps are replaced with MapLibre/OpenFreeMap (LSPose
 In **Saved posts**, choose a calendar day and **Show this day on map**. All saved locations for that day and author filter are plotted, including posts beyond the timeline page limit. Photo pins identify accounts when tapped; stacked posts can be cycled. The screen reports missing locations. Capture uses exact own-post locations and normal-feed locations for authors in the host's validated complete Friends graph. Additional map observations require an author known in the current account; exact capture also requires that author to be self or a current verified friend. Existing posts are not automatically backfilled, and coverage depends on the account, friendship and post data actually observed.
 
 JPEG, PNG and WebP downloads include GPS metadata when an exact saved coordinate is available, even without a posting timestamp. Approximate display centers remain approximate on the saved map and are excluded from GPS metadata. The saved map needs no device-location permission. [Location sources and limits](docs/saved-post-locations.md).
+
+## Background feed sync
+
+Enable **Settings → Background synchronization** to add newly observed posts and photo URLs to Saved posts. Choose 1, 2, 3, 6, 12 or 24 hours; the default is 3 hours. Disabled by default. Photo/video files are not downloaded automatically. Android may delay execution to save battery.

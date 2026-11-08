@@ -1026,7 +1026,8 @@ object BeRealSymbolResolver {
             diagnostics,
         )
         val currentUserUidField = resolveCurrentUserUidField(bridge, classLoader, logger, diagnostics)
-        val currentUserProvider = KnownMappings.current().resolveCurrentUserProvider(classLoader)
+        val currentUserProvider = KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)
+            ?.resolveCurrentUserProvider(classLoader) ?: (null to null)
         if (currentUserProvider.first != null && currentUserProvider.second != null) {
             emit(logger, "[SymbolResolver] CurrentUser provider resolved: ${currentUserProvider.first!!.name}.${currentUserProvider.second!!.name} confidence=version-mapped strategy=version-mapping")
         } else {

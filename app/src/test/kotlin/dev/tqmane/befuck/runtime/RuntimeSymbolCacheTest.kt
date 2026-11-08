@@ -18,6 +18,18 @@ class RuntimeSymbolCacheTest {
 
     @Before fun reset() { settings.edit().clear().commit() }
 
+    @Test fun unknownHostStillInitializesRecoverySettings() {
+        val host = app.applicationInfo
+        val module = ApplicationInfo(host).apply { packageName = "dev.tqmane.befuck" }
+        RuntimeKnowledge.initialize(app, javaClass.classLoader!!, "99.0.0", 9900000L, module)
+        assertEquals("99.0.0", RuntimeKnowledge.versionName)
+        assertEquals(9900000L, RuntimeKnowledge.versionCode)
+        assertTrue(RuntimeKnowledge.enabled("auto_repair"))
+        assertNotNull(RuntimeKnowledge.logFile())
+        RuntimeKnowledge.setEnabled("diagnostics", false)
+        assertFalse(RuntimeKnowledge.enabled("diagnostics"))
+    }
+
     private fun installed(name: String, apk: File) = ApplicationInfo().apply {
         packageName = name
         sourceDir = apk.absolutePath
