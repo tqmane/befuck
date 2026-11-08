@@ -473,7 +473,7 @@ object GalleryPostController {
         return methods.distinctBy { it.name + it.parameterTypes.joinToString { p -> p.name } + it.returnType.name }
     }
 
-    private fun resolveKoinInstance(type: Class<*>, classLoader: ClassLoader, versionName: String?): Any {
+    internal fun resolveKoinInstance(type: Class<*>, classLoader: ClassLoader, versionName: String?): Any {
         val root = requireNotNull(KnownMappings.current().resolveKoinApplication(classLoader)) {
             "Koin application root is unavailable"
         }

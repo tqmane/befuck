@@ -1372,15 +1372,8 @@ public final class BeRealModule extends XposedModule {
                 info("Capturing post locations authorized by the host's map friendship state");
                 dev.tqmane.befuck.symbols.MapPlaceholderLocationSymbols mapSymbols = media.getMapPlaceholderLocationSymbols();
                 dev.tqmane.befuck.download.MapLocationPrefetcher.configure(mapSymbols, media.getCorePostLocationSymbols());
-                if (mapSymbols.getFactoryMethod() != null && mapSymbols.getFetchMethod() != null) {
-                    // Other definitions sharing this DI factory run at startup and expose the host scope.
-                    hook(mapSymbols.getFactoryMethod()).setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
-                            .intercept(chain -> {
-                                try { dev.tqmane.befuck.download.MapLocationPrefetcher.observeScope(chain.getArg(0)); }
-                                catch (Throwable ignored) { }
-                                return chain.proceed();
-                            });
-                    info("Background location prefetch armed through the host map use case");
+                if (mapSymbols.getFetchMethod() != null) {
+                    info("Background location prefetch armed through the host process container");
                 }
             } catch (Throwable failure) {
                 error("Could not capture map location metadata", failure);
