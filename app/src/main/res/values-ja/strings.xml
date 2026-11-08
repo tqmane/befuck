@@ -155,4 +155,11 @@
     <string name="befuck_saved_loading">保存一覧を読み込み中…</string>
     <string name="befuck_saved_load_failed">保存一覧を読み込めませんでした。再読み込みをお試しください。</string>
     <string name="befuck_saved_date_invalid">YYYY-MM-DDの形式で日付を入力してください。</string>
+    <string name="befuck_daily_sync_section">バックグラウンド同期</string>
+    <string name="befuck_daily_sync_toggle">バックグラウンドで投稿を同期</string>
+    <string name="befuck_daily_sync_hint">有効にすると、BeRealのフィードをバックグラウンドで定期取得し、新たに読み込んだ投稿・写真URL・メタデータを保存一覧に追加します。画像・動画ファイル自体は自動ダウンロードしません。省電力制御により実行が遅れることがあります。</string>
+    <string name="befuck_daily_sync_error">定期同期を登録できませんでした。もう一度お試しください。</string>
+    <string name="befuck_sync_interval">同期間隔：%1$s</string>
+    <string name="befuck_sync_hours">%1$d時間</string>
+    <string name="befuck_settings_test_running">シンボルの再解決をテスト中…</string>
 </resources>

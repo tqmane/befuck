@@ -67,9 +67,10 @@ object RuntimeKnowledge {
         // Refresh automatic rules before applying saved repairs: older releases stored
         // inferred values and topic sentinels for this same host version. Preserve edits
         // explicitly entered by the user, and persist the full pool in one transaction.
-        val known = KnownMappings.current().runtimeStringRepairs(classLoader)
+        val mapping = KnownMappings.find(name, code)
+        val known = mapping?.runtimeStringRepairs(classLoader).orEmpty()
         val edit = settings.edit()
-        val info = repairInfo("preset:${KnownMappings.current().versionCode}", Instant.now().toString())
+        val info = repairInfo("preset:$code", Instant.now().toString())
         var changed = false
         known.forEach { (field, value) ->
             val key = "${field.declaringClass.name}#${field.name}"
@@ -81,8 +82,8 @@ object RuntimeKnowledge {
         }
         if (changed) edit.commit()
         applySavedRepairs()
-        KnownMappings.current().missingStringRepairs(classLoader).forEach { (field, value) ->
-            rememberRepair(field, value, "preset:${KnownMappings.current().versionCode}")
+        mapping?.missingStringRepairs(classLoader).orEmpty().forEach { (field, value) ->
+            rememberRepair(field, value, "preset:$code")
             if (field.get(null) == null) field.set(null, value)
         }
     }
@@ -282,7 +283,8 @@ object RuntimeKnowledge {
 
     /** A local constructor check only: nothing is posted or sent to analytics. */
     fun verifyRecovery(): Boolean {
-        require(KnownMappings.current().requiresRuntimeRecovery && enabled("auto_repair"))
+        check(enabled("auto_repair"))
+        if (KnownMappings.find(versionName, versionCode)?.requiresRuntimeRecovery != true) return verifySymbolRecovery()
         val (field, constructor) = requireNotNull(KnownMappings.current().recoveryProbe(requireNotNull(loader)))
         val key = "${field.declaringClass.name}#${field.name}"
         val original = field.get(null)
@@ -305,6 +307,34 @@ object RuntimeKnowledge {
             field.set(null, original)
             if (saved != null) settings().edit().putString(REPAIR + key, saved).putString(INFO + key, savedInfo)
                 .putBoolean(MANUAL + key, savedManual).commit()
+        }
+    }
+
+    /** Exercise APK discovery without the saved cache or preset, preserving the user's settings. */
+    private fun verifySymbolRecovery(): Boolean {
+        val host = requireNotNull(context)
+        val saved = settings().getString("symbol_json", null)
+        val forced = settings().getBoolean("force_scan", false)
+        val hadForced = settings().contains("force_scan")
+        try {
+            settings().edit().remove("symbol_json").putBoolean("force_scan", true).commit()
+            BeRealSymbolResolver.clearCache()
+            val symbols = BeRealSymbolResolver.resolve(host.applicationInfo, requireNotNull(loader), versionName, versionCode) {
+                Log.i(TAG, it)
+            }
+            val passed = symbols.dexKitAvailable && symbols.feedMediaSymbols?.canCaptureVisibleFeedMedia == true &&
+                symbols.feedMediaSymbols.corePostLocationSymbols != null &&
+                symbols.homeGridPostTileComposableMethod != null && symbols.homeFeedCanBlurMapperMethod != null &&
+                symbols.postDomainModelConstructor != null && symbols.postContentsConstructor != null &&
+                symbols.currentUserProviderMethod != null
+            event("symbol_self_check", JSONObject().put("passed", passed))
+            return passed
+        } finally {
+            val edit = settings().edit()
+            if (saved == null) edit.remove("symbol_json") else edit.putString("symbol_json", saved)
+            if (hadForced) edit.putBoolean("force_scan", forced) else edit.remove("force_scan")
+            edit.commit()
+            BeRealSymbolResolver.clearCache()
         }
     }
 
