@@ -13,6 +13,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowLog
 import java.util.UUID
+import fcb
 
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -28,8 +29,18 @@ class FriendLocationCaptureTest {
     private class TypeToken(val type: Class<*>)
     private class MapUseCase {
         val calls = java.util.concurrent.atomic.AtomicInteger()
+        var failing = false
+        var suspending = false
+        val started = java.util.concurrent.CountDownLatch(1)
+        var pending: kotlin.coroutines.Continuation<Any?>? = null
         fun fetch(id: String, continuation: kotlin.coroutines.Continuation<Any?>): Any {
             calls.incrementAndGet()
+            check(!failing) { "Synthetic fetch failure" }
+            if (suspending) {
+                pending = continuation
+                started.countDown()
+                return kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+            }
             return Placeholder(id, true, 35.68, 139.76)
         }
     }
@@ -79,6 +90,8 @@ class FriendLocationCaptureTest {
         scope = select(viewer)
     }
     @After fun finish() {
+        MapLocationPrefetcher.configure(null, null)
+        fcb.root = null
         ArchiveAccounts.invalidate()
         field(RuntimeKnowledge::class.java, "versionName").set(null, previousVersionName)
         field(RuntimeKnowledge::class.java, "versionCode").setLong(null, previousVersionCode)
@@ -297,40 +310,88 @@ class FriendLocationCaptureTest {
         assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get("startup-post")!!.location)
     }
 
-    @Test fun feedBeforeMapScopeIsRetriedWhenScopeArrivesWithoutReopeningPost() {
-        val scopeField = field(MapLocationPrefetcher::class.java, "diScope")
-        val fetcherField = field(MapLocationPrefetcher::class.java, "fetcher")
-        scopeField.set(MapLocationPrefetcher, null)
-        fetcherField.set(MapLocationPrefetcher, null)
-        val useCase = MapUseCase()
-        val hostScope = MapScope(useCase)
+    private fun configurePrefetch(useCase: MapUseCase?) {
+        field(RuntimeKnowledge::class.java, "versionName").set(null, "3.99.1")
+        field(RuntimeKnowledge::class.java, "versionCode").setLong(null, 3603560L)
+        fcb.root = useCase?.let(::MapScope)
         val prefetchSymbols = MapPlaceholderLocationSymbols(Placeholder::class.java.declaredConstructors.toList(),
             field(Placeholder::class.java, "postId"), field(Placeholder::class.java, "isFriend"),
             field(Placeholder::class.java, "latitude"), field(Placeholder::class.java, "longitude"),
-            MapUseCase::class.java.declaredMethods.single { it.name == "fetch" }.apply { isAccessible = true },
-            MapScope::class.java.declaredMethods.single { it.name == "get" })
+            MapUseCase::class.java.declaredMethods.single { it.name == "fetch" }.apply { isAccessible = true })
         MapLocationPrefetcher.configure(prefetchSymbols, locationSymbols)
-        try {
-            val post = Post("before-map-scope", Owner(viewer), null)
+    }
+
+    private fun drainPrefetch() {
+        (field(MapLocationPrefetcher::class.java, "executor").get(MapLocationPrefetcher)
+            as java.util.concurrent.ThreadPoolExecutor).submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
+    }
+
+    @Test fun feedResolvesTheHostContainerWithoutOpeningMapOrObservingItsFactory() {
+        val useCase = MapUseCase()
+        configurePrefetch(useCase)
+        graph(setOf("friend"))
+        val post = Post("without-map", Owner("friend"), null)
+        FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+        FeedPostMediaCache.captureCorePost(post, null)
+        drainPrefetch()
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(post.a)!!.location)
+        FeedPostMediaCache.retryMissingLocations()
+        drainPrefetch()
+        assertEquals(1, useCase.calls.get())
+    }
+
+    @Test fun unavailableContainerCanBeRetriedOnTheNextFeedObservation() {
+        configurePrefetch(null)
+        val post = Post("container-not-ready", Owner(viewer), null)
+        FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+        FeedPostMediaCache.captureCorePost(post, null)
+        drainPrefetch()
+        assertNull(FeedPostMediaCache.get(post.a)!!.location)
+        val useCase = MapUseCase()
+        fcb.root = MapScope(useCase)
+        FeedPostMediaCache.retryMissingLocations()
+        drainPrefetch()
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(post.a)!!.location)
+        assertEquals(1, useCase.calls.get())
+    }
+
+    @Test fun failedFetchCanRetryButAnUnfriendedPostDoesNotFetch() {
+        val useCase = MapUseCase().apply { failing = true }
+        configurePrefetch(useCase)
+        graph(setOf("friend"))
+        for ((id, owner) in listOf("retry-fetch" to "friend", "not-a-friend" to "stranger")) {
+            val post = Post(id, Owner(owner), null)
             FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
             FeedPostMediaCache.captureCorePost(post, null)
-            assertNull(FeedPostMediaCache.get(post.a)!!.location)
-            val attempts = field(FeedPostMediaCache::class.java, "prefetchAttempted")
-                .get(FeedPostMediaCache) as android.util.LruCache<*, *>
-            assertFalse("An unavailable DI scope must not consume the attempt", attempts.snapshot().containsKey(post.a))
-
-            MapLocationPrefetcher.observeScope(hostScope)
-            val worker = field(MapLocationPrefetcher::class.java, "executor")
-                .get(MapLocationPrefetcher) as java.util.concurrent.ThreadPoolExecutor
-            worker.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
-            assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(post.a)!!.location)
-            MapLocationPrefetcher.observeScope(hostScope)
-            worker.submit {}.get(5, java.util.concurrent.TimeUnit.SECONDS)
-            assertEquals(1, useCase.calls.get())
-        } finally {
-            MapLocationPrefetcher.configure(null, null)
-            scopeField.set(MapLocationPrefetcher, null)
-            fetcherField.set(MapLocationPrefetcher, null)
         }
+        drainPrefetch()
+        assertEquals(1, useCase.calls.get())
+        useCase.failing = false
+        FeedPostMediaCache.retryMissingLocations()
+        drainPrefetch()
+        assertEquals(2, useCase.calls.get())
+        assertNotNull(FeedPostMediaCache.get("retry-fetch")!!.location)
+        assertNull(FeedPostMediaCache.get("not-a-friend")!!.location)
+    }
+
+    @Test fun suspendedFetchCannotWriteItsResultAfterAccountSwitch() {
+        val useCase = MapUseCase().apply { suspending = true }
+        configurePrefetch(useCase)
+        val old = Post("switched-fetch", Owner(viewer), null)
+        FeedPostMediaCache.captureCorePostModel(old, locationSymbols)
+        FeedPostMediaCache.captureCorePost(old, null)
+        assertTrue(useCase.started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        try {
+            scope = select("new-prefetch-viewer")
+            graph(emptySet())
+            val current = Post(old.a, Owner("former-friend"), null)
+            FeedPostMediaCache.captureCorePostModel(current, locationSymbols)
+            FeedPostMediaCache.captureCorePost(current, null)
+        } finally {
+            useCase.pending!!.resumeWith(Result.success(Placeholder(old.a, true, 35.68, 139.76)))
+            drainPrefetch()
+        }
+        assertNull(FeedPostMediaCache.get(old.a)!!.location)
+        assertEquals(1, useCase.calls.get())
     }
 }

@@ -197,6 +197,10 @@ object FeedPostMediaCache {
         cache.snapshot().keys.forEach { maybePrefetchLocation(it, scope) }
     }
 
+    internal fun locationPrefetchFailed(postId: String, scope: ArchiveAccounts.Scope) = withCache {
+        if (ArchiveAccounts.snapshot() == scope) prefetchAttempted.remove(postId)
+    }
+
     /** Ask the host's own map use case for a missing location, only for authors already authorized for exact GPS. */
     private fun maybePrefetchLocation(postId: String, scope: ArchiveAccounts.Scope) {
         if (scope.uid.isNullOrBlank() || prefetchAttempted.get(postId) != null) return

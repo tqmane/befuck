@@ -2,9 +2,10 @@ package dev.tqmane.befuck.download
 
 import android.util.Log
 import dev.tqmane.befuck.archive.ArchiveAccounts
+import dev.tqmane.befuck.posting.GalleryPostController
+import dev.tqmane.befuck.runtime.RuntimeKnowledge
 import dev.tqmane.befuck.symbols.CorePostLocationSymbols
 import dev.tqmane.befuck.symbols.MapPlaceholderLocationSymbols
-import java.lang.ref.WeakReference
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
@@ -34,32 +35,18 @@ object MapLocationPrefetcher {
     }.apply { allowCoreThreadTimeOut(true) }
 
     @Volatile private var symbols: MapPlaceholderLocationSymbols? = null
-    @Volatile private var coreReader: CorePostLocationSymbols? = null
-    @Volatile private var diScope: WeakReference<Any>? = null
-    private var fetcher: Any? = null
     private val loggedReady = AtomicBoolean(false)
-    private val loggedNoScope = AtomicBoolean(false)
     private val loggedFailure = AtomicBoolean(false)
 
     @JvmStatic
     fun configure(value: MapPlaceholderLocationSymbols?, core: CorePostLocationSymbols?) {
-        coreReader = core
-        symbols = value?.takeIf { core != null && it.fetchMethod != null && it.factoryMethod != null }
-    }
-
-    /** Only a DI scope object observed in the host's own factory call is ever retained (weakly). */
-    @JvmStatic
-    fun observeScope(scope: Any?) {
-        if (scope == null) return
-        val wasReady = diScope?.get() != null
-        if (diScope?.get() !== scope) diScope = WeakReference(scope)
-        if (!wasReady) FeedPostMediaCache.retryMissingLocations()
+        symbols = value?.takeIf { core != null && it.fetchMethod != null }
     }
 
     /** Returns false when nothing was queued, so the caller may retry later. */
     internal fun request(postId: String, scope: ArchiveAccounts.Scope): Boolean {
         // A deferred request must not consume the cache's one attempt per post.
-        if (symbols == null || scope.uid.isNullOrBlank() || diScope?.get() == null) return false
+        if (symbols == null || scope.uid.isNullOrBlank()) return false
         return try {
             executor.execute { run(postId, scope) }
             true
@@ -69,15 +56,17 @@ object MapLocationPrefetcher {
     }
 
     private fun run(postId: String, scope: ArchiveAccounts.Scope) {
+        var completed = false
         try {
             if (ArchiveAccounts.snapshot() != scope) return
             val symbols = symbols ?: return
-            val target = obtainFetcher(symbols) ?: run {
-                if (loggedNoScope.compareAndSet(false, true))
-                    Log.i("BeFuck/Prefetch", "Host DI scope or use case not available yet; location prefetch deferred")
-                return
-            }
-            invoke(symbols, target, postId)
+            val type = symbols.fetchMethod!!.declaringClass
+            val target = GalleryPostController.resolveKoinInstance(type, requireNotNull(type.classLoader), RuntimeKnowledge.versionName)
+            val result = invoke(symbols, target, postId)
+            if (ArchiveAccounts.snapshot() != scope) return
+            check(result != null && symbols.isMapPlaceholder(result)) { "Host map state unavailable" }
+            FeedPostMediaCache.captureMapPlaceholder(result, symbols)
+            completed = true
             if (loggedReady.compareAndSet(false, true)) Log.i("BeFuck/Prefetch", "Background location prefetch is running")
             Thread.sleep(SPACING_MILLIS)
         } catch (interrupted: InterruptedException) {
@@ -85,34 +74,12 @@ object MapLocationPrefetcher {
         } catch (failure: Throwable) {
             if (loggedFailure.compareAndSet(false, true))
                 Log.w("BeFuck/Prefetch", "Location prefetch failed: ${(failure.cause ?: failure).javaClass.simpleName}")
+        } finally {
+            if (!completed) FeedPostMediaCache.locationPrefetchFailed(postId, scope)
         }
     }
 
-    /** The host map use case (a DI singleton) that constructs the MapPlaceholder. */
-    private fun obtainFetcher(symbols: MapPlaceholderLocationSymbols): Any? {
-        fetcher?.let { return it }
-        val di = diScope?.get() ?: return null
-        val type = symbols.fetchMethod!!.declaringClass
-        val getters = generateSequence<Class<*>>(di.javaClass) { it.superclass }
-            .flatMap { it.declaredMethods.asSequence() }
-            .filter { m ->
-                !Modifier.isStatic(m.modifiers) && m.returnType == Any::class.java &&
-                    m.parameterCount == 3 &&
-                    m.parameterTypes[0].declaredConstructors.any { ctor ->
-                        ctor.parameterTypes.contentEquals(arrayOf(Class::class.java))
-                    }
-            }.onEach { it.isAccessible = true }.toList()
-        return getters.firstNotNullOfOrNull { getter ->
-            runCatching {
-                val tokenConstructor = getter.parameterTypes[0].getDeclaredConstructor(Class::class.java)
-                    .apply { isAccessible = true }
-                val token = tokenConstructor.newInstance(type)
-                getter.invoke(di, token, null, null)
-            }.getOrNull()?.takeIf(type::isInstance)
-        }?.also { fetcher = it }
-    }
-
-    private fun invoke(symbols: MapPlaceholderLocationSymbols, target: Any, postId: String) {
+    private fun invoke(symbols: MapPlaceholderLocationSymbols, target: Any, postId: String): Any? {
         val method = symbols.fetchMethod!!
         val continuationParamType = method.parameterTypes[1]
         val continuationInterface = if (continuationParamType.isInterface) {
@@ -123,7 +90,7 @@ object MapLocationPrefetcher {
                 .firstOrNull { iface ->
                     iface.declaredMethods.any { it.parameterCount == 0 && it.returnType.isInterface } &&
                         iface.declaredMethods.any { it.parameterCount == 1 && it.returnType == Void.TYPE }
-                } ?: return
+                } ?: return null
         }
         val contextGetter = continuationInterface.declaredMethods.single { it.parameterCount == 0 }
         val contextType = contextGetter.returnType
@@ -146,9 +113,9 @@ object MapLocationPrefetcher {
         val continuationArg = if (continuationParamType.isInterface) {
             callback
         } else {
-            val bridgeClass = symbols.coroutineBridgeClass ?: return
+            val bridgeClass = symbols.coroutineBridgeClass ?: return null
             val constructor = bridgeClass.declaredConstructors.firstOrNull { it.parameterCount in 3..4 }
-                ?.apply { isAccessible = true } ?: return
+                ?.apply { isAccessible = true } ?: return null
             val bridgeInstance = if (constructor.parameterCount == 4) {
                 constructor.newInstance(callback, emptyContext, null, callback)
             } else {
@@ -156,7 +123,7 @@ object MapLocationPrefetcher {
             }
             val intField = bridgeClass.declaredFields.firstOrNull {
                 !Modifier.isStatic(it.modifiers) && it.type == Integer.TYPE
-            }?.apply { isAccessible = true } ?: return
+            }?.apply { isAccessible = true } ?: return null
             intField.setInt(bridgeInstance, 1)
             bridgeInstance
         }
@@ -165,13 +132,10 @@ object MapLocationPrefetcher {
         } catch (failure: InvocationTargetException) {
             throw failure.targetException
         }
-        val finished = if (isCoroutineSuspended(result)) {
+        return if (isCoroutineSuspended(result)) {
             if (done.await(RESULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) resumed.get() else null
         } else {
             result
-        }
-        if (finished != null && symbols.isMapPlaceholder(finished)) {
-            FeedPostMediaCache.captureMapPlaceholder(finished, symbols)
         }
     }
 
