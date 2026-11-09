@@ -34,6 +34,9 @@ Generate an unsigned release APK with `:app:assembleRelease`; it is written to `
 | --- | --- | --- |
 | [Debug APK](../.github/workflows/debug-build.yml) | Pull requests, pushes to `main`, or manual dispatch | Verify vendored icons; assemble Debug; run module checks, unit tests and lint; upload the APK and verification reports |
 | [Release APK](../.github/workflows/release-build.yml) | Tags or manual dispatch with an existing tag | Build that tag, sign with repository secrets, and publish the APK to GitHub Releases |
+| [BeReal Google Play updates](../.github/workflows/bereal-update-check.yml) | Every 6 hours, manual dispatch, or changes to the monitor on `main` | Check the JP Play listing and create one Issue per new version/update timestamp, including when an earlier Issue was closed |
+
+The Play monitor starts from [the checked-in store snapshot](../.github/bereal-google-play.json). It uses the workflow's `GITHUB_TOKEN` with `issues: write`; no new secret is needed. Pull requests run offline tests only. Scheduled runs become active when the workflow is on `main` (03:17, 09:17, 15:17 and 21:17 JST; GitHub may delay them). Store download/format errors fail the job without creating an update Issue. Run `python3 -m unittest discover -s checks -p test_bereal_update.py -v` for tests, or `python3 checks/check_bereal_update.py` for a read-only live check.
 
 CI verifies the checked-in application source. Generated reports, JUnit XML and all UI renders are collected in one verification-report artifact, including on failure. Build outputs stay under `build/` and are not committed back to the branch. The release workflow requires the existing repository signing secrets.
 

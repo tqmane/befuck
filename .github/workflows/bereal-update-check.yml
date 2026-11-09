@@ -1,0 +1,60 @@
+name: BeReal Google Play updates
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/bereal-update-check.yml'
+      - '.github/bereal-google-play.json'
+      - 'checks/check_bereal_update.py'
+      - 'checks/test_bereal_update.py'
+  pull_request:
+    paths:
+      - '.github/workflows/bereal-update-check.yml'
+      - '.github/bereal-google-play.json'
+      - 'checks/check_bereal_update.py'
+      - 'checks/test_bereal_update.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bereal-google-play-${{ github.event.pull_request.number || 'monitor' }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test update detection and issue deduplication
+        run: python -m unittest discover -s checks -p test_bereal_update.py -v
+
+  check:
+    if: github.repository == 'tqmane/befuck' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check Google Play and open an issue for a new release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python checks/check_bereal_update.py --create-issue
