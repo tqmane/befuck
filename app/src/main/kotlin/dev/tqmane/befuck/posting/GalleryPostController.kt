@@ -2,12 +2,17 @@ package dev.tqmane.befuck.posting
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
-import dev.tqmane.befuck.symbols.KnownMappings
-import dev.tqmane.befuck.symbols.HostMethod
+import dev.tqmane.befuck.archive.ArchiveAccounts
+import dev.tqmane.befuck.runtime.HostReflection
+import dev.tqmane.befuck.runtime.HostWorkManager
 import dev.tqmane.befuck.symbols.HostClass
+import dev.tqmane.befuck.symbols.HostMethod
+import dev.tqmane.befuck.symbols.KnownMappings
 import dev.tqmane.befuck.symbols.ResolvedSymbols
-import java.lang.reflect.Field
+import java.io.File
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
@@ -15,7 +20,6 @@ import java.lang.reflect.Proxy
 import java.util.ArrayDeque
 import java.util.Collections
 import java.util.IdentityHashMap
-import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -28,8 +32,7 @@ object GalleryPostController {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val uploadMonitor = Executors.newSingleThreadScheduledExecutor()
     private const val MAX_UPLOAD_MONITOR_POLLS = 1_800
-
-    private data class UploadWorkHandle(val uniqueName: String, val id: java.util.UUID)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     @JvmStatic
     fun isReady(symbols: ResolvedSymbols?): Boolean = symbols != null &&
@@ -49,38 +52,14 @@ object GalleryPostController {
 
     /** Read-only current-user provider. Never infer login identity from arbitrary User constructors. */
     internal fun readCurrentAccount(activity: Activity, symbols: ResolvedSymbols, completion: Consumer<String?>) {
-        val once = AtomicBoolean(false)
-        val requestedGeneration = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot().generation
-        val main = android.os.Handler(android.os.Looper.getMainLooper())
-        fun deliver(uid: String?) { if (once.compareAndSet(false, true)) completion.accept(uid) }
-        val timeout = Runnable { Log.w(TAG, "Current-account provider timed out; archive identity remains unavailable"); deliver(null) }
-        main.postDelayed(timeout, 15000L)
-        executor.execute {
-            try {
-                val type = requireNotNull(symbols.currentUserProviderClass)
-                val method = requireNotNull(symbols.currentUserProviderMethod)
-                val uid = requireNotNull(symbols.currentUserUidField)
-                val receiver = resolveKoinInstance(type, activity.classLoader, symbols.versionName)
-                val context = coroutineContext(lifecycleScope(activity, activity.classLoader))
-                invokeSuspend(receiver, method, emptyArray(), method.parameterTypes.single(), context) { user, failure ->
-                    main.removeCallbacks(timeout)
-                    val value = if (failure == null && user != null && uid.declaringClass.isInstance(user)) runCatching { uid.get(user) as? String }.getOrNull() else null
-                    if (failure != null || user != null && !uid.declaringClass.isInstance(user)) {
-                        Log.w(TAG, "Current-account provider did not return the expected current-user model")
-                    }
-                    val validated = value?.takeIf(String::isNotBlank)
-                    if (validated != null && once.get()) {
-                        // The 15-second UI timeout must not permanently discard a
-                        // later authenticated-user Flow result. Reject stale accounts.
-                        dev.tqmane.befuck.archive.ArchiveAccounts.accept(requestedGeneration, validated)
-                    } else deliver(validated)
-                }
-            } catch (failure: Exception) {
-                main.removeCallbacks(timeout)
-                Log.w(TAG, "Current-account provider failed (${failure.javaClass.simpleName}); archive identity remains unavailable")
-                deliver(null)
-            }
-        }
+        readAccountForOwner(
+            loader = activity.classLoader,
+            ownerProvider = { activity },
+            timeoutMessage = "Current-account provider timed out; archive identity remains unavailable",
+            failurePrefix = "Current-account provider",
+            completion = completion,
+            symbols = symbols,
+        )
     }
 
     /**
@@ -89,35 +68,61 @@ object GalleryPostController {
      */
     @JvmStatic
     fun readCurrentAccountInBackground(context: Context, symbols: ResolvedSymbols, completion: Consumer<String?>) {
+        readAccountForOwner(
+            loader = context.classLoader,
+            ownerProvider = ::processLifecycleOwner,
+            timeoutMessage = "Background current-user provider timed out",
+            failurePrefix = "Background current-user provider",
+            completion = completion,
+            symbols = symbols,
+        )
+    }
+
+    private fun readAccountForOwner(
+        loader: ClassLoader,
+        ownerProvider: (ClassLoader) -> Any,
+        timeoutMessage: String,
+        failurePrefix: String,
+        symbols: ResolvedSymbols,
+        completion: Consumer<String?>,
+    ) {
         val once = AtomicBoolean(false)
-        val requestedGeneration = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot().generation
-        val main = android.os.Handler(android.os.Looper.getMainLooper())
-        fun deliver(uid: String?) { if (once.compareAndSet(false, true)) completion.accept(uid) }
-        val timeout = Runnable { Log.w(TAG, "Background current-user provider timed out"); deliver(null) }
-        main.postDelayed(timeout, 15000L)
+        val requestedGeneration = ArchiveAccounts.snapshot().generation
+        fun deliver(uid: String?) {
+            if (once.compareAndSet(false, true)) completion.accept(uid)
+        }
+        val timeout = Runnable {
+            Log.w(TAG, timeoutMessage)
+            deliver(null)
+        }
+        mainHandler.postDelayed(timeout, 15_000L)
         executor.execute {
             try {
                 val type = requireNotNull(symbols.currentUserProviderClass)
                 val method = requireNotNull(symbols.currentUserProviderMethod)
                 val uid = requireNotNull(symbols.currentUserUidField)
-                val loader = context.classLoader
                 val receiver = resolveKoinInstance(type, loader, symbols.versionName)
-                val coroutine = coroutineContext(lifecycleScope(processLifecycleOwner(loader), loader))
+                val coroutine = coroutineContext(lifecycleScope(ownerProvider(loader), loader))
                 invokeSuspend(receiver, method, emptyArray(), method.parameterTypes.single(), coroutine) { user, failure ->
-                    main.removeCallbacks(timeout)
+                    mainHandler.removeCallbacks(timeout)
                     val value = if (failure == null && user != null && uid.declaringClass.isInstance(user)) {
                         runCatching { uid.get(user) as? String }.getOrNull()
                     } else null
-                    if (failure != null) Log.w(TAG, "Background current-user provider returned an error")
+                    if (failure != null || (user != null && !uid.declaringClass.isInstance(user))) {
+                        Log.w(TAG, "$failurePrefix did not return the expected current-user model")
+                    }
                     val validated = value?.takeIf(String::isNotBlank)
                     if (validated != null && once.get()) {
-                        // Never resurrect the identity of an account which changed during the task.
-                        dev.tqmane.befuck.archive.ArchiveAccounts.accept(requestedGeneration, validated)
-                    } else deliver(validated)
+                        // The 15-second timeout must not permanently discard a
+                        // later authenticated-user Flow result. Reject stale accounts.
+                        ArchiveAccounts.accept(requestedGeneration, validated)
+                    } else {
+                        deliver(validated)
+                    }
                 }
             } catch (failure: Throwable) {
-                main.removeCallbacks(timeout)
-                Log.w(TAG, "Background current-user provider unavailable (" + failure.javaClass.simpleName + ")")
+                mainHandler.removeCallbacks(timeout)
+                Log.w(TAG, "$failurePrefix unavailable (${failure.javaClass.simpleName}); archive identity remains unavailable")
                 deliver(null)
             }
         }
@@ -137,23 +142,15 @@ object GalleryPostController {
         executor.execute {
             try {
                 val loader = context.classLoader
-                val stateHolderClass = Class.forName(KnownMappings.current().className(HostClass.HomeFeedStateHolder), false, loader)
-                val stateHolder = resolveKoinInstance(stateHolderClass, loader, versionName)
-                val feedFlow = KnownMappings.current().refreshFeedFlow(stateHolder)
-                val flowClass = Class.forName(KnownMappings.current().className(HostClass.Flow), false, loader)
-                val continuationType = Class.forName(KnownMappings.current().className(HostClass.Continuation), false, loader)
-                val first = Class.forName(KnownMappings.current().className(HostClass.FlowOperators), false, loader)
-                    .getDeclaredMethod(KnownMappings.current().methodName(HostMethod.FlowFirst), flowClass, continuationType)
-                    .apply { isAccessible = true }
-                require(flowClass.isInstance(feedFlow)) { "Feed source returned an unexpected Flow type" }
-                val feedClass = Class.forName(KnownMappings.current().className(HostClass.HomeFeed), false, loader)
-                val coroutine = coroutineContext(lifecycleScope(processLifecycleOwner(loader), loader))
-                invokeSuspend(feedFlow, first, arrayOf(feedFlow), continuationType, coroutine) { feed, failure ->
+                val mapping = KnownMappings.current()
+                val stateHolderClass = Class.forName(mapping.className(HostClass.HomeFeedStateHolder), false, loader)
+                val feedClass = Class.forName(mapping.className(HostClass.HomeFeed), false, loader)
+                fetchFirstHomeFeed(loader, stateHolderClass, versionName, processLifecycleOwner(loader)) { _, feed, failure ->
                     if (failure != null) Log.w(TAG, "Background feed refresh returned an error")
                     deliver(failure == null && feedClass.isInstance(feed))
                 }
             } catch (failure: Throwable) {
-                Log.w(TAG, "Background feed refresh unavailable (" + failure.javaClass.simpleName + ")")
+                Log.w(TAG, "Background feed refresh unavailable (${failure.javaClass.simpleName})")
                 deliver(false)
             }
         }
@@ -166,23 +163,14 @@ object GalleryPostController {
         executor.execute {
             try {
                 val loader = activity.classLoader
-                val stateHolderClass = Class.forName(KnownMappings.current().className(HostClass.HomeFeedStateHolder), false, loader)
-                val stateHolder = resolveKoinInstance(stateHolderClass, loader, versionName)
-                val feedFlow = KnownMappings.current().refreshFeedFlow(stateHolder)
-                val flowClass = Class.forName(KnownMappings.current().className(HostClass.Flow), false, loader)
-                val continuationType = Class.forName(KnownMappings.current().className(HostClass.Continuation), false, loader)
-                val firstFlowValue = Class.forName(KnownMappings.current().className(HostClass.FlowOperators), false, loader).getDeclaredMethod(
-                    KnownMappings.current().methodName(HostMethod.FlowFirst),
-                    flowClass,
-                    continuationType,
-                ).apply { isAccessible = true }
-                require(flowClass.isInstance(feedFlow)) { "Home feed source did not return the expected Flow type" }
-
-                val feedClass = Class.forName(KnownMappings.current().className(HostClass.HomeFeed), false, loader)
+                val mapping = KnownMappings.current()
+                val stateHolderClass = Class.forName(mapping.className(HostClass.HomeFeedStateHolder), false, loader)
+                val feedClass = Class.forName(mapping.className(HostClass.HomeFeed), false, loader)
                 val trackingField = feedClass.getDeclaredField("g").apply { isAccessible = true }
-                val refreshReasonClass = Class.forName(KnownMappings.current().className(HostClass.FeedRefreshReason), false, loader)
-                val refreshReasonField = refreshReasonClass.getDeclaredField("a").apply { isAccessible = true }
-                val refreshReason = requireNotNull(refreshReasonField.get(null)) { "Feed refresh reason is unavailable" }
+                val refreshReasonClass = Class.forName(mapping.className(HostClass.FeedRefreshReason), false, loader)
+                val refreshReason = requireNotNull(
+                    refreshReasonClass.getDeclaredField("a").apply { isAccessible = true }.get(null)
+                ) { "Feed refresh reason is unavailable" }
                 require(refreshReason.toString() == "FromToaster") { "Resolved feed refresh reason is not FromToaster" }
                 val updateFeedState = stateHolderClass.declaredMethods.singleOrNull { method ->
                     val parameters = method.parameterTypes
@@ -192,15 +180,7 @@ object GalleryPostController {
                 } ?: error("Home feed force-refresh method is unresolved")
                 updateFeedState.isAccessible = true
 
-                val scope = lifecycleScope(activity, loader)
-                val context = coroutineContext(scope)
-                invokeSuspend(
-                    receiver = feedFlow,
-                    method = firstFlowValue,
-                    args = arrayOf(feedFlow),
-                    continuationType = continuationType,
-                    coroutineContext = context,
-                ) { feed, failure ->
+                fetchFirstHomeFeed(loader, stateHolderClass, versionName, activity) { stateHolder, feed, failure ->
                     if (failure != null || feed == null || !feedClass.isInstance(feed)) {
                         Log.w(TAG, "BeFake post created, but the HomeFeed fetch returned no feed", failure)
                     } else {
@@ -217,6 +197,28 @@ object GalleryPostController {
             } catch (failure: Throwable) {
                 Log.w(TAG, "Could not invoke BeReal's feed refresh after BeFake posting", failure)
             }
+        }
+    }
+
+    private fun fetchFirstHomeFeed(
+        loader: ClassLoader,
+        stateHolderClass: Class<*>,
+        versionName: String?,
+        lifecycleOwner: Any,
+        completion: (Any, Any?, Throwable?) -> Unit,
+    ) {
+        val mapping = KnownMappings.current()
+        val stateHolder = resolveKoinInstance(stateHolderClass, loader, versionName)
+        val feedFlow = mapping.refreshFeedFlow(stateHolder)
+        val flowClass = Class.forName(mapping.className(HostClass.Flow), false, loader)
+        val continuationType = Class.forName(mapping.className(HostClass.Continuation), false, loader)
+        val first = Class.forName(mapping.className(HostClass.FlowOperators), false, loader)
+            .getDeclaredMethod(mapping.methodName(HostMethod.FlowFirst), flowClass, continuationType)
+            .apply { isAccessible = true }
+        require(flowClass.isInstance(feedFlow)) { "Home feed source did not return the expected Flow type" }
+        val coroutine = coroutineContext(lifecycleScope(lifecycleOwner, loader))
+        invokeSuspend(feedFlow, first, arrayOf(feedFlow), continuationType, coroutine) { feed, failure ->
+            completion(stateHolder, feed, failure)
         }
     }
 
@@ -270,7 +272,15 @@ object GalleryPostController {
                 val loader = activity.classLoader
                 fun observeUpload(postId: String) {
                     draftSaved?.accept(postId)
-                    val work = enqueueUploadWorker(activity, loader, symbols.postUploadWorkerClass!!, postId)
+                    val work = HostWorkManager.enqueueUniqueOneTimeWork(
+                        context = activity,
+                        classLoader = loader,
+                        workerClass = symbols.postUploadWorkerClass!!,
+                        uniqueName = "upload_unsent_post_$postId",
+                        inputEntries = mapOf("key_post_id" to postId),
+                        linearBackoff = true,
+                        tag = "SEND_POSTS_WORKER",
+                    )
                     watchUploadAndCleanMedia(activity, loader, work, request, completion)
                     Log.i(TAG, "Submitted official upload for persisted CorePost $postId")
                 }
@@ -283,7 +293,7 @@ object GalleryPostController {
                 val context = coroutineContext(lifecycleScope(activity, loader))
                 val provider = senderClass.getDeclaredField("c").apply { isAccessible = true }.get(sender)
                     ?: error("Current BeReal moment provider is unavailable")
-                val getMoment = allMethods(provider.javaClass).single {
+                val getMoment = HostReflection.allMethods(provider.javaClass).single {
                     it.name == "a" && it.parameterCount == 1 && it.returnType == Any::class.java
                 }
                 invokeSuspend(provider, getMoment, emptyArray(), getMoment.parameterTypes[0], context) { moment, momentFailure ->
@@ -357,7 +367,7 @@ object GalleryPostController {
     }
 
     private fun coroutineContext(scope: Any): Any {
-        val methods = allMethods(scope.javaClass)
+        val methods = HostReflection.allMethods(scope.javaClass)
         val getters = methods.filter { method ->
             method.parameterCount == 0 && !method.returnType.isPrimitive && isCoroutineContextType(method.returnType)
         }
@@ -367,7 +377,7 @@ object GalleryPostController {
     }
 
     private fun isCoroutineContextType(type: Class<*>): Boolean {
-        val methods = allMethods(type)
+        val methods = HostReflection.allMethods(type)
         return methods.any { it.parameterCount == 2 && it.returnType == Any::class.java } &&
             methods.any { it.parameterCount == 1 && it.returnType != Void.TYPE } &&
             methods.any { it.parameterCount == 1 && type.isAssignableFrom(it.returnType) }
@@ -463,16 +473,6 @@ object GalleryPostController {
         else -> null
     }
 
-    private fun allMethods(type: Class<*>): List<Method> {
-        val methods = type.methods.toMutableList()
-        var current: Class<*>? = type.superclass
-        while (current != null) {
-            methods += current.declaredMethods
-            current = current.superclass
-        }
-        return methods.distinctBy { it.name + it.parameterTypes.joinToString { p -> p.name } + it.returnType.name }
-    }
-
     internal fun resolveKoinInstance(type: Class<*>, classLoader: ClassLoader, versionName: String?): Any {
         val root = requireNotNull(KnownMappings.current().resolveKoinApplication(classLoader)) {
             "Koin application root is unavailable"
@@ -490,124 +490,10 @@ object GalleryPostController {
         }
     }
 
-    private fun enqueueUploadWorker(
-        context: android.content.Context,
-        classLoader: ClassLoader,
-        workerClass: Class<*>,
-        postId: String,
-    ): UploadWorkHandle {
-        val dataClass = Class.forName("androidx.work.Data", false, classLoader)
-        val dataBuilderClass = Class.forName("androidx.work.Data\$Builder", false, classLoader)
-        val dataBuilder = dataBuilderClass.getDeclaredConstructor().newInstance()
-        val putString = allMethods(dataBuilderClass).singleOrNull { method ->
-            method.parameterTypes.size == 2 &&
-                method.parameterTypes[0] == String::class.java &&
-                (method.parameterTypes[1] == String::class.java || method.parameterTypes[1] == Any::class.java) &&
-                method.returnType == Void.TYPE
-        } ?: error("Data.Builder string writer unavailable")
-        putString.isAccessible = true
-        putString.invoke(dataBuilder, "key_post_id", postId)
-        val inputDataBuilder = allMethods(dataBuilderClass).singleOrNull { method ->
-            method.parameterCount == 0 && method.returnType == dataClass
-        } ?: error("Data.Builder build method unavailable")
-        inputDataBuilder.isAccessible = true
-        val inputData = inputDataBuilder.invoke(dataBuilder)
-        require(dataClass.isInstance(inputData)) { "WorkManager Data builder returned ${inputData?.javaClass?.name}" }
-
-        val requestClass = Class.forName("androidx.work.OneTimeWorkRequest", false, classLoader)
-        val workRequestClass = Class.forName("androidx.work.WorkRequest", false, classLoader)
-        val requestBuilderClass = Class.forName("androidx.work.OneTimeWorkRequest\$Builder", false, classLoader)
-        val workRequestBuilderClass = Class.forName("androidx.work.WorkRequest\$Builder", false, classLoader)
-        val requestConstructor = requestBuilderClass.declaredConstructors.singleOrNull { constructor ->
-            constructor.parameterTypes.contentEquals(arrayOf(Class::class.java))
-        } ?: error("OneTimeWorkRequest.Builder worker constructor unavailable")
-        requestConstructor.isAccessible = true
-        val requestBuilder = requestConstructor.newInstance(workerClass)
-
-        val setInputData = allMethods(requestBuilderClass).singleOrNull { method ->
-            method.parameterTypes.contentEquals(arrayOf(dataClass)) &&
-                workRequestBuilderClass.isAssignableFrom(method.returnType)
-        } ?: error("OneTimeWorkRequest.Builder input-data method unavailable")
-        setInputData.isAccessible = true
-        setInputData.invoke(requestBuilder, inputData)
-
-        val constraintsBuilderClass = Class.forName("androidx.work.Constraints\$Builder", false, classLoader)
-        val constraintsBuilder = constraintsBuilderClass.getDeclaredConstructor().newInstance()
-        val networkTypeClass = Class.forName("androidx.work.NetworkType", false, classLoader)
-        val connectedNetwork = namedEnumValue(networkTypeClass, "CONNECTED")
-        val setRequiredNetworkType = allMethods(constraintsBuilderClass).singleOrNull { method ->
-            method.parameterTypes.contentEquals(arrayOf(networkTypeClass)) && method.returnType == Void.TYPE
-        } ?: error("Constraints.Builder network-type setter unavailable")
-        setRequiredNetworkType.isAccessible = true
-        setRequiredNetworkType.invoke(constraintsBuilder, connectedNetwork)
-        val constraintsClass = Class.forName("androidx.work.Constraints", false, classLoader)
-        val buildConstraints = allMethods(constraintsBuilderClass).singleOrNull { method ->
-            method.parameterCount == 0 && method.returnType == constraintsClass
-        } ?: error("Constraints.Builder build method unavailable")
-        buildConstraints.isAccessible = true
-        val constraints = buildConstraints.invoke(constraintsBuilder)
-        val workSpecClass = Class.forName("androidx.work.impl.model.WorkSpec", false, classLoader)
-        val workSpecField = allFields(requestBuilderClass).singleOrNull { it.type == workSpecClass }
-            ?: error("OneTimeWorkRequest.Builder WorkSpec field unavailable")
-        workSpecField.isAccessible = true
-        val workSpec = workSpecField.get(requestBuilder)
-        val constraintsField = allFields(workSpecClass).singleOrNull { it.type == constraintsClass }
-            ?: error("WorkSpec constraints field unavailable")
-        constraintsField.isAccessible = true
-        constraintsField.set(workSpec, constraints)
-
-        val backoffClass = Class.forName("androidx.work.BackoffPolicy", false, classLoader)
-        val linearBackoff = namedEnumValue(backoffClass, "LINEAR")
-        val setBackoff = allMethods(requestBuilderClass).singleOrNull { method ->
-            method.parameterTypes.contentEquals(arrayOf(backoffClass)) &&
-                workRequestBuilderClass.isAssignableFrom(method.returnType)
-        }
-        setBackoff?.apply { isAccessible = true }?.invoke(requestBuilder, linearBackoff)
-
-        val addTag = allMethods(requestBuilderClass).singleOrNull { method ->
-            method.parameterTypes.contentEquals(arrayOf(String::class.java)) &&
-                workRequestBuilderClass.isAssignableFrom(method.returnType)
-        }
-        addTag?.apply { isAccessible = true }?.invoke(requestBuilder, "SEND_POSTS_WORKER")
-
-        val buildCandidates = allMethods(requestBuilderClass).filter { method ->
-            method.parameterCount == 0 && workRequestClass.isAssignableFrom(method.returnType)
-        }
-        val build = buildCandidates.singleOrNull { method ->
-            method.name == "build" && method.declaringClass == workRequestBuilderClass
-        } ?: buildCandidates.singleOrNull { method ->
-            method.name == "a" && method.declaringClass == workRequestBuilderClass && Modifier.isFinal(method.modifiers)
-        } ?: error("WorkRequest.Builder build operation unavailable; candidates=${buildCandidates.map { it.toGenericString() }}")
-        build.isAccessible = true
-        val request = build.invoke(requestBuilder)
-        require(requestClass.isInstance(request)) { "WorkRequest.Builder returned ${request?.javaClass?.name}" }
-        val requestIdField = allFields(requestClass).singleOrNull { it.type == java.util.UUID::class.java }
-            ?: error("OneTimeWorkRequest UUID field unavailable")
-        requestIdField.isAccessible = true
-        val requestId = requestIdField.get(request) as? java.util.UUID
-            ?: error("OneTimeWorkRequest UUID is empty")
-        val workManagerClass = Class.forName("androidx.work.WorkManager", false, classLoader)
-        val workManager = workManagerInstance(context, classLoader)
-        val policyClass = Class.forName("androidx.work.ExistingWorkPolicy", false, classLoader)
-        val keepPolicy = namedEnumValue(policyClass, "KEEP")
-        val operationClass = Class.forName("androidx.work.Operation", false, classLoader)
-        val enqueue = allMethods(workManagerClass).singleOrNull { method ->
-            method.parameterCount == 3 &&
-                method.parameterTypes[0] == String::class.java &&
-                method.parameterTypes[1] == policyClass &&
-                method.parameterTypes[2].isInstance(request) &&
-                operationClass.isAssignableFrom(method.returnType)
-        } ?: error("WorkManager unique-work enqueue method unavailable")
-        enqueue.isAccessible = true
-        val uniqueName = "upload_unsent_post_$postId"
-        enqueue.invoke(workManager, uniqueName, keepPolicy, request)
-        return UploadWorkHandle(uniqueName, requestId)
-    }
-
     private fun watchUploadAndCleanMedia(
-        context: android.content.Context,
+        context: Context,
         classLoader: ClassLoader,
-        work: UploadWorkHandle,
+        work: HostWorkManager.EnqueuedWork,
         request: GalleryPostRequest,
         completion: Consumer<Boolean>,
     ) {
@@ -618,19 +504,19 @@ object GalleryPostController {
         var poller: ScheduledFuture<*>? = null
         try {
             val workManagerClass = Class.forName("androidx.work.WorkManager", false, classLoader)
-            val workManager = workManagerInstance(context, classLoader)
-            val query = allMethods(workManagerClass).singleOrNull { method ->
+            val workManager = HostWorkManager.instance(context, classLoader)
+            val query = HostReflection.allMethods(workManagerClass).singleOrNull { method ->
                 method.parameterTypes.contentEquals(arrayOf(java.util.UUID::class.java)) &&
-                    method.returnType != Void.TYPE && allMethods(method.returnType).any { candidate ->
+                    method.returnType != Void.TYPE && HostReflection.allMethods(method.returnType).any { candidate ->
                         candidate.name == "get" && candidate.parameterCount == 0
                     }
             } ?: error("WorkManager work-info Future query unavailable")
-            val futureGet = allMethods(query.returnType).singleOrNull { method ->
+            val futureGet = HostReflection.allMethods(query.returnType).singleOrNull { method ->
                 method.name == "get" && method.parameterCount == 0
             } ?: error("Work-info Future.get method unavailable")
             val workInfoClass = Class.forName("androidx.work.WorkInfo", false, classLoader)
             val stateClass = Class.forName("androidx.work.WorkInfo\$State", false, classLoader)
-            val stateField = allFields(workInfoClass).singleOrNull { it.type == stateClass }
+            val stateField = HostReflection.allFields(workInfoClass).singleOrNull { it.type == stateClass }
                 ?: error("WorkInfo state field unavailable")
             query.isAccessible = true
             futureGet.isAccessible = true
@@ -661,7 +547,7 @@ object GalleryPostController {
                                 finish(false)
                                 return@scheduleWithFixedDelay
                             }
-                            request.selectedMedia.forEach { media -> cleanupPreparedMedia(context, media) }
+                            request.selectedMedia.forEach { media -> GalleryMediaPreparer.discardPreparedMedia(context, media) }
                             Log.i(TAG, "Official upload worker completed successfully")
                             finish(true)
                         }
@@ -699,48 +585,11 @@ object GalleryPostController {
         }
     }
 
-    private fun workManagerInstance(context: android.content.Context, classLoader: ClassLoader): Any {
-        val workManagerClass = Class.forName("androidx.work.WorkManager", false, classLoader)
-        val implementationClass = Class.forName("androidx.work.impl.WorkManagerImpl", false, classLoader)
-        val implementationFactories = allMethods(implementationClass).filter { method ->
-            Modifier.isStatic(method.modifiers) &&
-                method.parameterTypes.contentEquals(arrayOf(android.content.Context::class.java)) &&
-                workManagerClass.isAssignableFrom(method.returnType)
-        }
-        implementationFactories.singleOrNull()?.let { factory ->
-            factory.isAccessible = true
-            return requireNotNull(factory.invoke(null, context)) { "WorkManager is not initialized" }
-        }
-
-        val companionClass = Class.forName("androidx.work.WorkManager\$Companion", false, classLoader)
-        val companionField = allFields(workManagerClass).singleOrNull { field ->
-            Modifier.isStatic(field.modifiers) && field.type == companionClass
-        } ?: error("WorkManager companion instance unavailable")
-        companionField.isAccessible = true
-        val companion = companionField.get(null) ?: error("WorkManager companion is null")
-        val factory = allMethods(companionClass).singleOrNull { method ->
-            method.parameterTypes.contentEquals(arrayOf(android.content.Context::class.java)) &&
-                workManagerClass.isAssignableFrom(method.returnType)
-        } ?: error("WorkManager companion context factory unavailable")
-        factory.isAccessible = true
-        return requireNotNull(factory.invoke(companion, context)) { "WorkManager is not initialized" }
-    }
-
-    private fun cleanupPreparedMedia(context: android.content.Context, media: GalleryMediaFile) {
-        val directory = File(context.filesDir, "befuck/gallery").canonicalFile
-        listOfNotNull(media.path, media.previewPath, media.sourcePath).distinct().forEach { path ->
-            runCatching {
-                val file = File(path).canonicalFile
-                if (file.parentFile == directory) file.delete()
-            }
-        }
-    }
-
     private fun readWorkerFailureDetails(workInfo: Any): String? = runCatching {
-        val outputData = allMethods(workInfo.javaClass).firstOrNull { method ->
+        val outputData = HostReflection.allMethods(workInfo.javaClass).firstOrNull { method ->
             method.name == "getOutputData" && method.parameterCount == 0
         }?.apply { isAccessible = true }?.invoke(workInfo) ?: return@runCatching null
-        val values = allMethods(outputData.javaClass).firstOrNull { method ->
+        val values = HostReflection.allMethods(outputData.javaClass).firstOrNull { method ->
             method.name == "getKeyValueMap" && method.parameterCount == 0 && Map::class.java.isAssignableFrom(method.returnType)
         }?.apply { isAccessible = true }?.invoke(outputData) as? Map<*, *> ?: return@runCatching null
         values.entries.asSequence()
@@ -757,36 +606,6 @@ object GalleryPostController {
             .takeIf { it.isNotEmpty() }
             ?.joinToString(separator = ", ")
     }.getOrNull()
-
-    private fun namedEnumValue(type: Class<*>, expectedName: String): Any {
-        type.enumConstants?.firstOrNull { (it as Enum<*>).name == expectedName }?.let { return it }
-        val arrayMethod = allMethods(type).firstOrNull { method ->
-            Modifier.isStatic(method.modifiers) && method.parameterCount == 0 &&
-                method.returnType.isArray && method.returnType.componentType == type
-        }
-        if (arrayMethod != null) {
-            arrayMethod.isAccessible = true
-            val values = arrayMethod.invoke(null) as? Array<*>
-            values?.firstOrNull { value -> value != null && value.toString() == expectedName }?.let { return it }
-        }
-        allFields(type).firstOrNull { field ->
-            Modifier.isStatic(field.modifiers) && type.isAssignableFrom(field.type)
-        }?.let { field ->
-            field.isAccessible = true
-            field.get(null)?.takeIf { it.toString() == expectedName }?.let { return it }
-        }
-        error("${type.name} has no value named $expectedName")
-    }
-
-    private fun allFields(type: Class<*>): List<Field> {
-        val fields = mutableListOf<Field>()
-        var current: Class<*>? = type
-        while (current != null) {
-            fields += current.declaredFields
-            current = current.superclass
-        }
-        return fields.distinctBy { it.name + it.type.name }
-    }
 
     private fun findKoinDefinitionResolver(root: Any, versionName: String?): Pair<Any, Method> {
         val seen = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())

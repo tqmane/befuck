@@ -209,7 +209,7 @@ internal object KnownMappings3970 : HostMappings("3.97.0", 3597523L) {
             base.getDeclaredConstructor(Int::class.javaPrimitiveType, List::class.java, String::class.java),
             method, mapOf(viewed to "Onboarding step viewed", completed to "Onboarding step completed"),
             field(step, "a", String::class.java, false),
-            step.enumConstants.single { (it as Enum<*>).name == "EMAIL_ADDRESS" })
+            requireNotNull(step.enumConstants).single { (it as Enum<*>).name == "EMAIL_ADDRESS" })
     }
 
     override fun authDiagnosticConstructors(loader: ClassLoader): Map<String, java.lang.reflect.Constructor<*>> {

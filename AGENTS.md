@@ -7,6 +7,7 @@
 - `app/src/main/java/dev/tqmane/befuck/BeRealModule.java` owns the libxposed entry point and hook registration. Keep version numbers and obfuscated class names out of it.
 - Kotlin sources live under `app/src/main/kotlin/dev/tqmane/befuck/`:
   - `symbols/`: Version-specific symbol mappings (`KnownMappings<version>.kt`), shared reflection helpers (`HostMappings.kt`), DexKit dynamic resolution (`BeRealSymbolResolver.kt`), and signature caching (`SymbolCacheCodec.kt`).
+  - `hooks/`: Modular libxposed hook installers (`HookHost.kt` and feature hook classes) orchestrated by `BeRealModule.java`.
   - `runtime/`: Runtime state, persistence, settings, Compose state tracking, and authentication compatibility helpers.
   - `posting/`: Gallery post requests, media preparation, and upload pipeline orchestration.
   - `ui/`: Module UI, dialogs, media preview/cropping, and user interaction.

@@ -3,8 +3,10 @@ package dev.tqmane.befuck.ui
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.animation.StateListAnimator
+import android.app.Activity
 import android.app.Dialog
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -33,6 +35,15 @@ internal object ExpressiveUi {
     const val ERROR = 0xFFFFB4AB.toInt()
     const val CORNER = 28f
     fun dp(context: Context, value: Int) = (context.resources.displayMetrics.density * value + .5f).toInt()
+    fun findActivity(context: Context): Activity? {
+        var current: Context? = context
+        val seen = HashSet<Context>()
+        while (current != null && seen.add(current)) {
+            if (current is Activity) return current
+            current = (current as? ContextWrapper)?.baseContext
+        }
+        return null
+    }
     fun shape(context: Context, color: Int = SURFACE, radius: Float = CORNER, stroke: Int? = null) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = radius * context.resources.displayMetrics.density

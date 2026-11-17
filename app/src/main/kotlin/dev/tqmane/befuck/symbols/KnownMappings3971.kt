@@ -104,24 +104,13 @@ internal object KnownMappings3971 : HostMappings("3.97.1", 3599414L) {
     // Unlike 3.97.0's VMRunner, 3.97.1 installs PairIP through
     // com.pairip.application.Application.attachBaseContext and its ContentProvider.
     // Both enter this static method before normal application startup.
-    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
-        Class.forName("com.pairip.licensecheck.LicenseClient", false, loader)
-            .getDeclaredMethod("checkLicense", android.content.Context::class.java)
-            .takeIf { method ->
-                java.lang.reflect.Modifier.isStatic(method.modifiers) && method.returnType == Void.TYPE
-            }?.apply { isAccessible = true }
-    }.getOrNull()
+    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? =
+        resolvePairIpLicenseCheck(loader)
 
     // BeReal 3.97.1: eg7.c(lp): ko? is the nullable feed-ad selector for both
     // native and MREC clients. Returning null is its own normal no-ad result.
     // Guard the method shape before installing any hook; do not reuse this mapping
     // for other versions or hook the loading coroutine (which must complete).
-    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
-        val selector = Class.forName("eg7", false, loader)
-        val placement = Class.forName("lp", false, loader)
-        val ad = Class.forName("ko", false, loader)
-        selector.getDeclaredMethod("c", placement).takeIf { method ->
-            method.returnType == ad && !java.lang.reflect.Modifier.isStatic(method.modifiers)
-        }?.apply { isAccessible = true }
-    }.getOrNull()
+    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? =
+        resolveFeedAdSelector(loader, "eg7", "c", "lp", "ko")
 }

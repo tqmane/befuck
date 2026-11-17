@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.Application
 import android.app.Dialog
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -201,17 +200,12 @@ internal class SavedPostsMapView(private val activity: Activity, private val lab
 
     private fun createRenderer() {
         if (!renderable() || renderer != null || model.points.isEmpty()) return
-        val appContext = object : ContextWrapper(ModuleUiContext(activity.applicationContext, labels)) {
-            override fun getApplicationContext(): Context = this
-        }
-        val viewContext = object : ContextWrapper(ModuleUiContext(activity, labels)) {
-            override fun getApplicationContext(): Context = appContext
-        }
+        val mapContexts = MapLibreSupport.createDetachedContexts(activity, labels)
         val generation = ++rendererGeneration
         try {
             failed = false; retry.visibility = GONE; updateStatus()
-            MapLibre.getInstance(appContext)
-            val created = MapView(viewContext)
+            MapLibre.getInstance(mapContexts.application)
+            val created = MapView(mapContexts.render)
             renderer = created
             created.onCreate(null)
             mapArea.addView(created, 0, FrameLayout.LayoutParams(-1, -1))
@@ -230,7 +224,7 @@ internal class SavedPostsMapView(private val activity: Activity, private val lab
                     val hits = runCatching { ready.queryRenderedFeatures(hitArea, PHOTO_LAYER, POINT_LAYER).mapNotNull(::featureIndex) }.getOrDefault(emptyList())
                     if (model.selectHits(hits)) { updateSelection(); updatePhotos(); true } else false
                 }
-                ready.setStyle("https://tiles.openfreemap.org/styles/liberty") { loaded ->
+                ready.setStyle(MapLibreSupport.OPENFREEMAP_STYLE_URL) { loaded ->
                     if (!renderable() || generation != rendererGeneration) return@setStyle
                     try {
                         ready.uiSettings.isAttributionEnabled = true

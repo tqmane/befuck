@@ -7,8 +7,6 @@ import dev.tqmane.befuck.archive.ArchiveRepository
 import dev.tqmane.befuck.download.FeedPostMediaCache
 import dev.tqmane.befuck.posting.GalleryPostController
 import dev.tqmane.befuck.symbols.ResolvedSymbols
-import java.lang.reflect.Method
-import java.lang.reflect.Modifier
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -123,16 +121,7 @@ internal object DailySync {
 
     /** Return the host's own WorkManager Result; never pass an Xposed module type. */
     @JvmStatic
-    fun workResult(loader: ClassLoader): Any {
-        val resultType = Class.forName("androidx.work.ListenableWorker\$Result", false, loader)
-        val successType = Class.forName("androidx.work.ListenableWorker\$Result\$Success", false, loader)
-        val factory = allMethods(resultType).singleOrNull {
-            Modifier.isStatic(it.modifiers) && it.parameterCount == 0 &&
-                successType.isAssignableFrom(it.returnType)
-        } ?: error("WorkManager Result.Success factory is missing")
-        factory.isAccessible = true
-        return requireNotNull(factory.invoke(null))
-    }
+    fun workResult(loader: ClassLoader): Any = HostWorkManager.workResultSuccess(loader)
 
     /** Executes on WorkManager's background worker thread, without a visible Activity. */
     @JvmStatic
@@ -208,10 +197,10 @@ internal object DailySync {
     }
 
     private fun inputDataString(worker: Any, key: String): String? = runCatching {
-        val data = allMethods(worker.javaClass).firstOrNull {
+        val data = HostReflection.allMethods(worker.javaClass).firstOrNull {
             it.name == "getInputData" && it.parameterCount == 0
         }?.apply { isAccessible = true }?.invoke(worker) ?: return@runCatching null
-        val getter = allMethods(data.javaClass).singleOrNull {
+        val getter = HostReflection.allMethods(data.javaClass).singleOrNull {
             it.parameterTypes.contentEquals(arrayOf(String::class.java)) &&
                 it.returnType == String::class.java
         } ?: return@runCatching null
@@ -226,83 +215,14 @@ internal object DailySync {
         require(slot == "a" || slot == "b")
         val loader = context.classLoader
         val worker = Class.forName(WORKER, false, loader)
-        val dataType = Class.forName("androidx.work.Data", false, loader)
-        val dataBuilderType = Class.forName("androidx.work.Data\$Builder", false, loader)
-        val dataBuilder = dataBuilderType.getDeclaredConstructor().newInstance()
-        val writer = allMethods(dataBuilderType).singleOrNull {
-            it.parameterCount == 2 && it.parameterTypes[0] == String::class.java &&
-                (it.parameterTypes[1] == Any::class.java || it.parameterTypes[1] == String::class.java) &&
-                (it.returnType == Void.TYPE || dataBuilderType.isAssignableFrom(it.returnType))
-        } ?: error("Host WorkManager Data writer unavailable")
-        writer.isAccessible = true
-        writer.invoke(dataBuilder, INPUT_KEY, INPUT_VALUE)
-        writer.invoke(dataBuilder, INPUT_SLOT, slot)
-        val data = allMethods(dataBuilderType).singleOrNull {
-            it.parameterCount == 0 && it.returnType == dataType
-        }?.apply { isAccessible = true }?.invoke(dataBuilder) ?: error("Host WorkManager Data build unavailable")
-
-        val requestBuilderType = Class.forName("androidx.work.OneTimeWorkRequest\$Builder", false, loader)
-        val requestType = Class.forName("androidx.work.OneTimeWorkRequest", false, loader)
-        val baseBuilderType = Class.forName("androidx.work.WorkRequest\$Builder", false, loader)
-        val builder = requestBuilderType.getDeclaredConstructor(Class::class.java).newInstance(worker)
-        val setInput = allMethods(requestBuilderType).singleOrNull {
-            it.parameterTypes.contentEquals(arrayOf(dataType)) &&
-                baseBuilderType.isAssignableFrom(it.returnType)
-        } ?: error("Host WorkManager WorkRequest input setter unavailable")
-        setInput.isAccessible = true
-        setInput.invoke(builder, data)
-
-        val setDelay = allMethods(requestBuilderType).singleOrNull {
-            it.parameterTypes.contentEquals(arrayOf(Long::class.javaPrimitiveType, TimeUnit::class.java)) &&
-                baseBuilderType.isAssignableFrom(it.returnType)
-        } ?: error("Host WorkManager initial delay setter unavailable")
-        setDelay.isAccessible = true
-        setDelay.invoke(builder, delayHours, TimeUnit.HOURS)
-
-        val constraintsBuilderType = Class.forName("androidx.work.Constraints\$Builder", false, loader)
-        val networkType = Class.forName("androidx.work.NetworkType", false, loader)
-        val constraintsType = Class.forName("androidx.work.Constraints", false, loader)
-        val connected = networkType.enumConstants?.firstOrNull { (it as Enum<*>).name == "CONNECTED" }
-            ?: error("CONNECTED network requirement unavailable")
-        val constraintsBuilder = constraintsBuilderType.getDeclaredConstructor().newInstance()
-        val setNetwork = allMethods(constraintsBuilderType).singleOrNull {
-            it.parameterTypes.contentEquals(arrayOf(networkType))
-        } ?: error("Host WorkManager network constraint unavailable")
-        setNetwork.isAccessible = true
-        setNetwork.invoke(constraintsBuilder, connected)
-        val constraints = allMethods(constraintsBuilderType).singleOrNull {
-            it.parameterCount == 0 && it.returnType == constraintsType
-        }?.apply { isAccessible = true }?.invoke(constraintsBuilder)
-            ?: error("Host WorkManager constraints builder unavailable")
-        val specType = Class.forName("androidx.work.impl.model.WorkSpec", false, loader)
-        val spec = allFields(requestBuilderType).singleOrNull { it.type == specType }
-            ?.apply { isAccessible = true }?.get(builder)
-            ?: error("Host WorkSpec unavailable")
-        val constraintField = allFields(specType).singleOrNull { it.type == constraintsType }
-            ?: error("Host WorkSpec constraints field unavailable")
-        constraintField.isAccessible = true
-        constraintField.set(spec, constraints)
-
-        val request = allMethods(requestBuilderType).firstOrNull {
-            it.parameterCount == 0 && requestType.isAssignableFrom(it.returnType)
-        }?.apply { isAccessible = true }?.invoke(builder)
-            ?: baseBuilderType.declaredMethods.singleOrNull {
-                it.parameterCount == 0 && it.returnType.name == "androidx.work.WorkRequest" &&
-                    Modifier.isFinal(it.modifiers)
-            }?.apply { isAccessible = true }?.invoke(builder)
-            ?: error("Host WorkRequest build unavailable")
-        require(requestType.isInstance(request)) { "Host WorkManager did not build a OneTimeWorkRequest" }
-        val manager = manager(context, loader)
-        val managerType = Class.forName("androidx.work.WorkManager", false, loader)
-        val policyType = Class.forName("androidx.work.ExistingWorkPolicy", false, loader)
-        val keep = policyType.enumConstants?.firstOrNull { (it as Enum<*>).name == "KEEP" }
-            ?: error("Host ExistingWorkPolicy.KEEP unavailable")
-        val enqueue = allMethods(managerType).singleOrNull {
-            it.parameterCount == 3 && it.parameterTypes[0] == String::class.java &&
-                it.parameterTypes[1] == policyType && it.parameterTypes[2].isInstance(request)
-        } ?: error("Host unique one-time enqueue method unavailable")
-        enqueue.isAccessible = true
-        enqueue.invoke(manager, workName(slot), keep, request)
+        HostWorkManager.enqueueUniqueOneTimeWork(
+            context = context,
+            classLoader = loader,
+            workerClass = worker,
+            uniqueName = workName(slot),
+            inputEntries = mapOf(INPUT_KEY to INPUT_VALUE, INPUT_SLOT to slot),
+            initialDelayHours = delayHours,
+        )
         // The WorkManager operation has been accepted asynchronously, and the
         // pending slot can safely be retained for reconciliation after process death.
         preferences(context).edit().putString(PENDING_SLOT, slot).apply()
@@ -311,37 +231,6 @@ internal object DailySync {
     private fun workName(slot: String) = "befuck.daily_feed_sync.$slot.v1"
 
     private fun cancel(context: Context) {
-        val loader = context.classLoader
-        val manager = manager(context, loader)
-        val managerType = Class.forName("androidx.work.WorkManager", false, loader)
-        val operationType = Class.forName("androidx.work.Operation", false, loader)
-        val actions = allMethods(managerType).filter {
-            it.parameterTypes.contentEquals(arrayOf(String::class.java)) &&
-                operationType.isAssignableFrom(it.returnType)
-        }
-        // Minified WorkManager retains both cancelUniqueWork and cancelAllWorkByTag.
-        // Calling both with private, unique BeFuck names is safe, independent of R8 names.
-        for (slot in listOf("a", "b")) for (action in actions) {
-            action.isAccessible = true
-            action.invoke(manager, workName(slot))
-        }
+        HostWorkManager.cancelByNames(context, context.classLoader, listOf("a", "b").map(::workName))
     }
-
-    private fun manager(context: Context, loader: ClassLoader): Any {
-        val managerType = Class.forName("androidx.work.WorkManager", false, loader)
-        val implType = Class.forName("androidx.work.impl.WorkManagerImpl", false, loader)
-        val accessor = allMethods(implType).singleOrNull {
-            Modifier.isStatic(it.modifiers) &&
-                it.parameterTypes.contentEquals(arrayOf(Context::class.java)) &&
-                managerType.isAssignableFrom(it.returnType)
-        } ?: error("Host WorkManager instance accessor unavailable")
-        accessor.isAccessible = true
-        return requireNotNull(accessor.invoke(null, context))
-    }
-
-    private fun allMethods(type: Class<*>): List<Method> =
-        generateSequence(type) { it.superclass }.flatMap { it.declaredMethods.asSequence() }.toList()
-
-    private fun allFields(type: Class<*>): List<java.lang.reflect.Field> =
-        generateSequence(type) { it.superclass }.flatMap { it.declaredFields.asSequence() }.toList()
 }

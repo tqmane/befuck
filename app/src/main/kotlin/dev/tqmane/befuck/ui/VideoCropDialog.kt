@@ -154,7 +154,6 @@ class VideoCropDialog(
         }
         val actions = LinearLayout(activity).apply { gravity = Gravity.CENTER }
         styleButton(play)
-        setIcon(play, TablerIcon.PLAYER_PLAY)
         play.text = labels.getString(R.string.befuck_video_play)
         setIcon(play, TablerIcon.PLAYER_PLAY)
         play.isEnabled = false
@@ -315,8 +314,10 @@ class VideoCropDialog(
         setOnShowListener {
             window?.let { window ->
                 window.setLayout(-1, -1)
+                @Suppress("DEPRECATION")
                 window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
                 if (Build.VERSION.SDK_INT >= 30) {
+                    @Suppress("DEPRECATION")
                     window.setDecorFitsSystemWindows(false)
                     root.setOnApplyWindowInsetsListener { view, insets ->
                         val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())

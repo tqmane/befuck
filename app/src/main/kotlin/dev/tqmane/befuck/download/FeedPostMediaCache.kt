@@ -13,7 +13,6 @@ import dev.tqmane.befuck.symbols.MapPlaceholderLocationSymbols
 import dev.tqmane.befuck.symbols.RemotePostLocationSymbols
 import java.net.URI
 import java.lang.ref.WeakReference
-import java.lang.reflect.Modifier
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -448,19 +447,6 @@ object FeedPostMediaCache {
             }
         }.onFailure { android.util.Log.w("BeFuck/Cache", "CorePost media capture failed", it) }
     }
-    @Volatile private var activeTimelinePostId: String? = null
-    private val composingPostId = ThreadLocal<String?>()
-    private val currentDualMediaPostId = ThreadLocal<String?>()
-    private val flipStateLock = Any()
-    private val flipStatePostIds = java.util.WeakHashMap<Any, String>()
-    private val primaryDisplayedByPostId = LruCache<String, Boolean>(200)
-    private val dualMediaPostLock = Any()
-    private val dualMediaPostIds = java.util.WeakHashMap<Any, String>()
-    private val pendingGridPostLock = Any()
-    private var pendingGridPostId: String? = null
-    private var pendingGridPostAtMillis: Long = 0L
-    @Volatile private var activeGridDetailPostId: String? = null
-    private val composingGridDetailPostId = ThreadLocal<String?>()
 
     @JvmStatic
     fun capture(model: Any?, symbols: FeedMediaSymbols?): Boolean {
@@ -523,8 +509,7 @@ object FeedPostMediaCache {
                 if (observed.primary == null && observed.secondary == null) return false
                 storePost(observed)
             }
-            synchronized(dualMediaPostLock) { dualMediaPostIds[dualMedia] = postId }
-            activeTimelinePostId = postId
+            FeedPostCompositionState.recordVisibleDualMedia(dualMedia, postId)
             true
         } catch (_: Throwable) {
             false
@@ -533,206 +518,106 @@ object FeedPostMediaCache {
 
     @JvmStatic
     fun beginVisiblePostComposition(viewState: Any?, symbols: FeedMediaSymbols?): FeedPostMedia? {
-        composingPostId.remove()
+        FeedPostCompositionState.clearVisiblePostComposition()
         if (viewState == null || symbols == null || !symbols.canCaptureVisibleFeedMedia) return null
         val postId = runCatching {
             val postData = symbols.viewStatePostDataField!!.get(viewState) ?: return null
             symbols.postDataIdField!!.get(postData) as? String
         }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
         if (!captureVisibleFeedState(viewState, symbols)) return null
-        composingPostId.set(postId)
+        FeedPostCompositionState.setVisiblePostComposition(postId)
         return get(postId)
     }
 
     @JvmStatic
     fun composingPost(): FeedPostMedia? {
-        val postId = currentComposingPostId() ?: return null
+        val postId = FeedPostCompositionState.currentComposingPostId() ?: return null
         return withCache { cache.get(postId) }
     }
 
     @JvmStatic
     fun postForDualMedia(dualMedia: Any?): FeedPostMedia? {
         if (dualMedia == null) return null
-        val postId = postIdForDualMedia(dualMedia)
-            ?: return null
+        val postId = FeedPostCompositionState.postIdForDualMedia(dualMedia, ::cachedPostsSnapshot) ?: return null
         return withCache { cache.get(postId) }
     }
 
     @JvmStatic
-    fun beginDualMediaComposition(dualMedia: Any?): String? {
-        val postId = if (dualMedia == null) null else postIdForDualMedia(dualMedia)
-        val selectedPostId = postId ?: composingPostId.get()
-        if (selectedPostId == null) currentDualMediaPostId.remove() else currentDualMediaPostId.set(selectedPostId)
-        return selectedPostId
-    }
+    fun beginDualMediaComposition(dualMedia: Any?): String? =
+        FeedPostCompositionState.beginDualMediaComposition(dualMedia, ::cachedPostsSnapshot)
 
     @JvmStatic
-    fun endDualMediaComposition() {
-        currentDualMediaPostId.remove()
-    }
+    fun endDualMediaComposition() = FeedPostCompositionState.endDualMediaComposition()
 
     @JvmStatic
-    fun noteGridPostSelected(postId: String?) {
-        if (postId.isNullOrBlank()) return
-        synchronized(pendingGridPostLock) {
-            pendingGridPostId = postId
-            pendingGridPostAtMillis = System.currentTimeMillis()
-        }
-        activeGridDetailPostId = postId
-    }
+    fun noteGridPostSelected(postId: String?) = FeedPostCompositionState.noteGridPostSelected(postId)
 
     @JvmStatic
-    fun beginGridDetailComposition(postId: String?): String? {
-        val selectedPostId = activeGridDetailPostId
-        if (selectedPostId != null && selectedPostId == postId) {
-            composingGridDetailPostId.set(selectedPostId)
-            return selectedPostId
-        }
-        composingGridDetailPostId.remove()
-        return null
-    }
+    fun beginGridDetailComposition(postId: String?): String? =
+        FeedPostCompositionState.beginGridDetailComposition(postId)
 
     @JvmStatic
     fun composingGridDetailPost(): FeedPostMedia? {
-        val postId = composingGridDetailPostId.get() ?: return null
+        val postId = FeedPostCompositionState.composingGridDetailPostId() ?: return null
         return withCache { cache.get(postId) }
     }
 
     @JvmStatic
-    fun endGridDetailComposition() {
-        composingGridDetailPostId.remove()
-    }
+    fun endGridDetailComposition() = FeedPostCompositionState.endGridDetailComposition()
 
     @JvmStatic
-    fun endGridDetail(postId: String) {
-        if (activeGridDetailPostId == postId) activeGridDetailPostId = null
-        synchronized(pendingGridPostLock) {
-            if (pendingGridPostId == postId) {
-                pendingGridPostId = null
-                pendingGridPostAtMillis = 0L
-            }
-        }
-    }
+    fun endGridDetail(postId: String) = FeedPostCompositionState.endGridDetail(postId)
 
     @JvmStatic
-    fun hasPendingGridPostForDetail(): Boolean = synchronized(pendingGridPostLock) {
-        val elapsed = System.currentTimeMillis() - pendingGridPostAtMillis
-        pendingGridPostId != null && elapsed >= 0L && elapsed <= 15_000L
-    }
+    fun hasPendingGridPostForDetail(): Boolean = FeedPostCompositionState.hasPendingGridPostForDetail()
 
     @JvmStatic
     fun clearPendingGridPostForDetailIfMatches(candidate: Any?) {
         val postId = (candidate as? FeedPostMedia)?.postId ?: return
-        synchronized(pendingGridPostLock) {
-            if (pendingGridPostId == postId) {
-                pendingGridPostId = null
-                pendingGridPostAtMillis = 0L
-            }
-        }
+        FeedPostCompositionState.clearPendingIfMatches(postId)
     }
 
     @JvmStatic
     fun consumePendingGridPostForDetail(dualMedia: Any?): FeedPostMedia? {
-        val mediaPostId = dualMedia?.let(::postIdForDualMedia) ?: return null
-        val matchesSelection = synchronized(pendingGridPostLock) {
-            val elapsed = System.currentTimeMillis() - pendingGridPostAtMillis
-            val isCurrentSelection = pendingGridPostId == mediaPostId && elapsed >= 0L && elapsed <= 15_000L
-            if (isCurrentSelection) {
-                pendingGridPostId = null
-                pendingGridPostAtMillis = 0L
-            }
-            isCurrentSelection
-        }
-        return if (matchesSelection) withCache { cache.get(mediaPostId) } else null
+        val postId = FeedPostCompositionState.consumePendingGridPostIdForDetail(dualMedia, ::cachedPostsSnapshot) ?: return null
+        return withCache { cache.get(postId) }
     }
 
     @JvmStatic
     fun consumeSelectedGridPostForDetail(dualMedia: Any?): FeedPostMedia? {
-        val postId = synchronized(pendingGridPostLock) {
-            val selectedPostId = pendingGridPostId
-            val elapsed = System.currentTimeMillis() - pendingGridPostAtMillis
-            val isCurrentSelection = selectedPostId != null && elapsed >= 0L && elapsed <= 20_000L
-            if (isCurrentSelection) {
-                pendingGridPostId = null
-                pendingGridPostAtMillis = 0L
-            }
-            selectedPostId.takeIf { isCurrentSelection }
-        } ?: return null
-        val post = withCache { cache.get(postId) } ?: return null
-        if (dualMedia != null) synchronized(dualMediaPostLock) { dualMediaPostIds[dualMedia] = postId }
-        return post
+        val postId = FeedPostCompositionState.consumeSelectedGridPostIdForDetail(dualMedia) ?: return null
+        return withCache { cache.get(postId) }
     }
 
     @JvmStatic
-    fun setComposingPrimaryDisplayed(isPrimaryDisplayed: Boolean) {
-        val postId = currentComposingPostId() ?: return
-        synchronized(flipStateLock) { primaryDisplayedByPostId.put(postId, isPrimaryDisplayed) }
-    }
+    fun setComposingPrimaryDisplayed(isPrimaryDisplayed: Boolean) =
+        FeedPostCompositionState.setComposingPrimaryDisplayed(isPrimaryDisplayed)
 
     @JvmStatic
-    fun composingPostId(): String? = currentComposingPostId()
+    fun composingPostId(): String? = FeedPostCompositionState.currentComposingPostId()
 
     @JvmStatic
-    fun isPrimaryDisplayed(postId: String): Boolean = synchronized(flipStateLock) {
-        primaryDisplayedByPostId.get(postId) ?: true
-    }
+    fun isPrimaryDisplayed(postId: String): Boolean = FeedPostCompositionState.isPrimaryDisplayed(postId)
 
     @JvmStatic
-    fun associateFlipStateWithComposingPost(state: Any?) {
-        val postId = currentComposingPostId() ?: return
-        if (state != null) synchronized(flipStateLock) { flipStatePostIds[state] = postId }
-    }
+    fun associateFlipStateWithComposingPost(state: Any?) =
+        FeedPostCompositionState.associateFlipStateWithComposingPost(state)
 
     @JvmStatic
-    fun updatePrimaryDisplayedFromFlipState(state: Any?, isSecondaryDisplayedAsPrimary: Boolean) {
-        if (state == null) return
-        val postId = synchronized(flipStateLock) { flipStatePostIds[state] } ?: return
-        synchronized(flipStateLock) { primaryDisplayedByPostId.put(postId, !isSecondaryDisplayedAsPrimary) }
-    }
+    fun updatePrimaryDisplayedFromFlipState(state: Any?, isSecondaryDisplayedAsPrimary: Boolean) =
+        FeedPostCompositionState.updatePrimaryDisplayedFromFlipState(state, isSecondaryDisplayedAsPrimary)
 
     @JvmStatic
-    fun endVisiblePostComposition() {
-        composingPostId.remove()
-    }
+    fun endVisiblePostComposition() = FeedPostCompositionState.endVisiblePostComposition()
 
-    private fun currentComposingPostId(): String? = currentDualMediaPostId.get() ?: composingPostId.get()
-
-    private fun postIdForDualMedia(dualMedia: Any): String? {
-        synchronized(dualMediaPostLock) { dualMediaPostIds[dualMedia] }?.let { return it }
-        val urls = mutableListOf<String>()
-        collectHttpsStrings(dualMedia, urls, Collections.newSetFromMap(IdentityHashMap()), 0)
-        if (urls.isEmpty()) return null
-        val exactUrls = urls.toHashSet()
-        val normalizedUrls = urls.mapTo(HashSet(), ::normalizedMediaUrl)
-        val matchingPostIds = withCache {
-            cache.snapshot().values.asSequence()
-                .filter { post ->
-                    listOfNotNull(post.primary?.url, post.secondary?.url).any { url ->
-                        url in exactUrls || normalizedMediaUrl(url) in normalizedUrls
-                    }
-                }
-                .map(FeedPostMedia::postId)
-                .distinct()
-                .toList()
-        }
-        val postId = matchingPostIds.singleOrNull() ?: return null
-        synchronized(dualMediaPostLock) { dualMediaPostIds[dualMedia] = postId }
-        return postId
-    }
-
-    private fun normalizedMediaUrl(url: String): String = runCatching {
-        val uri = URI(url)
-        val host = uri.host?.lowercase() ?: return@runCatching url.substringBefore('?')
-        val path = uri.path.orEmpty()
-        if (path.isEmpty()) url.substringBefore('?') else "$host$path"
-    }.getOrDefault(url.substringBefore('?'))
+    private fun cachedPostsSnapshot(): Collection<FeedPostMedia> = withCache { cache.snapshot().values }
 
     @JvmStatic
     fun recent(): List<FeedPostMedia> = ArchiveRepository.recent(ArchiveAccounts.snapshot().uid.orEmpty())
 
     @JvmStatic
     fun activeTimelinePost(): FeedPostMedia? = withCache {
-        val activeId = activeTimelinePostId
+        val activeId = FeedPostCompositionState.activeTimelinePostId
         activeId?.let(cache::get)
             ?: cache.snapshot().values.maxByOrNull { it.capturedAtMillis }
     }
@@ -761,7 +646,7 @@ object FeedPostMediaCache {
         val isVideo = description.startsWith("Video(")
         val urls = mutableListOf<String>()
         val seen = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
-        collectHttpsStrings(value, urls, seen, 0)
+        FeedPostCompositionState.collectHttpsStrings(value, urls, seen, 0)
         val typedUrl = Regex("MediaRemoteModel\\(url=(https://[^,\\s)]+)")
             .find(description)
             ?.groupValues
@@ -781,35 +666,6 @@ object FeedPostMediaCache {
             width = null,
             height = null,
         )
-    }
-
-    private fun collectHttpsStrings(value: Any?, urls: MutableList<String>, seen: MutableSet<Any>, depth: Int) {
-        if (value == null || depth > 5 || urls.size >= 8) return
-        if (value is String) {
-            if (value.startsWith("https://", ignoreCase = true) && value.length < 8_192) urls += value
-            return
-        }
-        if (!seen.add(value)) return
-        if (value is Iterable<*>) {
-            value.forEach { collectHttpsStrings(it, urls, seen, depth + 1) }
-            return
-        }
-        if (value.javaClass.isArray) {
-            for (index in 0 until java.lang.reflect.Array.getLength(value)) {
-                collectHttpsStrings(java.lang.reflect.Array.get(value, index), urls, seen, depth + 1)
-            }
-            return
-        }
-        val packageName = value.javaClass.name
-        if (packageName.startsWith("java.") || packageName.startsWith("android.") || packageName.startsWith("kotlin.")) return
-        for (field in value.javaClass.declaredFields) {
-            if (Modifier.isStatic(field.modifiers) || field.type.isPrimitive || urls.size >= 8) continue
-            try {
-                field.isAccessible = true
-                collectHttpsStrings(field.get(value), urls, seen, depth + 1)
-            } catch (_: Throwable) {
-            }
-        }
     }
 
     private fun Any?.toDimension(): Int? = when (this) {

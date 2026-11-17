@@ -950,7 +950,7 @@ object BeRealSymbolResolver {
                 candidate.paramTypeNames.getOrNull(2)?.let { continuationName ->
                     try {
                         val continuationClass = Class.forName(continuationName, false, classLoader)
-                        isContinuationContract(continuationClass)
+                        HostMappings.isContinuationContract(continuationClass)
                     } catch (_: Throwable) {
                         false
                     }
@@ -1058,24 +1058,6 @@ object BeRealSymbolResolver {
         )
     }
 
-    private fun isContinuationContract(type: Class<*>): Boolean {
-        val methods = type.methods.toMutableList()
-        var current: Class<*>? = type.superclass
-        while (current != null) {
-            methods += current.declaredMethods
-            current = current.superclass
-        }
-        val hasResumeWith = methods.any { method ->
-            method.name == "resumeWith" &&
-                method.parameterTypes.contentEquals(arrayOf(Any::class.java)) &&
-                method.returnType == Void.TYPE
-        }
-        val hasContextGetter = methods.any { method ->
-            method.name == "getContext" && method.parameterCount == 0 && method.returnType != Void.TYPE
-        }
-        return hasResumeWith && hasContextGetter
-    }
-
     private fun resolveSendPostCoroutineConstructor(
         sendMethodData: MethodData?,
         coreDraftClass: Class<*>?,
@@ -1092,7 +1074,7 @@ object BeRealSymbolResolver {
             try {
                 val repositoryType = Class.forName(params[0], false, classLoader)
                 val continuationType = Class.forName(params[3], false, classLoader)
-                repositoryInterface.isAssignableFrom(repositoryType) && isContinuationContract(continuationType)
+                repositoryInterface.isAssignableFrom(repositoryType) && HostMappings.isContinuationContract(continuationType)
             } catch (_: Throwable) {
                 false
             }

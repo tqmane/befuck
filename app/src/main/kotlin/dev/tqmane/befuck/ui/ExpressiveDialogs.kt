@@ -46,6 +46,7 @@ internal object ExpressiveDialogs {
             window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
             window.setLayout(minOf(activity.resources.displayMetrics.widthPixels - dp(activity, 32), dp(activity, 520)), -2)
             window.setGravity(Gravity.CENTER)
+            @Suppress("DEPRECATION")
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             window.setDimAmount(.65f)
         }
