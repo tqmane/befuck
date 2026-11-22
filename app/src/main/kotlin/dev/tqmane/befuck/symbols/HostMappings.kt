@@ -480,7 +480,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     fun resolveLocationRepository(classLoader: ClassLoader): Class<*>? =
         loadKnown(classLoader, className(HostClass.LocationRepository))
 
-    fun resolveCurrentUserProvider(classLoader: ClassLoader): Pair<Class<*>?, java.lang.reflect.Method?> {
+    open fun resolveCurrentUserProvider(classLoader: ClassLoader): Pair<Class<*>?, java.lang.reflect.Method?> {
         return try {
             val provider = Class.forName(className(HostClass.CurrentUserProvider), false, classLoader)
             val candidates = provider.declaredMethods.filter { method ->
