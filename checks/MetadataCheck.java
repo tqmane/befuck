@@ -33,6 +33,7 @@ public final class MetadataCheck {
         checkVersionMappings();
         checkLatestMapping();
         check3991Mapping();
+        check31000Mapping();
         checkSmsRequestPayload();
         checkSmsCompatibility();
         checkTextFieldFocusMapping();
@@ -384,6 +385,38 @@ public final class MetadataCheck {
         assert mapping.resolveNativeAdComposable(absent) == null;
     }
 
+    private static void check31000Mapping() throws Exception {
+        var mapping = KnownMappings.find("3.100.0", 3604882L);
+        assert mapping != null;
+        assert KnownMappings.find("3.100.0", 3604883L) == null;
+        assert KnownMappings.find("3.99.1", 3604882L) == null;
+        assert KnownMappings.find("3.100.1", 3604882L) == null;
+        assert KnownMappings.find(null, 3604882L) == null;
+        for (var role : HostClass.values()) {
+            // The retired MemoryV2 DTO and old detail-card action remain absent from this APK.
+            if (role != HostClass.GridCardAction && role != HostClass.FeedPostRemoteModel)
+                assert !mapping.className(role).isBlank() : role;
+        }
+        for (var role : HostMethod.values()) assert !mapping.methodName(role).isBlank() : role;
+        var absent = new ClassLoader(null) {};
+        assert mapping.resolvePullDownGridCardComposable(absent) == null;
+        assert mapping.resolvePullDownGridMediaComposable(absent) == null;
+        assert mapping.postMapSymbols(absent) == null;
+        var selector = mapping.resolveFeedAdSelector(MetadataCheck.class.getClassLoader());
+        assert selector != null : "3.100.0 ad selector mapping missing";
+        assert selector.getDeclaringClass() == yt7.class && selector.getName().equals("d");
+        assert selector.getReturnType() == lp.class && selector.getParameterTypes()[0] == nq.class;
+        assert selector.invoke(new yt7(), new nq()) instanceof lp;
+        assert mapping.resolveFeedAdSelector(absent) == null;
+        var ad = mapping.resolveNativeAdComposable(MetadataCheck.class.getClassLoader());
+        assert ad != null : "3.100.0 native Compose ad mapping missing";
+        assert ad.getDeclaringClass() == q00.class && ad.getName().equals("a");
+        assert ad.getParameterCount() == 12 && ad.getReturnType() == Void.TYPE;
+        assert ad.getParameterTypes()[0] == wue.class;
+        assert ad.getParameterTypes()[6] == androidx.compose.ui.Modifier.class;
+        assert mapping.resolveNativeAdComposable(absent) == null;
+    }
+
     private static void checkRepackagedLicenseCompatibility() throws Exception {
         var loader = MetadataCheck.class.getClassLoader();
         assert LEGACY.repackagedLicenseCheck(loader) == null : "Never alter original 3.97.0 license behavior";
@@ -447,6 +480,20 @@ class sqe {}
 interface a49 {}
 class h00 {
     public static void a(sqe state, a49 action1, a49 action2, a49 action3, a49 action4, a49 action5,
+                         androidx.compose.ui.Modifier modifier, androidx.compose.ui.graphics.Shape shape,
+                         androidx.compose.runtime.internal.ComposableLambdaImpl content,
+                         androidx.compose.runtime.Composer composer, int flags, int flags2) {
+        throw new AssertionError("Resolving a renderer must not execute it");
+    }
+}
+
+// 3.100.0 ad selector returns lp for nq placement; q00 renders wue ad cards.
+class yt7 { public lp d(nq placement) { return new lp(); } }
+class nq {}
+class wue {}
+interface p79 {}
+class q00 {
+    public static void a(wue state, p79 action1, p79 action2, p79 action3, p79 action4, p79 action5,
                          androidx.compose.ui.Modifier modifier, androidx.compose.ui.graphics.Shape shape,
                          androidx.compose.runtime.internal.ComposableLambdaImpl content,
                          androidx.compose.runtime.Composer composer, int flags, int flags2) {
