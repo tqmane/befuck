@@ -18,6 +18,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -93,6 +94,10 @@ object BeFuckGalleryUi {
         val formControls: MutableList<View> = arrayListOf(),
         var videoEditor: VideoCropDialog? = null,
         var videoSourcesInUse: Set<String> = emptySet(),
+        var frontClearButton: View? = null,
+        var backClearButton: View? = null,
+        var frontEditBadge: View? = null,
+        var backEditBadge: View? = null,
     )
 
     @JvmStatic
@@ -437,7 +442,46 @@ object BeFuckGalleryUi {
         }
         session.frontPreview.isEnabled = !busy
         session.backPreview.isEnabled = !busy
+        session.frontClearButton?.apply {
+            visibility = if (session.front != null) View.VISIBLE else View.GONE
+            isEnabled = !busy
+            alpha = if (!busy) 1f else 0.4f
+        }
+        session.backClearButton?.apply {
+            visibility = if (session.back != null) View.VISIBLE else View.GONE
+            isEnabled = !busy
+            alpha = if (!busy) 1f else 0.4f
+        }
+        session.frontEditBadge?.visibility = if (session.front != null) View.VISIBLE else View.GONE
+        session.backEditBadge?.visibility = if (session.back != null) View.VISIBLE else View.GONE
         session.formControls.forEach { it.isEnabled = !session.isSubmitting && session.pendingOfficialPostId == null }
+    }
+
+    private fun clearSlot(activity: Activity, session: Session, frontSlot: Boolean) {
+        if (sessions[activity] !== session || session.isPreparing || session.isSubmitting ||
+            session.pendingOfficialPostId != null || session.pickerRequest != null
+        ) {
+            return
+        }
+        val other = if (frontSlot) session.back else session.front
+        val preserve = other?.let { setOfNotNull(it.path, it.previewPath, it.sourcePath) }.orEmpty() + session.videoSourcesInUse
+        if (frontSlot) {
+            session.front?.let { GalleryMediaPreparer.discardPreparedMedia(activity, it, preserve) }
+            session.front = null
+            session.frontPhotoSource = null
+            session.frontPreview.setImageDrawable(TablerIconDrawable(TablerIcon.CAMERA, dp(activity, 40), ExpressiveUi.SECONDARY))
+            session.frontPreview.scaleType = ImageView.ScaleType.CENTER
+            session.frontLabel.text = session.resources.getString(R.string.befuck_front_missing)
+        } else {
+            session.back?.let { GalleryMediaPreparer.discardPreparedMedia(activity, it, preserve) }
+            session.back = null
+            session.backPhotoSource = null
+            session.backPreview.setImageDrawable(TablerIconDrawable(TablerIcon.CAMERA, dp(activity, 40), ExpressiveUi.SECONDARY))
+            session.backPreview.scaleType = ImageView.ScaleType.CENTER
+            session.backLabel.text = session.resources.getString(R.string.befuck_back_missing)
+        }
+        updatePostAvailability(session)
+        session.status.text = session.resources.getString(R.string.befuck_media_local_status)
     }
 
     internal fun open(activity: Activity, resources: Resources, symbols: ResolvedSymbols?) {
@@ -485,6 +529,9 @@ object BeFuckGalleryUi {
         val mediaButtons = linkedMapOf<Int, Button>()
         val largeText = activity.resources.configuration.fontScale >= 1.5f
         val mediaRow = LinearLayout(activity).apply { orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL }
+
+        val clearButtons = arrayOfNulls<View>(2)
+        val editBadges = arrayOfNulls<View>(2)
 
         fun slot(front: Boolean, preview: ImageView, selected: TextView): View {
             val title = resources.getString(if (front) R.string.befuck_download_front else R.string.befuck_download_back)
@@ -542,6 +589,41 @@ object BeFuckGalleryUi {
                     setMargins(dp(activity, 8), dp(activity, 8), dp(activity, 8), 0)
                 },
             )
+            val clearButton = ImageButton(activity).apply {
+                setImageDrawable(TablerIconDrawable(TablerIcon.X, dp(activity, 20), Color.WHITE))
+                scaleType = ImageView.ScaleType.CENTER
+                contentDescription = resources.getString(R.string.befuck_clear_selection)
+                tooltipText = contentDescription
+                setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 12))
+                background = ExpressiveUi.ripple(activity, 0xB3000000.toInt(), 24f)
+                visibility = View.GONE
+                setOnClickListener {
+                    val activeSession = sessions[activity] ?: return@setOnClickListener
+                    if (activeSession.dialog === dialog) clearSlot(activity, activeSession, front)
+                }
+            }
+            frame.addView(
+                clearButton,
+                FrameLayout.LayoutParams(dp(activity, 48), dp(activity, 48), Gravity.TOP or Gravity.END).apply {
+                    setMargins(0, dp(activity, 4), dp(activity, 4), 0)
+                },
+            )
+            val editBadge = ImageView(activity).apply {
+                setImageDrawable(TablerIconDrawable(TablerIcon.CROP, dp(activity, 16), Color.WHITE))
+                scaleType = ImageView.ScaleType.CENTER
+                background = ExpressiveUi.shape(activity, 0xB3000000.toInt(), 16f)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                visibility = View.GONE
+            }
+            frame.addView(
+                editBadge,
+                FrameLayout.LayoutParams(dp(activity, 32), dp(activity, 32), Gravity.BOTTOM or Gravity.END).apply {
+                    setMargins(0, 0, dp(activity, 8), dp(activity, 8))
+                },
+            )
+            val slotIndex = if (front) 0 else 1
+            clearButtons[slotIndex] = clearButton
+            editBadges[slotIndex] = editBadge
             card.addView(frame, LinearLayout.LayoutParams(-1, dp(activity, 190)))
             frame.addOnLayoutChangeListener { view, left, _, right, _, _, _, _, _ ->
                 val height = minOf(dp(activity, 480), ((right - left) * 4f / 3f).toInt())
@@ -691,7 +773,22 @@ object BeFuckGalleryUi {
         val status = label(activity, resources.getString(R.string.befuck_media_local_status)).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
-        val session = Session(dialog, resources, frontPreview, backPreview, frontLabel, backLabel, caption, retakes, late, status)
+        val session = Session(
+            dialog = dialog,
+            resources = resources,
+            frontPreview = frontPreview,
+            backPreview = backPreview,
+            frontLabel = frontLabel,
+            backLabel = backLabel,
+            caption = caption,
+            retakes = retakes,
+            late = late,
+            status = status,
+            frontClearButton = clearButtons[0],
+            backClearButton = clearButtons[1],
+            frontEditBadge = editBadges[0],
+            backEditBadge = editBadges[1],
+        )
         val locationRow = ExpressiveUi.row(
             activity,
             resources.getString(R.string.befuck_location_button),
@@ -956,7 +1053,7 @@ object BeFuckGalleryUi {
                 R.string.befuck_regular_video_selected,
                 media.width,
                 media.height,
-                media.durationMs ?: 0L,
+                (media.durationMs ?: 0L) / 1000.0,
             )
         }
         return resources.getString(

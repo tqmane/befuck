@@ -1,22 +1,20 @@
 package dev.tqmane.befuck.ui
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.Dialog
-import android.content.res.ColorStateList
 import android.content.res.Resources
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
@@ -285,18 +283,36 @@ internal object SettingsDialog {
         )
         root.addView(header)
 
+        val searchRow = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER)
+        }
+        searchRow.addView(
+            ImageView(activity).apply {
+                setImageDrawable(TablerIconDrawable(TablerIcon.SEARCH, dp(activity, 20), ExpressiveUi.SECONDARY))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            },
+            LinearLayout.LayoutParams(dp(activity, 20), dp(activity, 20)).apply { marginStart = dp(activity, 16) },
+        )
         val search = EditText(activity).apply {
             hint = resources.getString(R.string.befuck_settings_rule_search)
+            contentDescription = hint
             setTextColor(Color.WHITE)
             setHintTextColor(ExpressiveUi.SECONDARY)
-            textSize = 14f
+            textSize = 15f
             inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
             isSingleLine = true
+            background = null
+            minimumHeight = dp(activity, 48)
+            setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 8), dp(activity, 10))
         }
-        root.addView(search)
+        searchRow.addView(search, LinearLayout.LayoutParams(0, -2, 1f))
+        ExpressiveUi.attachClearButton(searchRow, search, resources.getString(R.string.befuck_search_clear))
+        root.addView(searchRow, gapParams(activity, 0, 8, 0, 0))
         root.addView(
             hintLabel(activity, resources.getString(R.string.befuck_settings_rule_edit_hint)),
-            gapParams(activity, 0, 8, 0, 8),
+            gapParams(activity, 4, 10, 4, 10),
         )
         val scroll = ScrollView(activity)
         val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
@@ -311,8 +327,19 @@ internal object SettingsDialog {
             }
             list.addView(
                 hintLabel(activity, resources.getString(R.string.befuck_settings_rule_count, rules.size)),
-                gapParams(activity, 0, 4, 0, 12),
+                gapParams(activity, 4, 4, 4, 12),
             )
+            if (rules.isEmpty()) {
+                list.addView(
+                    hintLabel(activity, resources.getString(R.string.befuck_settings_rule_empty)).apply {
+                        background = ExpressiveUi.shape(activity, ExpressiveUi.SURFACE, 18f)
+                        setPadding(dp(activity, 20), dp(activity, 20), dp(activity, 20), dp(activity, 20))
+                        gravity = Gravity.CENTER
+                    },
+                    gapParams(activity, 0, 4, 0, 8),
+                )
+                return
+            }
             val formatter = DateTimeFormatter.ofPattern("MM/dd HH:mm:ss").withZone(ZoneId.systemDefault())
             for (rule in rules) {
                 val source = resources.getString(
@@ -326,8 +353,8 @@ internal object SettingsDialog {
                 val at = rule.updatedAt?.let { text -> runCatching { formatter.format(Instant.parse(text)) }.getOrNull() }
                 val row = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(0, dp(activity, 14), 0, dp(activity, 14))
-                    background = RippleDrawable(ColorStateList.valueOf(0x33808080), null, ColorDrawable(Color.WHITE))
+                    setPadding(dp(activity, 16), dp(activity, 14), dp(activity, 16), dp(activity, 14))
+                    background = ExpressiveUi.ripple(activity, ExpressiveUi.SURFACE, 18f)
                 }
                 row.addView(hintLabel(activity, listOfNotNull(source, at).joinToString(" · ")).apply { textSize = 11f })
                 row.addView(
@@ -340,11 +367,10 @@ internal object SettingsDialog {
                 )
                 row.addView(hintLabel(activity, rule.value.take(180)).apply { maxLines = 4 })
                 if (rule.reason.isNotBlank()) {
-                    row.addView(hintLabel(activity, rule.reason).apply { textSize = 10f }, gapParams(activity, 0, 4, 0, 0))
+                    row.addView(hintLabel(activity, rule.reason).apply { textSize = 11f }, gapParams(activity, 0, 6, 0, 0))
                 }
                 row.setOnClickListener { editRepair(activity, resources, rule.key) { render(); changed() } }
-                list.addView(row)
-                list.addView(View(activity), LinearLayout.LayoutParams(-1, dp(activity, 6)))
+                list.addView(row, gapParams(activity, 0, 0, 0, 8))
             }
         }
 
@@ -358,44 +384,61 @@ internal object SettingsDialog {
     }
 
     private fun editRepair(activity: Activity, resources: Resources, ruleKey: String? = null, saved: () -> Unit) {
-        val column = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), dp(activity, 8))
-        }
-        fun input(hintRes: Int) = EditText(activity).apply {
+        val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        fun input(hintRes: Int, multiline: Boolean = false) = EditText(activity).apply {
             hint = resources.getString(hintRes)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
-            column.addView(this, LinearLayout.LayoutParams(-1, -2))
+            contentDescription = hint
+            setTextColor(Color.WHITE)
+            setHintTextColor(ExpressiveUi.SECONDARY)
+            textSize = 14f
+            background = ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER, 18f)
+            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
+            inputType = if (multiline) {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            } else {
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            }
+            if (multiline) {
+                minLines = 2
+                maxLines = 6
+            } else {
+                isSingleLine = true
+            }
+            column.addView(this, gapParams(activity, 0, 0, 0, 10))
         }
         val owner = input(R.string.befuck_settings_rule_class)
         val name = input(R.string.befuck_settings_rule_field)
-        val value = input(R.string.befuck_settings_rule_value)
-        value.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        value.minLines = 2
-        value.maxLines = 6
+        val value = input(R.string.befuck_settings_rule_value, multiline = true)
         if (ruleKey != null) {
             owner.setText(ruleKey.substringBeforeLast('#'))
             name.setText(ruleKey.substringAfterLast('#'))
             value.setText(RuntimeKnowledge.repairs()[ruleKey].orEmpty())
             owner.isEnabled = false
             name.isEnabled = false
+            owner.alpha = 0.6f
+            name.alpha = 0.6f
         }
-        val status = hintLabel(activity, "")
-        column.addView(status)
-        val dialog = AlertDialog.Builder(activity)
-            .setTitle(resources.getString(if (ruleKey == null) R.string.befuck_settings_add_rule else R.string.befuck_settings_edit_rule))
-            .setView(ScrollView(activity).apply { addView(column) })
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(resources.getString(R.string.befuck_settings_save), null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                runCatching { RuntimeKnowledge.registerRepair(owner.text.toString().trim(), name.text.toString().trim(), value.text.toString()) }
-                    .onSuccess { saved(); dialog.dismiss() }
-                    .onFailure { status.text = resources.getString(R.string.befuck_settings_rule_error, it.javaClass.simpleName) }
-            }
+        val status = hintLabel(activity, "").apply {
+            setTextColor(ExpressiveUi.ERROR)
+            visibility = View.GONE
         }
-        DialogOwners.show(activity, dialog)
+        column.addView(status, gapParams(activity, 4, 2, 4, 0))
+        ExpressiveDialogs.form(
+            activity = activity,
+            title = resources.getString(if (ruleKey == null) R.string.befuck_settings_add_rule else R.string.befuck_settings_edit_rule),
+            message = null,
+            body = column,
+            confirm = resources.getString(R.string.befuck_settings_save),
+            cancel = resources.getString(R.string.befuck_close),
+        ) {
+            runCatching { RuntimeKnowledge.registerRepair(owner.text.toString().trim(), name.text.toString().trim(), value.text.toString()) }
+                .onSuccess { saved() }
+                .onFailure {
+                    status.text = resources.getString(R.string.befuck_settings_rule_error, it.javaClass.simpleName)
+                    status.visibility = View.VISIBLE
+                }
+                .isSuccess
+        }
     }
 
     private fun hintLabel(activity: Activity, text: String) = TextView(activity).apply {

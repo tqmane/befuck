@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="befuck_archive_title">备份与合并</string>
-    <string name="befuck_archive_account">当前账号 UID</string>
+    <string name="befuck_archive_account">当前账号 ID</string>
     <string name="befuck_archive_account_unavailable">未能安全识别当前账号。请返回 BeReal 刷新信息流后重新打开此界面（不会根据帖子发布者推断当前账号）。</string>
-    <string name="befuck_archive_explanation">将已保存帖子的 URL、发布者、时间等信息导出为 SQLite 文件。可导入同一账号在其他设备上的备份并合并到本设备（不会覆盖或删除现有数据）。</string>
-    <string name="befuck_archive_export">导出 SQLite 备份</string>
+    <string name="befuck_archive_explanation">将已保存帖子的记录与链接导出为备份文件，或导入同一账号在其他设备上的备份进行合并。现有数据不会被删除。</string>
+    <string name="befuck_archive_export">导出备份文件</string>
     <string name="befuck_archive_import">导入并合并备份</string>
     <string name="befuck_archive_associate">关联未分类的历史数据</string>
     <string name="befuck_archive_associate_warning">%1$d 条历史未分类数据缺少浏览者账号信息。无法根据发布者确定保存时所用的账号。请在确认属于当前账号后，再关联至账号 %2$s。相同帖子 ID 会自动合并，原历史数据也会保留在本地。</string>
     <string name="befuck_archive_associate_confirm">关联到此账号</string>
     <string name="befuck_archive_privacy">备份文件未加密。包含用户名、发布时间、配文以及带签名的完整媒体 URL。请勿公开分享。密码、授权头、照片与视频实体文件、应用设置及诊断日志不会包含在内。</string>
     <string name="befuck_archive_choose_destination">选择保存位置</string>
-    <string name="befuck_archive_limitations">转移的是本地帖子信息和 URL，而非照片或视频实体文件。备份无法恢复已过期的 URL。URL 候选及原始记录时间将予以保留。此功能为手动文件合并，非自动同步。</string>
+    <string name="befuck_archive_limitations">仅转移本地帖子信息与媒体链接，不包含照片或视频文件本体（已过期的链接无法刷新）。设备间合并需通过备份文件手动完成。</string>
     <string name="befuck_archive_counts">当前账号: %1$d 条 · 未分类: %2$d 条</string>
     <string name="befuck_archive_working">正在处理保存的数据…</string>
-    <string name="befuck_archive_exported">SQLite 备份已导出（%1$d KiB）。</string>
+    <string name="befuck_archive_exported">备份文件已保存（%1$d KiB）。</string>
     <string name="befuck_archive_cancelled">已取消。未对本地数据进行更改。</string>
     <string name="befuck_archive_picker_failed">无法打开文件选择器。</string>
     <string name="befuck_archive_preview_ready">备份验证完毕。请确认后执行合并。</string>

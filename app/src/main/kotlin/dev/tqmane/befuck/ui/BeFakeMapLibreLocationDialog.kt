@@ -96,15 +96,21 @@ object BeFakeLocationDialog {
         header.addView(ExpressiveUi.iconButton(activity, TablerIcon.SETTINGS_2, resources.getString(R.string.befuck_location_provider)) { showProviderSettings(activity, resources) }, LinearLayout.LayoutParams(dp(activity,48),dp(activity,48)))
         root.addView(header)
         val searchRow = LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(dp(activity,16),0,dp(activity,16),dp(activity,12)) }
+        val inputContainer = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER)
+        }
         val input = EditText(activity).apply {
             hint=resources.getString(R.string.befuck_location_search_hint); contentDescription=hint
             setTextColor(Color.WHITE); setHintTextColor(ExpressiveUi.SECONDARY); textSize=16f
             setSingleLine(true); imeOptions=EditorInfo.IME_ACTION_SEARCH
-            background=ExpressiveUi.shape(activity,ExpressiveUi.CONTAINER); minimumHeight=dp(activity,52)
-            setPadding(dp(activity,20),dp(activity,12),dp(activity,12),dp(activity,12))
+            background=null; minimumHeight=dp(activity,52)
+            setPadding(dp(activity,20),dp(activity,12),dp(activity,8),dp(activity,12))
             filters=arrayOf(android.text.InputFilter.LengthFilter(300))
         }
-        searchRow.addView(input, LinearLayout.LayoutParams(0,-2,1f))
+        inputContainer.addView(input, LinearLayout.LayoutParams(0,-2,1f))
+        ExpressiveUi.attachClearButton(inputContainer, input, resources.getString(R.string.befuck_search_clear))
+        searchRow.addView(inputContainer, LinearLayout.LayoutParams(0,-2,1f))
         val searchButton = ExpressiveUi.iconButton(activity, TablerIcon.SEARCH, resources.getString(R.string.befuck_location_search)) {}
         searchRow.addView(searchButton,LinearLayout.LayoutParams(dp(activity,52),dp(activity,52)).apply { marginStart=dp(activity,8) })
         root.addView(searchRow)
