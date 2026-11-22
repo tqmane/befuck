@@ -29,6 +29,162 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
             .getDeclaredConstructor(String::class.java, String::class.java, String::class.java, Boolean::class.javaPrimitiveType, Int::class.javaObjectType)
             .newInstance(label, null, label, false, icon)
 
+    protected fun realMojiMenuItemWithIconBeforeAccessibility(loader: ClassLoader, label: String, icon: Int?): Any =
+        type(HostClass.RealMojiMenuItem, loader)
+            .getDeclaredConstructor(String::class.java, String::class.java, Int::class.javaObjectType, String::class.java, Boolean::class.javaPrimitiveType)
+            .newInstance(label, null, icon, label, false)
+
+    open fun realMojiMenuContract(loader: ClassLoader): RealMojiMenuContract {
+        val actionClass = type(HostClass.RealMojiMenuAction, loader)
+        val itemClass = type(HostClass.RealMojiMenuItem, loader)
+        val entryClass = type(HostClass.RealMojiMenuEntry, loader)
+        val selectedClass = type(HostClass.RealMojiSelection, loader)
+        val viewerItemClass = type(HostClass.RealMojiViewerItem, loader)
+        val listClass = type(HostClass.PersistentList, loader)
+        val clicked = realMojiMenuClick(loader)
+        return RealMojiMenuContract(
+            actionClass = actionClass,
+            selectedConstructor = selectedClass.getDeclaredConstructor(viewerItemClass, String::class.java, listClass, Int::class.javaPrimitiveType),
+            entryConstructor = entryClass.getDeclaredConstructor(actionClass, itemClass, String::class.java),
+            immutableListCopy = type(HostClass.ImmutableListFactory, loader)
+                .getDeclaredMethod(methodName(HostMethod.ImmutableListCopy), Iterable::class.java),
+            clickedMethod = clicked,
+            clickedResult = if (clicked.returnType == Void.TYPE) null else kotlinUnit(loader),
+            viewerModelField = viewerItemClass.getDeclaredField("a").apply { isAccessible = true },
+            entryTagField = entryClass.getDeclaredField("c").apply { isAccessible = true },
+        )
+    }
+
+    open fun kotlinUnit(loader: ClassLoader): Any =
+        requireNotNull(type(HostClass.Unit, loader).getDeclaredField("a").apply { isAccessible = true }.get(null))
+
+    open fun uploadWorkerClass(loader: ClassLoader): Class<*> =
+        Class.forName("bereal.app.data.post.repository.mypost.worker.UploadUnsentPostWorker", false, loader)
+
+    open fun uploadWorkerDiagnosticMethods(loader: ClassLoader): List<Method> =
+        uploadWorkerClass(loader).declaredMethods.filter { method ->
+            val p = method.parameterTypes
+            (method.name == "g" || method.name == "i") && p.size == 3 && p[0] == String::class.java &&
+                Throwable::class.java.isAssignableFrom(p[1]) && Map::class.java.isAssignableFrom(p[2])
+        }
+
+    open fun uploadWorkerStepMethod(loader: ClassLoader): Method? =
+        uploadWorkerClass(loader).declaredMethods.firstOrNull { method ->
+            val p = method.parameterTypes
+            method.name == "j" && method.returnType == Any::class.java && p.size == 3 &&
+                p[0] == Int::class.javaPrimitiveType && p[1] == String::class.java
+        }
+
+    open fun officialPostObservationContract(loader: ClassLoader): OfficialPostObservationContract {
+        val corePost = type(HostClass.CorePost, loader)
+        val mediaModel = type(HostClass.BeRealMedia, loader)
+        val createContinuation = type(HostClass.CreatePostContinuation, loader)
+        val postRepository = type(HostClass.PostRepository, loader)
+        val unsentRepository = type(HostClass.UnsentPostRepository, loader)
+        val unsentPost = type(HostClass.UnsentPost, loader)
+        return OfficialPostObservationContract(
+            currentUserClass = type(HostClass.User, loader),
+            mediaModelClass = mediaModel,
+            mediaAspectRatioField = mediaModel.getDeclaredField("aspectRatio").apply { isAccessible = true },
+            createContinuationClass = createContinuation,
+            pendingCoreField = createContinuation.getDeclaredField("r").apply { isAccessible = true },
+            publishMethods = postRepository.declaredMethods.filter { m ->
+                m.name == "d" && m.parameterCount == 5 && m.parameterTypes[0] == corePost
+            },
+            unsentSaveMethods = unsentRepository.declaredMethods.filter { m ->
+                m.name == "p" && m.parameterCount == 2 && m.parameterTypes[0] == unsentPost
+            },
+        )
+    }
+
+    open fun homeGridTileContract(loader: ClassLoader): HomeGridTileContract {
+        val tileClass = type(HostClass.HomeGridTile, loader)
+        val imageDataClass = type(HostClass.ImageData, loader)
+        val badgeClass = type(HostClass.HomeGridBadge, loader)
+        val fields = Array(7) { index ->
+            tileClass.getDeclaredField(('a' + index).toString()).apply { isAccessible = true }
+        }
+        val constructor = tileClass.getDeclaredConstructor(
+            String::class.java, imageDataClass, String::class.java, String::class.java,
+            Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, badgeClass,
+        ).apply { isAccessible = true }
+        return HomeGridTileContract(tileClass, fields, fields[5], constructor)
+    }
+
+    open fun homeGridClickContract(loader: ClassLoader): HomeGridClickContract {
+        val clickLambda = type(HostClass.HomeGridClick, loader)
+        val tileContainer = type(HostClass.HomeGridTileContainer, loader)
+        val tileModel = type(HostClass.HomeGridTile, loader)
+        val callback = type(HostClass.Function2, loader)
+        return HomeGridClickContract(
+            tileContainerClass = tileContainer,
+            tileModelClass = tileModel,
+            branchField = clickLambda.getDeclaredField("a").apply { isAccessible = true },
+            callbackField = clickLambda.getDeclaredField("b").apply { isAccessible = true },
+            tileContainerField = clickLambda.getDeclaredField("c").apply { isAccessible = true },
+            tileModelField = tileContainer.getDeclaredField("b").apply { isAccessible = true },
+            postIdField = tileModel.getDeclaredField("a").apply { isAccessible = true },
+            callbackInvoke = callback.getDeclaredMethod("invoke", Any::class.java, Any::class.java).apply { isAccessible = true },
+            clickInvoke = clickLambda.getDeclaredMethod("invoke").apply { isAccessible = true },
+        )
+    }
+
+    open fun feedBlurOptionsContract(loader: ClassLoader): FeedBlurOptionsContract {
+        val optionsClass = type(HostClass.FeedBlurOptions, loader)
+        val fields = Array(8) { i ->
+            optionsClass.getDeclaredField(('a' + i).toString()).apply { isAccessible = true }
+        }
+        val params = Array<Class<*>>(8) { Boolean::class.javaPrimitiveType!! }
+        val constructor = optionsClass.getDeclaredConstructor(*params).apply { isAccessible = true }
+        return FeedBlurOptionsContract(optionsClass, fields, constructor)
+    }
+
+    open fun postReactionsConstructors(loader: ClassLoader): List<java.lang.reflect.Constructor<*>> =
+        type(HostClass.PostReactions, loader).declaredConstructors.map { it.apply { isAccessible = true } }
+
+    open fun feedBlurModelRewriter(loader: ClassLoader): FeedBlurModelRewriter? {
+        val postClass = type(HostClass.HomeFeedPost, loader)
+        val blurredStateClass = type(HostClass.BlurredPostState, loader)
+        val regularStateClass = type(HostClass.RegularPostState, loader)
+        val myRealmojisClass = type(HostClass.MyRealMojis, loader)
+        val realmojisClass = type(HostClass.RealMojis, loader)
+        val emptyListClass = type(HostClass.EmptyList, loader)
+        val stateField = postClass.getDeclaredField("f").apply { isAccessible = true }
+        val postFields = Array(15) { i ->
+            postClass.getDeclaredField(('a' + i).toString()).apply { isAccessible = true }
+        }
+        val corePostName = className(HostClass.CorePost)
+        val postViewStateName = className(HostClass.PostViewState)
+        val postConstructor = postClass.declaredConstructors.firstOrNull { candidate ->
+            val p = candidate.parameterTypes
+            p.size == 15 && p[0] == String::class.java && p[1] == Boolean::class.javaPrimitiveType &&
+                p[2].name == corePostName && p[5].name == postViewStateName
+        }?.apply { isAccessible = true } ?: throw NoSuchMethodException("HomeFeedPost full constructor")
+        val emptyList = emptyListClass.getDeclaredField("a").apply { isAccessible = true }.get(null)
+        val myRealmojis = myRealmojisClass.getDeclaredConstructor(List::class.java, type(HostClass.MyRealMojiState, loader))
+            .apply { isAccessible = true }.newInstance(emptyList, null)
+        val realmojis = realmojisClass.getDeclaredConstructor(Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, List::class.java)
+            .apply { isAccessible = true }.newInstance(false, 0, 0, emptyList)
+        val regularState = regularStateClass.getDeclaredConstructor(myRealmojisClass, realmojisClass)
+            .apply { isAccessible = true }.newInstance(myRealmojis, realmojis)
+        return FeedBlurModelRewriter(postClass, blurredStateClass, stateField, postFields, postConstructor, regularState)
+    }
+
+    open fun mediaFlipContract(loader: ClassLoader): MediaFlipContract {
+        val flipLambda = type(HostClass.MediaFlipState, loader)
+        val mutableStateClass = Class.forName("androidx.compose.runtime.MutableState", false, loader)
+        val constructor = flipLambda.declaredConstructors.firstOrNull { c ->
+            val p = c.parameterTypes
+            p.size == 2 && p[0] == mutableStateClass && p[1] == Int::class.javaPrimitiveType
+        } ?: throw NoSuchMethodException("MediaFlipState(MutableState, int)")
+        return MediaFlipContract(
+            constructor = constructor,
+            kindField = flipLambda.getDeclaredField("a").apply { isAccessible = true },
+            stateField = flipLambda.getDeclaredField("b").apply { isAccessible = true },
+            invokeMethod = flipLambda.getDeclaredMethod("invoke").apply { isAccessible = true },
+        )
+    }
+
     open fun mediaOrientationMethod(loader: ClassLoader): Method? =
         type(HostClass.DualMediaRenderer, loader).declaredMethods.singleOrNull { method ->
             val p = method.parameterTypes
@@ -125,6 +281,39 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open fun resolveFeedAdSelector(loader: ClassLoader): Method? = null
     open fun resolveNativeAdComposable(loader: ClassLoader): Method? = null
 
+    protected fun staticVoidMethod(loader: ClassLoader, owner: String, name: String, vararg parameters: String): Method? = runCatching {
+        fun resolveType(typeName: String): Class<*> = when (typeName) {
+            "boolean" -> Boolean::class.javaPrimitiveType!!
+            "int" -> Int::class.javaPrimitiveType!!
+            else -> Class.forName(typeName, false, loader)
+        }
+        resolveType(owner).getDeclaredMethod(name, *parameters.map(::resolveType).toTypedArray()).takeIf {
+            Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE
+        }?.apply { isAccessible = true }
+    }.getOrNull()
+
+    protected fun resolvePairIpLicenseCheck(loader: ClassLoader): Method? = runCatching {
+        Class.forName("com.pairip.licensecheck.LicenseClient", false, loader)
+            .getDeclaredMethod("checkLicense", android.content.Context::class.java)
+            .takeIf { Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE }
+            ?.apply { isAccessible = true }
+    }.getOrNull()
+
+    protected fun resolveFeedAdSelector(
+        loader: ClassLoader,
+        ownerClass: String,
+        methodName: String,
+        placementClass: String,
+        adClass: String,
+    ): Method? = runCatching {
+        val owner = Class.forName(ownerClass, false, loader)
+        val placement = Class.forName(placementClass, false, loader)
+        val ad = Class.forName(adClass, false, loader)
+        owner.getDeclaredMethod(methodName, placement).takeIf {
+            it.returnType == ad && !Modifier.isStatic(it.modifiers)
+        }?.apply { isAccessible = true }
+    }.getOrNull()
+
     companion object {
         @JvmStatic
         fun boundedFocusMapping(original: Any, transform: Method, layoutLength: Int): Any {
@@ -134,6 +323,17 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
                 val result = method.invoke(original, *(args ?: emptyArray()))
                 // The editing value can be newer than the layout during OTP focus changes.
                 if (method == transform) (result as Int).coerceIn(0, layoutLength) else result
+            }
+        }
+
+        internal fun isContinuationContract(type: Class<*>): Boolean {
+            val methods = generateSequence<Class<*>>(type) { it.superclass }
+                .flatMap { it.declaredMethods.asSequence() }
+                .toList() + type.methods
+            return methods.any {
+                it.name == "resumeWith" && it.parameterTypes.contentEquals(arrayOf(Any::class.java)) && it.returnType == Void.TYPE
+            } && methods.any {
+                it.name == "getContext" && it.parameterCount == 0 && it.returnType != Void.TYPE
             }
         }
 
@@ -547,12 +747,94 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
             null
         }
     }
+}
 
-    private fun isContinuationContract(type: Class<*>): Boolean {
-        val methods = type.methods
-        return methods.any { it.name == "resumeWith" && it.parameterTypes.contentEquals(arrayOf(Any::class.java)) && it.returnType == Void.TYPE } &&
-            methods.any { it.name == "getContext" && it.parameterCount == 0 && it.returnType != Void.TYPE }
-    }}
+class RealMojiMenuContract(
+    val actionClass: Class<*>,
+    val selectedConstructor: java.lang.reflect.Constructor<*>,
+    val entryConstructor: java.lang.reflect.Constructor<*>,
+    val immutableListCopy: Method,
+    val clickedMethod: Method,
+    val clickedResult: Any?,
+    val viewerModelField: Field,
+    val entryTagField: Field,
+)
+
+class OfficialPostObservationContract(
+    val currentUserClass: Class<*>,
+    val mediaModelClass: Class<*>,
+    val mediaAspectRatioField: Field,
+    val createContinuationClass: Class<*>,
+    val pendingCoreField: Field,
+    val publishMethods: List<Method>,
+    val unsentSaveMethods: List<Method>,
+)
+
+class HomeGridTileContract(
+    val tileClass: Class<*>,
+    val fields: Array<Field>,
+    val blurredField: Field,
+    val constructor: java.lang.reflect.Constructor<*>,
+) {
+    fun unblur(tile: Any): Any {
+        val copied = Array<Any?>(fields.size) { index -> fields[index].get(tile) }
+        copied[5] = false
+        return constructor.newInstance(*copied)
+    }
+}
+
+class HomeGridClickContract(
+    val tileContainerClass: Class<*>,
+    val tileModelClass: Class<*>,
+    val branchField: Field,
+    val callbackField: Field,
+    val tileContainerField: Field,
+    val tileModelField: Field,
+    val postIdField: Field,
+    val callbackInvoke: Method,
+    val clickInvoke: Method,
+)
+
+class FeedBlurOptionsContract(
+    val optionsClass: Class<*>,
+    private val fields: Array<Field>,
+    val constructor: java.lang.reflect.Constructor<*>,
+) {
+    fun withBlurDisabled(options: Any): Any {
+        if (!optionsClass.isInstance(options)) return options
+        val values = Array<Any?>(fields.size) { i -> fields[i].getBoolean(options) }
+        if (values[1] == true && values[2] == true && values[3] == false) return options
+        values[1] = true
+        values[2] = true
+        values[3] = false
+        return constructor.newInstance(*values)
+    }
+}
+
+class FeedBlurModelRewriter(
+    val postClass: Class<*>,
+    val blurredStateClass: Class<*>,
+    private val stateField: Field,
+    private val postFields: Array<Field>,
+    val postConstructor: java.lang.reflect.Constructor<*>,
+    val regularState: Any,
+) {
+    fun regularize(post: Any?): Any? {
+        if (post == null || !postClass.isInstance(post) || !blurredStateClass.isInstance(stateField.get(post))) {
+            return post
+        }
+        val values = Array<Any?>(postFields.size) { i -> postFields[i].get(post) }
+        values[5] = regularState
+        return postConstructor.newInstance(*values)
+    }
+}
+
+class MediaFlipContract(
+    val constructor: java.lang.reflect.Constructor<*>,
+    val kindField: Field,
+    val stateField: Field,
+    val invokeMethod: Method,
+)
 
 /** A version-owned binding into its captured lifecycle DEX. */
 class LifecycleBinding(

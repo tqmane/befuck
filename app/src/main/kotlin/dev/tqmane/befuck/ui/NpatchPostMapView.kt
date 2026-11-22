@@ -3,7 +3,6 @@ package dev.tqmane.befuck.ui
 import android.app.Activity
 import android.app.Application
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -95,7 +94,7 @@ object NpatchPostMap {
 }
 
 internal class NpatchPostMapView(context: Context, private val moduleResources: Resources, private val hostSheet: Boolean = false) : LinearLayout(context) {
-    private val activity = findActivity(context)
+    private val activity = ExpressiveUi.findActivity(context)
     private val mapContainer = FrameLayout(context)
     private val status = ExpressiveUi.text(context, "", 13f, ExpressiveUi.SECONDARY)
     private val retry = ExpressiveUi.button(context, text(R.string.befuck_location_map_retry), icon = TablerIcon.REFRESH) {
@@ -224,18 +223,12 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
         failed = false
         retry.visibility = GONE
         updateControls()
-        // MapLibre keeps an application Context globally. Never hand it an Activity.
-        val appContext = object : ContextWrapper(ModuleUiContext(context.applicationContext, moduleResources)) {
-            override fun getApplicationContext(): Context = this
-        }
-        val renderContext = object : ContextWrapper(ModuleUiContext(context, moduleResources)) {
-            override fun getApplicationContext(): Context = appContext
-        }
+        val mapContexts = MapLibreSupport.createDetachedContexts(context, moduleResources)
         var created: MapView? = null
         try {
-            MapLibre.getInstance(appContext)
+            MapLibre.getInstance(mapContexts.application)
             // SurfaceView draws over the host sheet's rounded clip; TextureView stays inside it.
-            created = MapView(renderContext, MapLibreMapOptions.createFromAttributes(renderContext)
+            created = MapView(mapContexts.render, MapLibreMapOptions.createFromAttributes(mapContexts.render)
                 .textureMode(true)
                 .compassGravity(Gravity.BOTTOM or Gravity.END)
                 .compassMargins(intArrayOf(dp(16), dp(16), dp(16), dp(16))))
@@ -276,7 +269,7 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
         updateControls()
         removeCallbacks(loadingTimeout); postDelayed(loadingTimeout, 20_000)
         try {
-            target.setStyle("https://tiles.openfreemap.org/styles/liberty") { loaded ->
+            target.setStyle(MapLibreSupport.OPENFREEMAP_STYLE_URL) { loaded ->
                 if (disposed || generation != styleGeneration) return@setStyle
                 removeCallbacks(loadingTimeout)
                 try {
@@ -425,13 +418,4 @@ internal class NpatchPostMapView(context: Context, private val moduleResources: 
     private fun LocationData.latLng() = LatLng(latitude, longitude)
     private fun LocationData.point() = Point.fromLngLat(longitude, latitude)
     private fun emptyFeatures() = FeatureCollection.fromFeatures(emptyArray())
-    private fun findActivity(context: Context): Activity? {
-        var current = context
-        val seen = HashSet<Context>()
-        while (seen.add(current)) {
-            if (current is Activity) return current
-            current = (current as? ContextWrapper)?.baseContext ?: return null
-        }
-        return null
-    }
 }

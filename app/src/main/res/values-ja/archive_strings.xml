@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="befuck_archive_title">バックアップと統合</string>
-    <string name="befuck_archive_account">現在のアカウントUID</string>
+    <string name="befuck_archive_account">現在のアカウント ID</string>
     <string name="befuck_archive_account_unavailable">現在のアカウントを安全に特定できていません。BeRealに戻ってフィードを更新し、この画面を開き直してください（投稿者の情報からアカウントを推測することはありません）。</string>
-    <string name="befuck_archive_explanation">保存した投稿のURL、投稿者、日時などをSQLiteファイルに書き出します。同じアカウントの別端末で作成したバックアップを取り込み、この端末のデータに統合できます（既存データがすべて置き換えられることはありません）。</string>
-    <string name="befuck_archive_export">SQLiteにバックアップ</string>
+    <string name="befuck_archive_explanation">保存した投稿の履歴やメディアリンクをバックアップファイルに書き出します。同じアカウントの別端末から取り込んで統合でき、既存データが勝手に削除されることはありません。</string>
+    <string name="befuck_archive_export">バックアップを書き出す</string>
     <string name="befuck_archive_import">バックアップを取り込んで統合</string>
     <string name="befuck_archive_associate">未分類の過去データを関連付け</string>
     <string name="befuck_archive_associate_warning">%1$d件の過去データ・未分類データには、閲覧時のアカウント情報が記録されていません。投稿者から保存元のアカウントを判定することはできないため、アカウント %2$s で保存したものであることを確認したうえで関連付けてください。同一の投稿IDは統合され、移行前の元データも端末内に保持されます。</string>
     <string name="befuck_archive_associate_confirm">このアカウントに関連付ける</string>
     <string name="befuck_archive_privacy">バックアップファイルは暗号化されません。ユーザー名、投稿日時、キャプション、署名付きメディアURLが含まれるため、第三者への共有や公開には十分ご注意ください。パスワード、認証ヘッダー、画像・動画の実ファイル、設定、診断ログは含まれません。</string>
     <string name="befuck_archive_choose_destination">保存先を選択</string>
-    <string name="befuck_archive_limitations">移行されるのは投稿情報とURLであり、画像・動画の実ファイルではありません。期限切れのURLは再取得されません。なお、URLの候補や記録日時は保持されます。端末間の同期は自動ではなく、ファイルを用いた手動統合となります。</string>
+    <string name="befuck_archive_limitations">移行されるのは投稿情報とメディアリンクのみで、画像・動画ファイル本体は含まれません（期限切れのリンクは再読み込みできません）。端末間の移行はこのファイルを使って手動で行います。</string>
     <string name="befuck_archive_counts">このアカウント: %1$d件 · 未分類: %2$d件</string>
     <string name="befuck_archive_working">保存データを処理中…</string>
-    <string name="befuck_archive_exported">SQLiteバックアップを保存しました（%1$d KiB）。</string>
+    <string name="befuck_archive_exported">バックアップを保存しました（%1$d KiB）。</string>
     <string name="befuck_archive_cancelled">キャンセルしました。保存データは変更していません。</string>
     <string name="befuck_archive_picker_failed">ファイル選択画面を開けませんでした。</string>
     <string name="befuck_archive_preview_ready">バックアップの検証が完了しました。内容を確認して統合を適用してください。</string>

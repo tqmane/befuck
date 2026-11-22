@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="befuck_archive_title">Backup and merge</string>
-    <string name="befuck_archive_account">Current account UID</string>
+    <string name="befuck_archive_account">Current account ID</string>
     <string name="befuck_archive_account_unavailable">The current account has not been identified safely. Return to BeReal, refresh the feed and reopen this screen. Backup identity is never inferred from a post author.</string>
-    <string name="befuck_archive_explanation">Export saved post URLs and metadata as a SQLite file. Import a backup from another device using the same account to merge it into this device. Existing posts are not replaced wholesale.</string>
-    <string name="befuck_archive_export">Export SQLite backup</string>
+    <string name="befuck_archive_explanation">Export your saved post links and details to a backup file, or merge a backup from another device using the same account. Existing posts are kept safely.</string>
+    <string name="befuck_archive_export">Export backup file</string>
     <string name="befuck_archive_import">Import and merge backup</string>
     <string name="befuck_archive_associate">Associate unassigned old data</string>
     <string name="befuck_archive_associate_warning">%1$d old or unassigned records have no viewer account identity. Their authors do not identify which account saved them. Associate them with account %2$s only after checking they belong to this account. Matching post IDs are merged; the original legacy table is retained locally.</string>
     <string name="befuck_archive_associate_confirm">Associate with this account</string>
     <string name="befuck_archive_privacy">The file is not encrypted. It contains usernames, post dates, captions and full media URLs, including URL signatures. Do not share it publicly. Login passwords and authorization headers, media files, app settings and diagnostic logs are not included.</string>
     <string name="befuck_archive_choose_destination">Choose destination</string>
-    <string name="befuck_archive_limitations">This transfers the local URL index, not photo/video files. A backup cannot renew expired URLs. URL alternatives and original observation dates are preserved. This is manual file-based merging, not automatic device sync.</string>
+    <string name="befuck_archive_limitations">Transfers your saved post list and media links, not photo or video files themselves (expired links cannot be refreshed). Device transfers require exporting and importing manually.</string>
     <string name="befuck_archive_counts">%1$d posts for this account · %2$d unassigned records</string>
     <string name="befuck_archive_working">Processing the archive…</string>
-    <string name="befuck_archive_exported">SQLite backup exported (%1$d KiB).</string>
+    <string name="befuck_archive_exported">Backup exported (%1$d KiB).</string>
     <string name="befuck_archive_cancelled">Cancelled. No archive changes were made.</string>
     <string name="befuck_archive_picker_failed">The document picker could not be opened.</string>
     <string name="befuck_archive_preview_ready">Backup validated. Confirm the merge to apply it.</string>

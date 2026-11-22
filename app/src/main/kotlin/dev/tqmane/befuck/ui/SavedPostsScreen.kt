@@ -92,6 +92,7 @@ internal object SavedPostsScreen {
             setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 16), dp(activity, 12))
         }
         searchRow.addView(search, LinearLayout.LayoutParams(0, -2, 1f))
+        ExpressiveUi.attachClearButton(searchRow, search, resources.getString(R.string.befuck_search_clear))
         controls.addView(searchRow)
         val tabs = LinearLayout(activity).apply { orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL }
         val calendarTab = action(uiContext, resources.getString(R.string.befuck_calendar_tab), false, TablerIcon.CALENDAR) {}.apply { tag = "saved-calendar-tab" }

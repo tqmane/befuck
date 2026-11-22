@@ -3,19 +3,24 @@ package dev.tqmane.befuck.ui
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
 import android.animation.StateListAnimator
+import android.app.Activity
 import android.app.Dialog
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -33,6 +38,15 @@ internal object ExpressiveUi {
     const val ERROR = 0xFFFFB4AB.toInt()
     const val CORNER = 28f
     fun dp(context: Context, value: Int) = (context.resources.displayMetrics.density * value + .5f).toInt()
+    fun findActivity(context: Context): Activity? {
+        var current: Context? = context
+        val seen = HashSet<Context>()
+        while (current != null && seen.add(current)) {
+            if (current is Activity) return current
+            current = (current as? ContextWrapper)?.baseContext
+        }
+        return null
+    }
     fun shape(context: Context, color: Int = SURFACE, radius: Float = CORNER, stroke: Int? = null) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = radius * context.resources.displayMetrics.density
@@ -129,5 +143,23 @@ internal object ExpressiveUi {
             }
             root.requestApplyInsets()
         }
+    }
+
+    /** Appends an accessible clear (×) button that shows only while [input] has text. */
+    fun attachClearButton(container: LinearLayout, input: EditText, description: String): ImageButton {
+        val context = container.context
+        val clear = iconButton(context, TablerIcon.X, description) { input.setText("") }.apply {
+            background = ripple(context, Color.TRANSPARENT)
+            visibility = if (input.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                clear.visibility = if (s.isNullOrEmpty()) View.GONE else View.VISIBLE
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        container.addView(clear, LinearLayout.LayoutParams(dp(context, 48), dp(context, 48)))
+        return clear
     }
 }

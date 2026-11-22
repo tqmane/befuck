@@ -1,8 +1,8 @@
 package dev.tqmane.befuck.posting
 
 import android.net.Uri
+import dev.tqmane.befuck.runtime.HostReflection
 import dev.tqmane.befuck.symbols.ResolvedSymbols
-import java.lang.reflect.Modifier
 import java.time.Instant
 import java.util.ArrayList
 import java.util.UUID
@@ -27,7 +27,7 @@ object GalleryPostModelRewriter {
 
         fun createMedia(uri: String, width: Int, height: Int, video: Boolean): Any {
             require(width > 0 && height > 0) { "Media dimensions must be positive" }
-            val mediaType = enumOrNamedSingleton(mediaConstructor.parameterTypes[3], if (video) "VIDEO" else "IMAGE")
+            val mediaType = HostReflection.namedEnumValue(mediaConstructor.parameterTypes[3], if (video) "VIDEO" else "IMAGE")
             val mediaClass = mediaConstructor.declaringClass
             val explicitRatioConstructor = mediaClass.declaredConstructors.singleOrNull { constructor ->
                 val parameters = constructor.parameterTypes
@@ -72,12 +72,12 @@ object GalleryPostModelRewriter {
         args[3] = createCreationDate(params[3])
         args[4] = request.location?.let { createLocation(params[4], it) }
         args[5] = request.retakeCount
-        args[6] = enumOrNamedSingleton(params[6], if (request.location == null) "Off" else "Approximate")
+        args[6] = HostReflection.namedEnumValue(params[6], if (request.location == null) "Off" else "Approximate")
         args[7] = 0L
         args[8] = 0L
         args[9] = isMain
         args[10] = request.isLate
-        args[11] = enumOrNamedSingleton(params[11], if (request.isLate) "Late" else "OnTime")
+        args[11] = HostReflection.namedEnumValue(params[11], if (request.isLate) "Late" else "OnTime")
         args[12] = false
         args[13] = false
         // BeReal's gallery-video kind represents one video plus a still. Video pairs
@@ -149,34 +149,6 @@ object GalleryPostModelRewriter {
         } ?: error("${type.name} has no longitude/latitude constructor")
         constructor.isAccessible = true
         return constructor.newInstance(location.longitude, location.latitude)
-    }
-
-    private fun enumOrNamedSingleton(type: Class<*>, name: String): Any {
-        if (type.isEnum) {
-            val values = type.enumConstants ?: error("${type.name} has no enum values")
-            return values.firstOrNull { (it as Enum<*>).name == name }
-                ?: error("${type.name} has no enum constant $name")
-        }
-
-        val arrayMethods = type.declaredMethods.filter { method ->
-            Modifier.isStatic(method.modifiers) && method.parameterCount == 0 &&
-                method.returnType.isArray && method.returnType.componentType == type
-        }
-        for (method in arrayMethods) {
-            method.isAccessible = true
-            val values = method.invoke(null) as? Array<*> ?: continue
-            values.firstOrNull { value -> value != null && value.toString() == name }?.let { return it }
-        }
-
-        val singletonFields = type.declaredFields.filter { field ->
-            Modifier.isStatic(field.modifiers) && type.isAssignableFrom(field.type)
-        }
-        for (field in singletonFields) {
-            field.isAccessible = true
-            val value = field.get(null)
-            if (value != null && value.toString() == name) return value
-        }
-        error("${type.name} has no value named $name")
     }
 }
 

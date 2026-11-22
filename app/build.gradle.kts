@@ -48,7 +48,7 @@ tasks.named("preBuild") { dependsOn(prepareNotices) }
 val preludeNative = configurations.create("preludeNative") { isTransitive = false }
 dependencies { add(preludeNative.name, "so.prelude.android:core-sdk:0.4.1@aar") }
 val preparePreludeNative = tasks.register<Sync>("preparePreludeNative") {
-    from(provider { zipTree(preludeNative.singleFile) }) { include("jni/*/libprelude.so") }
+    from(preludeNative.elements.map { elements -> zipTree(elements.single().asFile) }) { include("jni/*/libprelude.so") }
     into(layout.buildDirectory.dir("generated/preludeAssets/befuck/prelude/0.4.1"))
 }
 tasks.named("preBuild") { dependsOn(preparePreludeNative) }

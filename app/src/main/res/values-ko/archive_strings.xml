@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="befuck_archive_title">백업 및 병합</string>
-    <string name="befuck_archive_account">현재 계정 UID</string>
+    <string name="befuck_archive_account">현재 계정 ID</string>
     <string name="befuck_archive_account_unavailable">현재 계정을 안전하게 식별하지 못했습니다. BeReal로 돌아가 피드를 새로고침한 후 이 화면을 다시 여세요 (게시물 작성자 정보로 계정을 추측하지 않습니다).</string>
-    <string name="befuck_archive_explanation">저장한 게시물의 URL, 작성자, 일시 등을 SQLite 파일로 내보냅니다. 같은 계정의 다른 기기에서 생성한 백업을 가져와 이 기기의 데이터에 병합할 수 있습니다 (기존 데이터는 삭제되지 않습니다).</string>
-    <string name="befuck_archive_export">SQLite 백업 내보내기</string>
+    <string name="befuck_archive_explanation">저장한 게시물 기록과 링크를 백업 파일로 내보내거나, 같은 계정의 다른 기기 백업을 가져와 병합할 수 있습니다. 기존 데이터는 삭제되지 않습니다.</string>
+    <string name="befuck_archive_export">백업 파일 내보내기</string>
     <string name="befuck_archive_import">백업 가져와서 병합</string>
     <string name="befuck_archive_associate">미분류 이전 데이터 연결</string>
     <string name="befuck_archive_associate_warning">%1$d개의 이전 미분류 데이터에는 저장 당시의 계정 정보가 없습니다. 작성자 정보로 계정을 판별할 수 없으므로, 계정 %2$s로 저장한 것이 맞는지 확인한 후 연결하세요. 동일한 게시물 ID는 병합되며, 기존 원본 데이터도 기기 내에 유지됩니다.</string>
     <string name="befuck_archive_associate_confirm">이 계정에 연결</string>
     <string name="befuck_archive_privacy">백업 파일은 암호화되지 않습니다. 사용자 이름, 게시 일시, 캡션, 서명된 미디어 URL이 포함되므로 외부에 공유하거나 공개하지 않도록 주의하세요. 비밀번호, 인증 헤더, 사진/동영상 파일 본문, 설정, 진단 로그는 포함되지 않습니다.</string>
     <string name="befuck_archive_choose_destination">저장 위치 선택</string>
-    <string name="befuck_archive_limitations">이동되는 데이터는 게시물 정보와 URL이며 사진/동영상 파일 자체가 아닙니다. 만료된 URL은 갱신되지 않습니다. URL 후보 및 최초 관찰 일시는 보존됩니다. 자동 동기화가 아니며 파일을 통한 수동 병합입니다.</string>
+    <string name="befuck_archive_limitations">게시물 정보와 미디어 링크만 이전되며 사진/동영상 파일 본문은 포함되지 않습니다(만료된 링크는 다시 불러올 수 없음). 기기 간 이동은 백업 파일로 수동 병합합니다.</string>
     <string name="befuck_archive_counts">이 계정: %1$d개 · 미분류: %2$d개</string>
     <string name="befuck_archive_working">저장 데이터를 처리하는 중…</string>
-    <string name="befuck_archive_exported">SQLite 백업을 저장했습니다 (%1$d KiB).</string>
+    <string name="befuck_archive_exported">백업 파일을 저장했습니다(%1$d KiB).</string>
     <string name="befuck_archive_cancelled">취소되었습니다. 저장 데이터는 변경되지 않았습니다.</string>
     <string name="befuck_archive_picker_failed">파일 선택 화면을 열 수 없습니다.</string>
     <string name="befuck_archive_preview_ready">백업 검증 완료. 내용을 확인하고 병합을 진행하세요.</string>

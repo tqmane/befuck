@@ -5,7 +5,6 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.Dialog
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.content.res.Resources
 import android.graphics.Bitmap
@@ -53,7 +52,6 @@ import java.util.concurrent.Future
 /** A full-screen map workspace. Late search/GPS proposals never overwrite a newer manual selection. */
 object BeFakeLocationDialog {
     private const val LOCATION_PERMISSION_REQUEST = 0x4B35
-    private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
     private const val SOURCE = "befake-selected-location"
     private const val ICON = "befake-destination-pin"
     private const val TIMEOUT_MS = 15_000L
@@ -77,20 +75,10 @@ object BeFakeLocationDialog {
     fun show(activity: Activity, resources: Resources, currentLocation: LocationData?, onConfirmed: (LocationData?) -> Unit) {
         if (activity.isFinishing || activity.isDestroyed) return
         sessions[activity]?.dialog?.dismiss()
-        // MapLibre retains applicationContext. It must not retain an Activity wrapper.
-        val applicationResources = object : ContextWrapper(activity.applicationContext) {
-            override fun getResources() = resources
-            override fun getAssets() = resources.assets
-            override fun getApplicationContext(): Context = this
-        }
-        val mapContext = object : ContextWrapper(activity) {
-            override fun getResources() = resources
-            override fun getAssets() = resources.assets
-            override fun getApplicationContext(): Context = applicationResources
-        }
+        val mapContexts = MapLibreSupport.createDetachedContexts(activity, resources)
         val mapView = runCatching {
-            MapLibre.getInstance(applicationResources)
-            MapView(mapContext).also { view ->
+            MapLibre.getInstance(mapContexts.application)
+            MapView(mapContexts.render).also { view ->
                 try { view.onCreate(null) } catch (error: Throwable) { runCatching { view.onDestroy() }; throw error }
             }
         }.getOrElse {
@@ -108,15 +96,21 @@ object BeFakeLocationDialog {
         header.addView(ExpressiveUi.iconButton(activity, TablerIcon.SETTINGS_2, resources.getString(R.string.befuck_location_provider)) { showProviderSettings(activity, resources) }, LinearLayout.LayoutParams(dp(activity,48),dp(activity,48)))
         root.addView(header)
         val searchRow = LinearLayout(activity).apply { gravity=Gravity.CENTER_VERTICAL; setPadding(dp(activity,16),0,dp(activity,16),dp(activity,12)) }
+        val inputContainer = LinearLayout(activity).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = ExpressiveUi.shape(activity, ExpressiveUi.CONTAINER)
+        }
         val input = EditText(activity).apply {
             hint=resources.getString(R.string.befuck_location_search_hint); contentDescription=hint
             setTextColor(Color.WHITE); setHintTextColor(ExpressiveUi.SECONDARY); textSize=16f
             setSingleLine(true); imeOptions=EditorInfo.IME_ACTION_SEARCH
-            background=ExpressiveUi.shape(activity,ExpressiveUi.CONTAINER); minimumHeight=dp(activity,52)
-            setPadding(dp(activity,20),dp(activity,12),dp(activity,12),dp(activity,12))
+            background=null; minimumHeight=dp(activity,52)
+            setPadding(dp(activity,20),dp(activity,12),dp(activity,8),dp(activity,12))
             filters=arrayOf(android.text.InputFilter.LengthFilter(300))
         }
-        searchRow.addView(input, LinearLayout.LayoutParams(0,-2,1f))
+        inputContainer.addView(input, LinearLayout.LayoutParams(0,-2,1f))
+        ExpressiveUi.attachClearButton(inputContainer, input, resources.getString(R.string.befuck_search_clear))
+        searchRow.addView(inputContainer, LinearLayout.LayoutParams(0,-2,1f))
         val searchButton = ExpressiveUi.iconButton(activity, TablerIcon.SEARCH, resources.getString(R.string.befuck_location_search)) {}
         searchRow.addView(searchButton,LinearLayout.LayoutParams(dp(activity,52),dp(activity,52)).apply { marginStart=dp(activity,8) })
         root.addView(searchRow)
@@ -196,7 +190,7 @@ object BeFakeLocationDialog {
     private fun isCurrent(session:MapSession)=!session.destroyed && sessions[session.activity]===session && !session.activity.isFinishing && !session.activity.isDestroyed
     private fun loadStyle(session:MapSession,map:MapLibreMap) {
         session.source=null; session.status.text=session.resources.getString(R.string.befuck_location_map_loading)
-        map.setStyle(STYLE_URL) { style:Style ->
+        map.setStyle(MapLibreSupport.OPENFREEMAP_STYLE_URL) { style:Style ->
             if (!isCurrent(session)) return@setStyle
             map.uiSettings.isAttributionEnabled=true; map.uiSettings.isCompassEnabled=true
             val source=GeoJsonSource(SOURCE,FeatureCollection.fromFeatures(emptyArray())); style.addSource(source)
@@ -296,6 +290,7 @@ object BeFakeLocationDialog {
                 override fun onProviderDisabled(provider:String) { complete(null) }
             }
             session.locationListener=listener
+            @Suppress("DEPRECATION")
             runCatching { manager.requestSingleUpdate(provider,listener,Looper.getMainLooper()) }.onFailure { complete(null) }
         }
     }

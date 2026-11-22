@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import dev.tqmane.befuck.download.PostLocation
+import dev.tqmane.befuck.posting.LocationData
 import dev.tqmane.befuck.runtime.RuntimeSymbolCache
 import org.json.JSONArray
 import org.json.JSONObject
@@ -287,6 +289,109 @@ object PostMapSymbolResolver {
             values.singleOrNull()?.let { id.get(it) as? String }?.takeIf { it.isNotBlank() && it.length <= 512 }
         }
     }
+
+    internal data class SheetPostMapConfig(
+        val display: String,
+        val marker: String,
+        val approximate: String,
+        val precise: String,
+        val renderOwner: String,
+        val function0: String,
+        val function1: String,
+        val closeOwner: String,
+        val unitOwner: String,
+        val versionLabel: String,
+    )
+
+    internal fun resolveSheetPostMap(loader: ClassLoader, config: SheetPostMapConfig): PostMapSymbols? = runCatching {
+        val state = type(STATE, loader)
+        val read = state.getMethod("getValue").apply { require(returnType == Any::class.java) }
+        val write = type(MUTABLE_STATE, loader).getMethod("setValue", Any::class.java)
+        val display = type(config.display, loader)
+        val marker = type(config.marker, loader)
+        val approximate = type(config.approximate, loader)
+        val precise = type(config.precise, loader)
+        require(marker.isInterface && marker.isAssignableFrom(approximate) && marker.isAssignableFrom(precise))
+        fun requiredField(owner: Class<*>, name: String, expected: Class<*>) = owner.getDeclaredField(name).apply {
+            require(this.type == expected && !Modifier.isStatic(modifiers))
+            isAccessible = true
+        }
+        val postId = requiredField(display, "a", String::class.java)
+        val displayMarker = requiredField(display, "c", marker)
+        val latLng = type(LAT_LNG, loader)
+        val location = marker.getMethod("getLocation").apply { require(returnType == latLng && parameterCount == 0) }
+        val latitude = requiredField(latLng, "a", Double::class.javaPrimitiveType!!)
+        val longitude = requiredField(latLng, "b", Double::class.javaPrimitiveType!!)
+        val avatar = requiredField(precise, "c", type("androidx.compose.ui.graphics.ImageBitmap", loader))
+        val imageBitmap = type("androidx.compose.ui.graphics.AndroidImageBitmap", loader)
+        val bitmap = requiredField(imageBitmap, "a", Bitmap::class.java)
+        // Replace only the map body while preserving the host sheet's drag and dismissal behavior.
+        val modifier = type(MODIFIER, loader)
+        val function0 = type(config.function0, loader)
+        val render = type(config.renderOwner, loader).getDeclaredMethod("c", modifier, display,
+            Boolean::class.javaPrimitiveType, function0, type("androidx.compose.foundation.layout.PaddingValues", loader),
+            type(COMPOSER, loader), Int::class.javaPrimitiveType)
+        require(Modifier.isStatic(render.modifiers) && render.returnType == Void.TYPE)
+        val askInvoke = function0.getMethod("invoke").apply {
+            require(parameterCount == 0 && returnType == Any::class.java)
+        }
+        val closeInvoke = type(config.closeOwner, loader).getDeclaredMethod("invoke")
+        val companion = type("androidx.compose.ui.Modifier\$Companion", loader).getDeclaredField("a").get(null)
+        val fillMaxSize = type(SIZE, loader).getDeclaredMethod("e", modifier, Float::class.javaPrimitiveType)
+        val fill = requireNotNull(fillMaxSize.invoke(null, companion, 1f))
+        require(modifier.isInstance(fill) && fill.javaClass.name == "androidx.compose.foundation.layout.FillElement")
+        require(fill.javaClass.declaredFields.filter { it.type == String::class.java }.single()
+            .apply { isAccessible = true }.get(fill) == "fillMaxSize")
+        val unit = requireNotNull(type(config.unitOwner, loader).getDeclaredField("a").get(null))
+        require(unit.toString() == "kotlin.Unit")
+
+        fun snapshot(value: Any?, allowed: Boolean): PostMapSnapshot {
+            if (!display.isInstance(value)) return PostMapSnapshot(null, null, false, null, allowed)
+            val displayedMarker = displayMarker.get(value)
+            // Read only the point the native map displays. Never use PostMapDestination's raw coordinates.
+            val isApproximate = approximate.isInstance(displayedMarker)
+            val isPrecise = precise.isInstance(displayedMarker)
+            val point = if (isApproximate || isPrecise) location.invoke(displayedMarker) else null
+            val post = if (latLng.isInstance(point)) PostLocation.create(latitude.getDouble(point),
+                longitude.getDouble(point), isApproximate)?.let { LocationData(it.latitude, it.longitude) } else null
+            val photo = if (isPrecise) avatar.get(displayedMarker) else null
+            val image = if (imageBitmap.isInstance(photo)) (bitmap.get(photo) as Bitmap).takeUnless { it.isRecycled } else null
+            return PostMapSnapshot(post, null, isApproximate, image, allowed,
+                (postId.get(value) as? String)?.takeIf { it.isNotBlank() && it.length <= 512 })
+        }
+        // Calibrate data-only constructors against a synthetic approximate marker before hooking anything.
+        val pointProbe = latLng.getDeclaredConstructor(Double::class.javaPrimitiveType, Double::class.javaPrimitiveType)
+            .newInstance(1.25, 2.5)
+        val markerProbe = approximate.getDeclaredConstructor(latLng).newInstance(pointProbe)
+        val displayProbe = display.getDeclaredConstructor(String::class.java, String::class.java, marker)
+            .newInstance("befuck-map-probe", "", markerProbe)
+        val probe = snapshot(displayProbe, false)
+        require(probe.approximate && probe.post == LocationData(1.25, 2.5) && probe.bitmap == null && !probe.locationAllowed)
+
+        object : PostMapSymbols(render, androidView(loader, modifier), fill, unit, type(config.function1, loader),
+            read, write, closeInvoke, emptyMap(), {}) {
+            override val composerArgument = 5
+            override val inHostSheet = true
+            override fun matches(owner: Any) = display.isInstance(owner)
+            override fun snapshot(owner: Any) = snapshot(owner, false)
+            override fun snapshotInvocation(owner: Any, arguments: Array<Any?>): PostMapSnapshot {
+                require(arguments.size == 7 && arguments[1] === owner && arguments[2] is Boolean)
+                return snapshot(owner, arguments[2] == true)
+            }
+            override fun modifierForInvocation(arguments: Array<Any?>): Any {
+                // Preserve the sheet's own width, height and inset modifiers.
+                require(modifier.isInstance(arguments[0]))
+                return requireNotNull(fillMaxSize.invoke(null, arguments[0], 1f))
+            }
+            // The host sheet keeps the close button; this marker has one avatar.
+            override fun toggle(owner: Any) = Unit
+            override fun close(owner: Any) = Unit
+            override fun requestLocationPermissionInvocation(owner: Any, arguments: Array<Any?>) {
+                val callback = arguments.getOrNull(3)?.takeIf(function0::isInstance) ?: return
+                askInvoke.invoke(callback)
+            }
+        }
+    }.getOrNull()
 
     internal fun androidView(loader: ClassLoader, modifier: Class<*>): Method = type(ANDROID_VIEW, loader).declaredMethods.filter { method ->
         val p = method.parameterTypes

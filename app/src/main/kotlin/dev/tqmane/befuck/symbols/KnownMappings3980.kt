@@ -110,29 +110,19 @@ internal object KnownMappings3980 : HostMappings("3.98.0", 3600852L) {
         Class.forName("wif", false, loader).getDeclaredMethod("invoke", Any::class.java)
 
     override fun realMojiMenuItem(loader: ClassLoader, label: String, icon: Int?): Any =
-        type(HostClass.RealMojiMenuItem, loader)
-            .getDeclaredConstructor(String::class.java, String::class.java, Int::class.javaObjectType, String::class.java, Boolean::class.javaPrimitiveType)
-            .newInstance(label, null, icon, label, false)
+        realMojiMenuItemWithIconBeforeAccessibility(loader, label, icon)
 
-    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
-        Class.forName("com.pairip.licensecheck.LicenseClient", false, loader)
-            .getDeclaredMethod("checkLicense", android.content.Context::class.java)
-            .takeIf { java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE }
-            ?.apply { isAccessible = true }
-    }.getOrNull()
+    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? =
+        resolvePairIpLicenseCheck(loader)
 
-    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
-        val owner = Class.forName("wd7", false, loader)
-        owner.getDeclaredMethod("c", Class.forName("gp", false, loader)).takeIf {
-            it.returnType == Class.forName("fo", false, loader) && !java.lang.reflect.Modifier.isStatic(it.modifiers)
-        }?.apply { isAccessible = true }
-    }.getOrNull()
+    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? =
+        resolveFeedAdSelector(loader, "wd7", "c", "gp", "fo")
 
     // The timeline no longer has the old canBlur argument; media hooks handle its content.
     override fun resolveTimelineBlurredCardComposable(classLoader: ClassLoader): java.lang.reflect.Method? = null
 
     override fun resolvePullDownGridCardComposable(classLoader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(classLoader, "skh", "b",
+        staticVoidMethod(classLoader, "skh", "b",
             "x1m", "java.lang.String", "java.lang.String", "k50", "xe6",
             "sz9", "uo8", "uo8", "uo8", "yo8",
             "nnh", "hkh", "boolean", "boolean", "uo8",
@@ -141,7 +131,7 @@ internal object KnownMappings3980 : HostMappings("3.98.0", 3600852L) {
         )
 
     override fun resolvePullDownGridMediaComposable(classLoader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(classLoader, "jf6", "a",
+        staticVoidMethod(classLoader, "jf6", "a",
             "xe6", "androidx.compose.ui.Modifier", "androidx.compose.runtime.State", "boolean", "me6",
             "fg6", "yo8", "androidx.compose.runtime.State", "androidx.compose.runtime.State", "androidx.compose.runtime.State",
             "androidx.compose.runtime.State", "uo8", "yo8", "uo8", "yo8",
@@ -153,7 +143,7 @@ internal object KnownMappings3980 : HostMappings("3.98.0", 3600852L) {
         )
 
     override fun mediaOrientationMethod(loader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(loader, "jf6", "b",
+        staticVoidMethod(loader, "jf6", "b",
             "xe6", "androidx.compose.ui.Modifier", "fg6", "s32", "yo8",
             "yo8", "uo8", "yo8", "yo8", "yo8",
             "boolean", "x1m", "androidx.compose.runtime.State", "androidx.compose.runtime.State", "androidx.compose.runtime.State",
@@ -163,15 +153,4 @@ internal object KnownMappings3980 : HostMappings("3.98.0", 3600852L) {
             "boolean", "java.lang.String", "androidx.compose.runtime.Composer", "int", "int",
             "int", "int",
         )
-
-    private fun staticMethod(loader: ClassLoader, owner: String, name: String, vararg parameters: String): java.lang.reflect.Method? = runCatching {
-        fun type(name: String): Class<*> = when (name) {
-            "boolean" -> Boolean::class.javaPrimitiveType!!
-            "int" -> Int::class.javaPrimitiveType!!
-            else -> Class.forName(name, false, loader)
-        }
-        type(owner).getDeclaredMethod(name, *parameters.map(::type).toTypedArray()).takeIf {
-            java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE
-        }?.apply { isAccessible = true }
-    }.getOrNull()
 }

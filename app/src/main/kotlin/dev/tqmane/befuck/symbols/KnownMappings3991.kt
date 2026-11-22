@@ -109,26 +109,16 @@ internal object KnownMappings3991 : HostMappings("3.99.1", 3603560L) {
         Class.forName("tdg", false, loader).getDeclaredMethod("invoke", Any::class.java)
 
     override fun realMojiMenuItem(loader: ClassLoader, label: String, icon: Int?): Any =
-        type(HostClass.RealMojiMenuItem, loader)
-            .getDeclaredConstructor(String::class.java, String::class.java, Int::class.javaObjectType, String::class.java, Boolean::class.javaPrimitiveType)
-            .newInstance(label, null, icon, label, false)
+        realMojiMenuItemWithIconBeforeAccessibility(loader, label, icon)
 
-    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
-        Class.forName("com.pairip.licensecheck.LicenseClient", false, loader)
-            .getDeclaredMethod("checkLicense", android.content.Context::class.java)
-            .takeIf { java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE }
-            ?.apply { isAccessible = true }
-    }.getOrNull()
+    override fun repackagedLicenseCheck(loader: ClassLoader): java.lang.reflect.Method? =
+        resolvePairIpLicenseCheck(loader)
 
-    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? = runCatching {
-        val owner = Class.forName("nq7", false, loader)
-        owner.getDeclaredMethod("d", Class.forName("pq", false, loader)).takeIf {
-            it.returnType == Class.forName("np", false, loader) && !java.lang.reflect.Modifier.isStatic(it.modifiers)
-        }?.apply { isAccessible = true }
-    }.getOrNull()
+    override fun resolveFeedAdSelector(loader: ClassLoader): java.lang.reflect.Method? =
+        resolveFeedAdSelector(loader, "nq7", "d", "pq", "np")
 
     override fun resolveNativeAdComposable(loader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(loader, "h00", "a", "sqe", "a49", "a49", "a49", "a49", "a49",
+        staticVoidMethod(loader, "h00", "a", "sqe", "a49", "a49", "a49", "a49", "a49",
             "androidx.compose.ui.Modifier", "androidx.compose.ui.graphics.Shape",
             "androidx.compose.runtime.internal.ComposableLambdaImpl", "androidx.compose.runtime.Composer", "int", "int")
 
@@ -136,7 +126,7 @@ internal object KnownMappings3991 : HostMappings("3.99.1", 3603560L) {
     override fun resolveTimelineBlurredCardComposable(classLoader: ClassLoader): java.lang.reflect.Method? = null
 
     override fun resolvePullDownGridCardComposable(classLoader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(classLoader, "ygi", "b",
+        staticVoidMethod(classLoader, "ygi", "b",
             "n2n", "java.lang.String", "java.lang.String", "z80", "bq6",
             "dha", "a49", "a49", "a49", "e49",
             "vji", "ogi", "boolean", "boolean", "a49",
@@ -145,7 +135,7 @@ internal object KnownMappings3991 : HostMappings("3.99.1", 3603560L) {
         )
 
     override fun resolvePullDownGridMediaComposable(classLoader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(classLoader, "nq6", "a",
+        staticVoidMethod(classLoader, "nq6", "a",
             "bq6", "androidx.compose.ui.Modifier", "androidx.compose.runtime.State", "boolean", "qp6",
             "jr6", "e49", "androidx.compose.runtime.State", "androidx.compose.runtime.State", "androidx.compose.runtime.State",
             "androidx.compose.runtime.State", "a49", "e49", "a49", "e49",
@@ -157,7 +147,7 @@ internal object KnownMappings3991 : HostMappings("3.99.1", 3603560L) {
         )
 
     override fun mediaOrientationMethod(loader: ClassLoader): java.lang.reflect.Method? =
-        staticMethod(loader, "nq6", "b",
+        staticVoidMethod(loader, "nq6", "b",
             "bq6", "androidx.compose.ui.Modifier", "jr6", "x62", "e49",
             "e49", "a49", "e49", "e49", "e49",
             "boolean", "n2n", "androidx.compose.runtime.State", "androidx.compose.runtime.State", "androidx.compose.runtime.State",
@@ -167,15 +157,4 @@ internal object KnownMappings3991 : HostMappings("3.99.1", 3603560L) {
             "boolean", "java.lang.String", "androidx.compose.runtime.Composer", "int", "int",
             "int", "int",
         )
-
-    private fun staticMethod(loader: ClassLoader, owner: String, name: String, vararg parameters: String): java.lang.reflect.Method? = runCatching {
-        fun type(name: String): Class<*> = when (name) {
-            "boolean" -> Boolean::class.javaPrimitiveType!!
-            "int" -> Int::class.javaPrimitiveType!!
-            else -> Class.forName(name, false, loader)
-        }
-        type(owner).getDeclaredMethod(name, *parameters.map(::type).toTypedArray()).takeIf {
-            java.lang.reflect.Modifier.isStatic(it.modifiers) && it.returnType == Void.TYPE
-        }?.apply { isAccessible = true }
-    }.getOrNull()
 }
