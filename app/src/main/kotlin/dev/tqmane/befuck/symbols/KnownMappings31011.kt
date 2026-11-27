@@ -305,4 +305,13 @@ internal object KnownMappings31011 : HostMappings("3.101.1", 3606462L) {
             null to null
         }
     }
+
+    override fun feedPostBlurSwitchInvoke(loader: ClassLoader): Method? = runCatching {
+        val switchClass = Class.forName("dlf", false, loader)
+        val ownerField = switchClass.getDeclaredField("u")
+        require(ownerField.type.name == "ilf" && !java.lang.reflect.Modifier.isStatic(ownerField.modifiers))
+        switchClass.getDeclaredMethod("invoke", Any::class.java, Any::class.java, Any::class.java).takeIf {
+            it.returnType == Any::class.java && !java.lang.reflect.Modifier.isStatic(it.modifiers)
+        }?.apply { isAccessible = true }
+    }.getOrNull()
 }

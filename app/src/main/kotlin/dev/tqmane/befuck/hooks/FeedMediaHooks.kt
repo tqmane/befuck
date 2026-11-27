@@ -779,6 +779,30 @@ internal class FeedMediaHooks(private val host: HookHost) {
                 host.error("Could not hook ReactionsUiState (lkg) constructor", error)
             }
 
+            mappings.feedPostBlurSwitchInvoke(classLoader)?.let { blurSwitchInvoke ->
+                try {
+                    host.hook(blurSwitchInvoke)
+                        .setPriority(XposedInterface.PRIORITY_HIGHEST)
+                        .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
+                        .intercept { chain ->
+                            val args = chain.args.toTypedArray()
+                            if (args.size >= 2 && args[1] == true) {
+                                args[1] = false
+                                host.logOnce(
+                                    "feedPostBlurSwitchDisabled",
+                                    "Routed blurred feed-post flow to the regular post/RealMoji observer",
+                                )
+                                chain.proceed(args)
+                            } else {
+                                chain.proceed()
+                            }
+                        }
+                    host.info("Hooked feed-post blur flow switch to keep RealMoji observation active")
+                } catch (error: Throwable) {
+                    host.error("Could not hook feed-post blur flow switch", error)
+                }
+            }
+
             if (blurModelRewriter != null) {
                 try {
                     host.hook(blurModelRewriter.postConstructor)

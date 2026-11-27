@@ -143,6 +143,8 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open fun postReactionsConstructors(loader: ClassLoader): List<java.lang.reflect.Constructor<*>> =
         type(HostClass.PostReactions, loader).declaredConstructors.map { it.apply { isAccessible = true } }
 
+    open fun feedPostBlurSwitchInvoke(loader: ClassLoader): Method? = null
+
     open fun feedBlurModelRewriter(loader: ClassLoader): FeedBlurModelRewriter? {
         val postClass = type(HostClass.HomeFeedPost, loader)
         val blurredStateClass = type(HostClass.BlurredPostState, loader)

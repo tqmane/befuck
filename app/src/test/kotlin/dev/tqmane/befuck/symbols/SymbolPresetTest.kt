@@ -67,5 +67,7 @@ class SymbolPresetTest {
         assertEquals("d48", mapping.className(HostClass.HomeFeedPost))
         val rewriterMethod = mapping.javaClass.getMethod("feedBlurModelRewriter", ClassLoader::class.java)
         assertEquals(HostMappings::class.java, rewriterMethod.declaringClass)
+        val blurSwitchMethod = mapping.javaClass.getMethod("feedPostBlurSwitchInvoke", ClassLoader::class.java)
+        assertEquals(KnownMappings31011::class.java, blurSwitchMethod.declaringClass)
     }
 }
