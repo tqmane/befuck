@@ -102,37 +102,24 @@ public final class BeRealModule extends XposedModule {
         Resources moduleResources = loadModuleResources(context);
         host.setModuleResources(moduleResources);
 
-        if (mappings == null) {
-            // The post map resolves its own validated host contract. It must not be
-            // blocked by the version tables used by unrelated module features.
-            repackaged.installPostMap(context, classLoader, versionName, versionCode);
-            try {
-                RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
-                host.setResolvedSymbols(BeRealSymbolResolver.resolve(
-                        context.getApplicationInfo(), classLoader, versionName, versionCode, host::info));
-            } catch (Throwable failure) {
-                host.error("Automatic symbol discovery incomplete; keeping settings accessible", failure);
-            }
-            galleryAndUpload.installBeFuckGalleryFeature(classLoader, host.getResolvedSymbols());
-            host.info("No version mapping; automatic discovery and the BeFuck entry remain available: "
-                    + versionName + " (" + versionCode + ")");
-            return;
-        }
-
+        ApplicationInfo targetInfo = host.getTargetApplicationInfo();
+        ApplicationInfo appInfo = targetInfo != null ? targetInfo : context.getApplicationInfo();
         try {
-            ApplicationInfo targetInfo = host.getTargetApplicationInfo();
-            ApplicationInfo appInfo = targetInfo != null ? targetInfo : context.getApplicationInfo();
-            host.setSmsAuthCompatibility(mappings.getSupportsSmsAuth());
-            repackaged.installPreludeNativeCompatibility(context, classLoader);
-            repackaged.installStartupCompatibility(context, classLoader);
+            host.setSmsAuthCompatibility(mappings != null && mappings.getSupportsSmsAuth());
+            if (mappings != null) {
+                repackaged.installPreludeNativeCompatibility(context, classLoader);
+                repackaged.installStartupCompatibility(context, classLoader);
+            }
             RuntimeKnowledge.initialize(context, classLoader, versionName, versionCode, getModuleApplicationInfo());
-            runtimeRecovery.installComposeTracingContextGuard(classLoader);
-            auth.installAuthFailureDiagnostics(classLoader);
-            auth.installSmsRequestPayloadRepair(classLoader);
-            auth.installTextFieldFocusGuard(classLoader);
-            auth.installEmailAnalyticsGuard(classLoader);
+            if (mappings != null) {
+                runtimeRecovery.installComposeTracingContextGuard(classLoader);
+                auth.installAuthFailureDiagnostics(classLoader);
+                auth.installSmsRequestPayloadRepair(classLoader);
+                auth.installTextFieldFocusGuard(classLoader);
+                auth.installEmailAnalyticsGuard(classLoader);
+            }
             RuntimeKnowledge.setPresetAssets(moduleResources == null ? null : moduleResources.getAssets());
-            if (mappings.getRequiresRuntimeRecovery()) {
+            if (mappings != null && mappings.getRequiresRuntimeRecovery()) {
                 runtimeRecovery.installRuntimeRecoveryGuards(classLoader);
             }
             host.setResolvedSymbols(BeRealSymbolResolver.resolve(
@@ -143,19 +130,25 @@ public final class BeRealModule extends XposedModule {
 
         repackaged.installPostMap(context, classLoader, versionName, versionCode);
         installRuntimeHooks(classLoader, mappings, host.getResolvedSymbols());
+        if (mappings == null) {
+            host.info("No version mapping; DexKit-capable hooks and the BeFuck entry remain available: "
+                    + versionName + " (" + versionCode + ")");
+        }
     }
 
     private void installRuntimeHooks(ClassLoader classLoader, HostMappings mappings, ResolvedSymbols symbols) {
-        for (Map.Entry<Field, String> repair : mappings.runtimeStringRepairs(classLoader).entrySet()) {
-            Field field = repair.getKey();
-            host.restoreStaticStringIfNull(field, field.getDeclaringClass().getName() + "." + field.getName(), repair.getValue());
-        }
-        if (mappings.getRequiresRuntimeRecovery()) {
-            runtimeRecovery.installAnalyticsNullKeyGuard(classLoader);
-            runtimeRecovery.installProtobufNullFieldProbe(classLoader);
-            runtimeRecovery.installRoomNullColumnGuard(classLoader);
-            runtimeRecovery.installCameraOriginSentinelGuard(symbols);
-            runtimeRecovery.installMedia3NetworkTypeReceiverHook(classLoader);
+        if (mappings != null) {
+            for (Map.Entry<Field, String> repair : mappings.runtimeStringRepairs(classLoader).entrySet()) {
+                Field field = repair.getKey();
+                host.restoreStaticStringIfNull(field, field.getDeclaringClass().getName() + "." + field.getName(), repair.getValue());
+            }
+            if (mappings.getRequiresRuntimeRecovery()) {
+                runtimeRecovery.installAnalyticsNullKeyGuard(classLoader);
+                runtimeRecovery.installProtobufNullFieldProbe(classLoader);
+                runtimeRecovery.installRoomNullColumnGuard(classLoader);
+                runtimeRecovery.installCameraOriginSentinelGuard(symbols);
+                runtimeRecovery.installMedia3NetworkTypeReceiverHook(classLoader);
+            }
         }
         locationFallback.install(symbols);
         galleryAndUpload.installConcurrentVideoSecondaryFrontSelection(symbols);

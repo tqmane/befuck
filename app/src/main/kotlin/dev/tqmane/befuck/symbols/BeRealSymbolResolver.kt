@@ -837,7 +837,7 @@ object BeRealSymbolResolver {
             domainParams[15] != String::class.java ||
             domainParams[17] != ArrayList::class.java) {
             emit(logger, "[SymbolResolver] Failed to validate SendPostDomainModel constructor reason=parameter shape mismatch")
-            return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor)
+            return PostPipelineSymbols(domainClass = domainClass)
         }
         val domainFields = writeFieldOrder(domainConstructorData, domainClass, 28, "SendPostDomainModel", classLoader, logger, diagnostics)
             ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor)
@@ -854,9 +854,16 @@ object BeRealSymbolResolver {
         }
         uniqueToStringMethod(contentsData, "PostContents", logger, diagnostics)
             ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
-        val contentsArity = KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)?.postContentsArity ?: 5
-        val contentsConstructorData = uniqueConstructorMethodData(contentsData, contentsArity, "PostContents", logger, diagnostics)
-            ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
+        val configuredArity = KnownMappings.find(RuntimeKnowledge.versionName, RuntimeKnowledge.versionCode)?.postContentsArity
+        val (contentsArity, contentsConstructorData) = if (configuredArity != null) {
+            val resolved = uniqueConstructorMethodData(contentsData, configuredArity, "PostContents", logger, diagnostics)
+                ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
+            configuredArity to resolved
+        } else {
+            listOf(6, 5).firstNotNullOfOrNull { candidate ->
+                uniqueConstructorMethodData(contentsData, candidate, "PostContents", logger, diagnostics)?.let { candidate to it }
+            } ?: return PostPipelineSymbols(domainClass = domainClass, domainConstructor = domainConstructor, domainFields = domainFields, contentsClass = contentsClass)
+        }
         val contentsConstructor = try {
             contentsConstructorData.getConstructorInstance(classLoader).apply { isAccessible = true }
         } catch (failure: Throwable) {
@@ -875,18 +882,21 @@ object BeRealSymbolResolver {
         uniqueToStringMethod(mediaData, "BeRealMedia", logger, diagnostics)
             ?: return PostPipelineSymbols(domainClass, domainConstructor, domainFields, contentsClass, contentsConstructor, contentsFields, mediaClass)
         val mediaConstructorData = uniqueConstructorMethodData(mediaData, 4, "BeRealMedia", logger, diagnostics)
-        val mediaConstructor = try {
+        val rawMediaConstructor = try {
             mediaConstructorData?.getConstructorInstance(classLoader)?.apply { isAccessible = true }
         } catch (failure: Throwable) {
             emit(logger, "[SymbolResolver] Failed to resolve BeRealMedia constructor reason=${failure.javaClass.simpleName}")
             null
         }
-        if (mediaConstructor != null && (
-                mediaConstructor.parameterTypes[0] != String::class.java ||
-                    mediaConstructor.parameterTypes[1] != Int::class.javaPrimitiveType ||
-                    mediaConstructor.parameterTypes[2] != Int::class.javaPrimitiveType ||
-                    !mediaConstructor.parameterTypes[3].isEnum)) {
+        val mediaConstructor = if (rawMediaConstructor != null && (
+                rawMediaConstructor.parameterTypes[0] != String::class.java ||
+                    rawMediaConstructor.parameterTypes[1] != Int::class.javaPrimitiveType ||
+                    rawMediaConstructor.parameterTypes[2] != Int::class.javaPrimitiveType ||
+                    !rawMediaConstructor.parameterTypes[3].isEnum)) {
             emit(logger, "[SymbolResolver] Failed to validate BeRealMedia constructor reason=parameter shape mismatch")
+            null
+        } else {
+            rawMediaConstructor
         }
 
         val draftData = findUniqueClassWithToString(
@@ -908,14 +918,14 @@ object BeRealSymbolResolver {
         val coreDraftConstructorData = draftData?.let {
             uniqueConstructorMethodData(it, 28, "CorePostDraft", logger, diagnostics)
         }
-        val coreDraftConstructor = try {
+        val rawCoreDraftConstructor = try {
             coreDraftConstructorData?.getConstructorInstance(classLoader)?.apply { isAccessible = true }
         } catch (failure: Throwable) {
             emit(logger, "[SymbolResolver] Failed to resolve CorePostDraft constructor reason=${failure.javaClass.simpleName}")
             null
         }
-        if (coreDraftConstructor != null) {
-            val draftParams = coreDraftConstructor.parameterTypes
+        val coreDraftConstructor = if (rawCoreDraftConstructor != null) {
+            val draftParams = rawCoreDraftConstructor.parameterTypes
             val domainParams = domainConstructor.parameterTypes
             val mirroredDomainParams = (0..24).all { index ->
                 val draftType = draftParams[index + 1]
@@ -929,9 +939,13 @@ object BeRealSymbolResolver {
                 draftParams[27] == java.lang.Boolean::class.java
             if (!validDraftShape) {
                 emit(logger, "[SymbolResolver] Failed to validate CorePostDraft constructor reason=domain-copy shape mismatch")
+                null
             } else {
                 emit(logger, "[SymbolResolver] CorePostDraft constructor resolved: ${coreDraftClass?.name}(${draftParams.joinToString { it.simpleName }}) confidence=high strategy=validated DomainModel copy shape")
+                rawCoreDraftConstructor
             }
+        } else {
+            null
         }
         val draftClassName = coreDraftClass?.name
         val sendCandidates = try {

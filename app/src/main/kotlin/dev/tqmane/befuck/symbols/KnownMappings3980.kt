@@ -99,6 +99,7 @@ internal object KnownMappings3980 : HostMappings("3.98.0", 3600852L) {
     override val postContentsArity = 6
     override val publishedPostIdField = "a"
     override val gridCardBlurArgument = 13
+    override val gridCardClickReplacement: Pair<Int, Int>? = null
     override val gridClickBranch = 13
     override val mediaFlipBranch = 2
     override val mediaOrientationArgument = 10

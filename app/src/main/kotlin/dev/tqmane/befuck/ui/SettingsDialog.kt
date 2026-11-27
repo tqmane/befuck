@@ -211,17 +211,7 @@ internal object SettingsDialog {
             }
         }
         item(R.string.befuck_settings_view_log, TablerIcon.FILE_TEXT, 3, 4) {
-            val text = runCatching {
-                RuntimeKnowledge.logFile()?.takeIf(File::isFile)?.useLines { lines ->
-                    val tail = ArrayDeque<String>()
-                    lines.forEach { line ->
-                        if (tail.size == 40) tail.removeFirst()
-                        tail.addLast(line.take(4096))
-                    }
-                    tail.joinToString("\n")
-                }
-            }.getOrNull() ?: resources.getString(R.string.befuck_settings_no_log)
-            val log = ExpressiveUi.text(activity, text, 12f).apply {
+            val log = ExpressiveUi.text(activity, "...", 12f).apply {
                 typeface = Typeface.MONOSPACE
                 setTextIsSelectable(true)
             }
@@ -233,6 +223,30 @@ internal object SettingsDialog {
                 resources.getString(R.string.befuck_close),
                 null,
             ) { true }
+            val updateLog: (String) -> Unit = { value ->
+                activity.runOnUiThread {
+                    if (!activity.isDestroyed && !activity.isFinishing) {
+                        log.text = value
+                    }
+                }
+            }
+            runCatching {
+                backgroundExecutor.execute {
+                    val text = runCatching {
+                        RuntimeKnowledge.logFile()?.takeIf(File::isFile)?.useLines { lines ->
+                            val tail = ArrayDeque<String>()
+                            lines.forEach { line ->
+                                if (tail.size == 40) tail.removeFirst()
+                                tail.addLast(line.take(4096))
+                            }
+                            tail.joinToString("\n")
+                        }
+                    }.getOrNull() ?: resources.getString(R.string.befuck_settings_no_log)
+                    updateLog(text)
+                }
+            }.onFailure {
+                updateLog(resources.getString(R.string.befuck_settings_no_log))
+            }
         }
         column.addView(
             hintLabel(
@@ -266,7 +280,7 @@ internal object SettingsDialog {
     }
 
     private fun openRepairRules(activity: Activity, resources: Resources, changed: () -> Unit) {
-        val dialog = Dialog(activity)
+        val dialog = Dialog(activity, android.R.style.Theme_Black_NoTitleBar)
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(ExpressiveUi.BACKGROUND)

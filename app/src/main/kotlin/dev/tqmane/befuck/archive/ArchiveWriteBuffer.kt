@@ -14,12 +14,23 @@ internal class ArchiveWriteBuffer(private val maximumPosts: Int = 4096) {
         values[key] = merged
         size = values.size
     }
-    fun drain(persist: (ArchiveRecord) -> Unit) {
+    fun drain(persist: (ArchiveRecord) -> Unit) = drain({ _, _ -> }, persist)
+
+    fun drain(
+        onDropped: (ArchiveRecord, ArchiveFailure) -> Unit,
+        persist: (ArchiveRecord) -> Unit,
+    ) {
         while (values.isNotEmpty()) {
             val entry = values.entries.first()
-            persist(entry.value)
-            values.remove(entry.key)
-            size = values.size
+            try {
+                persist(entry.value)
+                values.remove(entry.key)
+                size = values.size
+            } catch (failure: ArchiveFailure) {
+                values.remove(entry.key)
+                size = values.size
+                onDropped(entry.value, failure)
+            }
         }
     }
 }

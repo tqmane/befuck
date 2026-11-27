@@ -28,6 +28,7 @@ object PostMapSymbolResolver {
     private const val MODIFIER = "androidx.compose.ui.Modifier"
     private const val ANDROID_VIEW = "androidx.compose.ui.viewinterop.AndroidView_androidKt"
     private const val SIZE = "androidx.compose.foundation.layout.SizeKt"
+    private const val FILL_ELEMENT = "androidx.compose.foundation.layout.FillElement"
     private const val LAT_LNG = "com.google.android.gms.maps.model.LatLng"
     private val renderTags = listOf("postmapscreen_map_view", "postmapscreen_mylocation_button", "postmapscreen_topbar_view")
 
@@ -183,16 +184,7 @@ object PostMapSymbolResolver {
         val fields = probeDisplayModels(descriptor.ready, descriptor.photos, type(LAT_LNG, loader)).toMutableMap()
         fields["toggle"] = toggle
         fields["navigation"] = navigation
-        val companionType = type("androidx.compose.ui.Modifier\$Companion", loader)
-        val companion = companionType.declaredFields.filter { Modifier.isStatic(it.modifiers) && it.type == companionType }
-            .single().accessible().get(null)
-        require(descriptor.fill.declaringClass.name == SIZE && Modifier.isStatic(descriptor.fill.modifiers) &&
-            descriptor.fill.returnType == modifier && descriptor.fill.parameterTypes.contentEquals(arrayOf(modifier, java.lang.Float.TYPE)))
-        val fill = requireNotNull(descriptor.fill.invoke(null, companion, 1f))
-        require(modifier.isInstance(fill) && fill.javaClass.name == "androidx.compose.foundation.layout.FillElement")
-        // A method with the same signature can be fillMaxWidth or fillMaxHeight.
-        // The actual returned element must identify itself as fillMaxSize.
-        require(instanceFields(fill.javaClass).filter { it.type == String::class.java }.single().get(fill) == "fillMaxSize")
+        val fill = requireNotNull(validateFillMaxSize(modifier, resolveModifierCompanion(loader), descriptor.fill))
         require(Modifier.isStatic(descriptor.unit.modifiers) && descriptor.unit.type == descriptor.unit.declaringClass)
         val unit = requireNotNull(descriptor.unit.get(null)).also { require(it.toString() == "kotlin.Unit") }
         val postId = descriptor.params?.let { params -> runCatching { postIdReader(params, viewModel) }.getOrNull() }
@@ -336,12 +328,8 @@ object PostMapSymbolResolver {
             require(parameterCount == 0 && returnType == Any::class.java)
         }
         val closeInvoke = type(config.closeOwner, loader).getDeclaredMethod("invoke")
-        val companion = type("androidx.compose.ui.Modifier\$Companion", loader).getDeclaredField("a").get(null)
-        val fillMaxSize = type(SIZE, loader).getDeclaredMethod("e", modifier, Float::class.javaPrimitiveType)
-        val fill = requireNotNull(fillMaxSize.invoke(null, companion, 1f))
-        require(modifier.isInstance(fill) && fill.javaClass.name == "androidx.compose.foundation.layout.FillElement")
-        require(fill.javaClass.declaredFields.filter { it.type == String::class.java }.single()
-            .apply { isAccessible = true }.get(fill) == "fillMaxSize")
+        val (fillMaxSize, fill) = resolveFillMaxSize(loader)
+        require(modifier.isInstance(fill) && fill.javaClass.name == FILL_ELEMENT)
         val unit = requireNotNull(type(config.unitOwner, loader).getDeclaredField("a").get(null))
         require(unit.toString() == "kotlin.Unit")
 
@@ -399,6 +387,38 @@ object PostMapSymbolResolver {
             p[0].isInterface && p[1] == modifier && p[2] == p[0] && p[3] == p[0] && p[4] == p[0] &&
             p[5].name == COMPOSER && p[6] == Integer.TYPE && p[7] == Integer.TYPE
     }.single().accessible()
+
+    /** Resolve the host Compose Modifier.fillMaxSize(1f) instance without hardcoding SizeKt's obfuscated method name. */
+    internal fun resolveFillMaxSizeModifier(loader: ClassLoader): Any = resolveFillMaxSize(loader).second
+
+    private fun resolveFillMaxSize(loader: ClassLoader): Pair<Method, Any> {
+        val modifier = type(MODIFIER, loader)
+        val companion = resolveModifierCompanion(loader)
+        return type(SIZE, loader).declaredMethods.firstNotNullOfOrNull { method ->
+            validateFillMaxSize(modifier, companion, method)?.let { method to it }
+        } ?: throw NoSuchMethodException("Compose Modifier.fillMaxSize")
+    }
+
+    private fun resolveModifierCompanion(loader: ClassLoader): Any {
+        val companionType = type("androidx.compose.ui.Modifier\$Companion", loader)
+        return companionType.declaredFields.filter {
+            Modifier.isStatic(it.modifiers) && companionType.isAssignableFrom(it.type)
+        }.single().accessible().get(null) ?: throw NoSuchFieldException("Modifier.Companion instance")
+    }
+
+    private fun validateFillMaxSize(modifier: Class<*>, companion: Any, method: Method): Any? {
+        if (method.declaringClass.name != SIZE || !Modifier.isStatic(method.modifiers) ||
+            method.returnType != modifier || !method.parameterTypes.contentEquals(arrayOf(modifier, java.lang.Float.TYPE))
+        ) {
+            return null
+        }
+        val fill = method.accessible().invoke(null, companion, 1f) ?: return null
+        if (!modifier.isInstance(fill) || fill.javaClass.name != FILL_ELEMENT) return null
+        // A method with the same signature can be fillMaxWidth or fillMaxHeight.
+        // The actual returned element must identify itself as fillMaxSize.
+        val nameField = instanceFields(fill.javaClass).singleOrNull { it.type == String::class.java } ?: return null
+        return fill.takeIf { nameField.get(fill) == "fillMaxSize" }
+    }
 
     private fun instanceFields(owner: Class<*>): List<Field> = owner.declaredFields.filter { !Modifier.isStatic(it.modifiers) }.map { it.accessible() }
     private fun Field.accessible(): Field = apply { isAccessible = true }

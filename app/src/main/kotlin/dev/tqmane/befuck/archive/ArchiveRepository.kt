@@ -34,8 +34,14 @@ internal object ArchiveRepository {
         }
     }
     private fun flush(database: ArchiveStore) {
-        pending.drain { record -> database.merge(listOf(record), record.account) }
-        lastError = null
+        var droppedReason: String? = null
+        pending.drain(onDropped = { record, failure ->
+            droppedReason = failure.reason
+            android.util.Log.w("BeFuck/Archive", "Dropped non-retryable archive record ${record.id} (${failure.reason}); continuing queue drain")
+        }) { record ->
+            database.merge(listOf(record), record.account)
+        }
+        lastError = droppedReason
     }
     private fun recordFailure(failure: Exception) {
         lastError = (failure as? ArchiveFailure)?.reason ?: "storage"

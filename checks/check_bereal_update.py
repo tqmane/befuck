@@ -52,8 +52,15 @@ def github_api(route, token, payload=None):
         return json.load(response)
 
 
-def ensure_issue(current, baseline, repository, token, run_url):
-    marker = f"<!-- bereal-google-play:{current['version']}:{current['updated']} -->"
+def version_key(version):
+    core, _, suffix = version.partition("-")
+    core = core.partition("+")[0]
+    return tuple(int(part) for part in core.split(".")), (0, suffix) if suffix else (1, "")
+
+
+def ensure_issue(current, repository, token, run_url):
+    marker = f"<!-- bereal-google-play:{current['version']} -->"
+    legacy_prefix = f"<!-- bereal-google-play:{current['version']}:"
     route = f"repos/{repository}/issues"
     page = 1
     while True:
@@ -61,15 +68,15 @@ def ensure_issue(current, baseline, repository, token, run_url):
         if not isinstance(issues, list):
             raise ValueError("GitHub returned an invalid issue list")
         for issue in issues:
-            if "pull_request" not in issue and marker in (issue.get("body") or ""):
+            body = issue.get("body") or ""
+            if "pull_request" not in issue and (marker in body or legacy_prefix in body):
                 return "Already reported: " + issue["html_url"]
         if len(issues) < 100:
             break
         page += 1
     updated = datetime.fromtimestamp(current["updated"], JST).strftime("%Y-%m-%d %H:%M:%S JST")
     body = (f"{marker}\n\n[Google PlayのBeReal]({PLAY_URL})で更新を検知しました。\n\n"
-            f"- バージョン：`{current['version']}`\n- ストア更新日時：{updated}\n"
-            f"- 監視開始時のバージョン：`{baseline['version']}`\n\n"
+            f"- バージョン：`{current['version']}`\n- ストア更新日時：{updated}\n\n"
             f"BeFuckの対応状況を確認してください。\n\n[検知したCI実行]({run_url})\n")
     issue = github_api(route, token, {
         "title": f"BeReal {current['version']} のGoogle Play更新を検知 ({updated[:10]})",
@@ -85,8 +92,8 @@ def main():
     baseline = validate_snapshot(json.loads(BASELINE.read_text(encoding="utf-8")))
     current = fetch_listing()
     print("Google Play: " + json.dumps(current))
-    if current == baseline or current["updated"] < baseline["updated"]:
-        print("No new update since the monitoring baseline.")
+    if version_key(current["version"]) <= version_key(baseline["version"]):
+        print("No new version since the monitoring baseline.")
         return
     if not args.create_issue:
         print("Update detected (read-only; pass --create-issue to report it).")
@@ -97,7 +104,7 @@ def main():
     run_id = os.environ["GITHUB_RUN_ID"]
     if not run_id.isdecimal():
         raise ValueError("Invalid GITHUB_RUN_ID")
-    print(ensure_issue(current, baseline, repository, os.environ["GH_TOKEN"],
+    print(ensure_issue(current, repository, os.environ["GH_TOKEN"],
                        f"https://github.com/{repository}/actions/runs/{run_id}"))
 
 

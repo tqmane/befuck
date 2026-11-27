@@ -86,6 +86,7 @@ internal object HostWorkManager {
         initialDelayHours: Long? = null,
         linearBackoff: Boolean = false,
         tag: String? = null,
+        replaceExisting: Boolean = false,
     ): EnqueuedWork {
         val dataClass = Class.forName("androidx.work.Data", false, classLoader)
         val inputData = buildStringData(classLoader, inputEntries)
@@ -130,10 +131,23 @@ internal object HostWorkManager {
         if (linearBackoff) {
             val backoffClass = Class.forName("androidx.work.BackoffPolicy", false, classLoader)
             val linear = HostReflection.namedEnumValue(backoffClass, "LINEAR")
-            HostReflection.allMethods(requestBuilderClass).singleOrNull { method ->
-                method.parameterTypes.contentEquals(arrayOf(backoffClass)) &&
+            val methods = HostReflection.allMethods(requestBuilderClass)
+            val durationClass = runCatching { Class.forName("java.time.Duration", false, classLoader) }.getOrNull()
+            val invoked = methods.singleOrNull { method ->
+                method.parameterTypes.contentEquals(arrayOf(backoffClass, Long::class.javaPrimitiveType, TimeUnit::class.java)) &&
                     baseBuilderClass.isAssignableFrom(method.returnType)
-            }?.apply { isAccessible = true }?.invoke(requestBuilder, linear)
+            }?.apply { isAccessible = true }?.invoke(requestBuilder, linear, 10_000L, TimeUnit.MILLISECONDS)
+                ?: durationClass?.let { duration ->
+                    methods.singleOrNull { method ->
+                        method.parameterTypes.contentEquals(arrayOf(backoffClass, duration)) &&
+                            baseBuilderClass.isAssignableFrom(method.returnType)
+                    }
+                }?.apply { isAccessible = true }?.invoke(requestBuilder, linear, java.time.Duration.ofMillis(10_000L))
+                ?: methods.singleOrNull { method ->
+                    method.parameterTypes.contentEquals(arrayOf(backoffClass)) &&
+                        baseBuilderClass.isAssignableFrom(method.returnType)
+                }?.apply { isAccessible = true }?.invoke(requestBuilder, linear)
+            checkNotNull(invoked) { "WorkRequest.Builder linear backoff setter unavailable" }
         }
 
         if (tag != null) {
@@ -167,7 +181,7 @@ internal object HostWorkManager {
         val workManagerClass = Class.forName("androidx.work.WorkManager", false, classLoader)
         val workManager = instance(context, classLoader)
         val policyClass = Class.forName("androidx.work.ExistingWorkPolicy", false, classLoader)
-        val keepPolicy = HostReflection.namedEnumValue(policyClass, "KEEP")
+        val policy = HostReflection.namedEnumValue(policyClass, if (replaceExisting) "REPLACE" else "KEEP")
         val operationClass = Class.forName("androidx.work.Operation", false, classLoader)
         val enqueue = HostReflection.allMethods(workManagerClass).singleOrNull { method ->
             method.parameterCount == 3 &&
@@ -177,7 +191,7 @@ internal object HostWorkManager {
                 operationClass.isAssignableFrom(method.returnType)
         } ?: error("WorkManager unique-work enqueue method unavailable")
         enqueue.isAccessible = true
-        enqueue.invoke(workManager, uniqueName, keepPolicy, request)
+        enqueue.invoke(workManager, uniqueName, policy, request)
         return EnqueuedWork(uniqueName, requestId)
     }
 
@@ -194,9 +208,19 @@ internal object HostWorkManager {
         for (name in names) {
             for (action in actions) {
                 action.isAccessible = true
-                action.invoke(workManager, name)
+                awaitOperation(action.invoke(workManager, name), operationType)
             }
         }
+    }
+
+    private fun awaitOperation(operation: Any?, operationType: Class<*>) {
+        if (operation == null) return
+        val resultMethod = HostReflection.allMethods(operationType).singleOrNull { method ->
+            method.parameterCount == 0 && java.util.concurrent.Future::class.java.isAssignableFrom(method.returnType)
+        } ?: return
+        resultMethod.isAccessible = true
+        val future = resultMethod.invoke(operation) as? java.util.concurrent.Future<*> ?: return
+        future.get(15L, TimeUnit.SECONDS)
     }
 
     fun workResultSuccess(classLoader: ClassLoader): Any {

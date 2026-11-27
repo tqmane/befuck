@@ -76,7 +76,10 @@ internal object ArchiveAccounts {
         immediate?.let { completion?.invoke(it) }
         if (scope != null) {
             try { read(java.util.function.Consumer { uid -> accept(scope.generation, uid) }) }
-            catch (_: Exception) { accept(scope.generation, null) }
+            catch (failure: Throwable) {
+                accept(scope.generation, null)
+                if (failure is VirtualMachineError) throw failure
+            }
         }
     }
 }

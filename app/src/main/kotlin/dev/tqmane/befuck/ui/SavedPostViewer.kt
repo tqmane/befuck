@@ -260,7 +260,7 @@ internal class SavedPostViewer(private val activity: Activity, private val label
         }.onFailure { videoError() }
     }
     private fun pausePlayer() {
-        if (prepared) runCatching { player?.pause() }
+        if (prepared) runCatching { player?.takeIf { it.isPlaying }?.pause() }
         playing = false; main.removeCallbacks(ticker)
         focus?.let { audio?.abandonAudioFocusRequest(it) }; focus = null
         play.text = labels.getString(R.string.befuck_video_play); play.icon = TablerIconDrawable(TablerIcon.PLAYER_PLAY, dp(20), Color.WHITE)

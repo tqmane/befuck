@@ -8,7 +8,21 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.util.Locale
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+
+private val httpDisconnectExecutor = Executors.newCachedThreadPool { task ->
+    Thread(task, "BeFuckHttpDisconnect").apply { isDaemon = true }
+}
+
+internal fun disconnectAsync(connection: HttpURLConnection?) {
+    val target = connection ?: return
+    runCatching {
+        httpDisconnectExecutor.execute {
+            runCatching { target.disconnect() }
+        }
+    }
+}
 
 internal fun previewCheck(condition: Boolean) { if (!condition) throw IOException("Preview unavailable") }
 internal fun interface PreviewCancel { fun cancel() }
@@ -24,7 +38,7 @@ internal class PreviewTicket(private val guard: () -> Unit = {}, seconds: Long =
     }
     fun attach(value: HttpURLConnection) { connection = value; check() }
     fun detach(value: HttpURLConnection) { if (connection === value) connection = null }
-    override fun cancel() { cancelled.set(true); runCatching { connection?.disconnect() } }
+    override fun cancel() { cancelled.set(true); disconnectAsync(connection) }
 }
 
 /** Anonymous first. Credentials are retried only at the exact trusted HTTPS origin that returned 401. */

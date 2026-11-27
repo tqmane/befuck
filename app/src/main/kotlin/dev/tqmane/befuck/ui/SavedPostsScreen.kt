@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
@@ -32,6 +33,7 @@ import java.util.Locale
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.FutureTask
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 
 /** One scrolling timeline: month calendar first, then posts from the selected local day. */
@@ -57,7 +59,7 @@ internal object SavedPostsScreen {
         val model = SavedCalendarModel(LocalDate.now(clock))
         val accountScope = dev.tqmane.befuck.archive.ArchiveAccounts.snapshot()
         val largeText = activity.resources.configuration.fontScale >= 1.5f
-        var closed = false
+        val closed = AtomicBoolean(false)
         var generation = 0
         var task: FutureTask<Unit>? = null
         var visibleLimit = PAGE
@@ -129,7 +131,7 @@ internal object SavedPostsScreen {
         column.addView(list)
         column.addView(ExpressiveUi.text(activity, resources.getString(R.string.befuck_preview_network_notice), 12f, ExpressiveUi.SECONDARY),
             LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(activity, 12) })
-        fun active() = !closed && !activity.isDestroyed && !activity.isFinishing && dev.tqmane.befuck.archive.ArchiveAccounts.snapshot() == accountScope
+        fun active() = !closed.get() && !activity.isDestroyed && !activity.isFinishing && dev.tqmane.befuck.archive.ArchiveAccounts.snapshot() == accountScope
         val previews = SavedPreviewSession(activity, resources, root, ::active,
             previewSource ?: NetworkPreviewSource(activity, guard = { previewCheck(active()) }),
             previewActions ?: PostMediaActions(::active) { post, side, done ->
@@ -149,9 +151,9 @@ internal object SavedPostsScreen {
             calendarArea.visibility = if (model.mode == SavedCalendarModel.Mode.CALENDAR) View.VISIBLE else View.GONE
             tab(calendarTab, model.mode == SavedCalendarModel.Mode.CALENDAR); tab(allTab, model.mode == SavedCalendarModel.Mode.ALL)
             dayTitle.text = if (model.mode == SavedCalendarModel.Mode.ALL) resources.getString(R.string.befuck_cache_all_dates)
-                else model.selectedDate.format(DateTimeFormatter.ofPattern(if (locale.language == "ja") "yyyy/M/d（E）" else "EEE, MMM d, yyyy", locale))
+                else model.selectedDate.format(DateTimeFormatter.ofPattern(DateFormat.getBestDateTimePattern(locale, "yMMMEd"), locale))
             count.text = resources.getString(R.string.befuck_calendar_count, posts.size)
-            val located = posts.count { it.location != null }
+            val located = posts.count { it.location?.isMappable == true }
             mapSection.visibility = if (hasLoaded && model.mode == SavedCalendarModel.Mode.CALENDAR && posts.isNotEmpty()) View.VISIBLE else View.GONE
             mapButton.isEnabled = located > 0 && active()
             mapSummary.text = if (located == 0) resources.getString(R.string.befuck_saved_map_empty)
@@ -265,7 +267,7 @@ internal object SavedPostsScreen {
             if (!active() || !hasLoaded || model.mode != SavedCalendarModel.Mode.CALENDAR) return@setOnClickListener
             // The full date/query snapshot is intentionally independent of visibleLimit.
             val posts = model.visible.toList()
-            if (posts.none { it.location != null } || dayMap?.isShowing == true) return@setOnClickListener
+            if (posts.none { it.location?.isMappable == true } || dayMap?.isShowing == true) return@setOnClickListener
             previews.clearRows()
             val opened = SavedPostsMapScreen.show(activity, resources, dayTitle.text.toString(), posts, clock.zone, ::active,
                 onOpen = { post -> previews.show(post, if (post.primary != null) FeedMediaSelection.PRIMARY else FeedMediaSelection.SECONDARY) },
@@ -281,8 +283,8 @@ internal object SavedPostsScreen {
         allTab.setOnClickListener { model.query = search.text.toString(); model.showAll(); visibleLimit = PAGE; renderPosts(); scroll.scrollTo(0, 0) }
         calendarTab.setOnClickListener { model.query = search.text.toString(); model.showCalendar(); calendar.render(); visibleLimit = PAGE; renderPosts(); scroll.scrollTo(0, 0) }
         closeNow = {
-            if (!closed) {
-                closed = true; ++generation; task?.cancel(true); main.removeCallbacks(renderLater)
+            if (closed.compareAndSet(false, true)) {
+                ++generation; task?.cancel(true); main.removeCallbacks(renderLater)
                 dayMap?.dismiss(); dayMap = null; previews.close()
             }
         }

@@ -111,4 +111,57 @@ class PostMapSymbolResolverTest {
         owner.reorderedPermission.setValue(true)
         assertFalse(symbols.snapshot(owner).locationAllowed)
     }
+
+    @Test fun resolveFillMaxSizeModifierSelectsFillElementRegardlessOfSizeKtMethodName() {
+        val compiler = javax.tools.ToolProvider.getSystemJavaCompiler() ?: return
+        val dir = kotlin.io.path.createTempDirectory("sizekt-fixture").toFile()
+        try {
+            val modifierSrc = dir.resolve("androidx/compose/ui/Modifier.java").apply { parentFile?.mkdirs() }
+            modifierSrc.writeText(
+                """
+                package androidx.compose.ui;
+                public interface Modifier {
+                    final class Companion implements Modifier {
+                        public static final Companion a = new Companion();
+                    }
+                }
+                """.trimIndent()
+            )
+            val fillSrc = dir.resolve("androidx/compose/foundation/layout/FillElement.java").apply { parentFile?.mkdirs() }
+            fillSrc.writeText(
+                """
+                package androidx.compose.foundation.layout;
+                import androidx.compose.ui.Modifier;
+                public final class FillElement implements Modifier {
+                    public final String kind;
+                    public FillElement(String kind) { this.kind = kind; }
+                    @Override public boolean equals(Object o) { return o instanceof FillElement && kind.equals(((FillElement) o).kind); }
+                    @Override public int hashCode() { return kind.hashCode(); }
+                    @Override public String toString() { return "FillElement(" + kind + ")"; }
+                }
+                """.trimIndent()
+            )
+            val sizeKtSrc = dir.resolve("androidx/compose/foundation/layout/SizeKt.java").apply { parentFile?.mkdirs() }
+            sizeKtSrc.writeText(
+                """
+                package androidx.compose.foundation.layout;
+                import androidx.compose.ui.Modifier;
+                public final class SizeKt {
+                    // Mimics BeReal 3.100.0/3.101.1 where SizeKt.f is fillMaxWidth and e is fillMaxSize.
+                    public static Modifier f(Modifier m, float f) { return new FillElement("fillMaxWidth"); }
+                    public static Modifier b(Modifier m, float f) { return new FillElement("fillMaxHeight"); }
+                    public static Modifier e(Modifier m, float f) { return new FillElement("fillMaxSize"); }
+                }
+                """.trimIndent()
+            )
+            val rc = compiler.run(null, null, null, "-d", dir.absolutePath,
+                modifierSrc.absolutePath, fillSrc.absolutePath, sizeKtSrc.absolutePath)
+            assertEquals(0, rc)
+            val loader = java.net.URLClassLoader(arrayOf(dir.toURI().toURL()), null)
+            val resolved = PostMapSymbolResolver.resolveFillMaxSizeModifier(loader)
+            assertEquals("FillElement(fillMaxSize)", resolved.toString())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

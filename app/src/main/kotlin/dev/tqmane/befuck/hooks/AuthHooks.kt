@@ -151,14 +151,14 @@ internal class AuthHooks(private val host: HookHost) {
                         if (key != null && value != null) {
                             val normalized = key.lowercase(Locale.ROOT)
                             if (normalized == "authorization" || normalized == "bereal-device-id") {
-                                val targetHost = resolveOkHttpBuilderHost(builder)
-                                if (targetHost == null) {
+                                val target = resolveOkHttpBuilderTarget(builder)
+                                if (target == null) {
                                     synchronized(pendingAuthHeadersByBuilder) {
                                         val pending = pendingAuthHeadersByBuilder.getOrPut(builder) { LinkedHashMap() }
                                         pending[key] = value
                                     }
-                                } else {
-                                    captureBeRealHeader(targetHost, key, value)
+                                } else if (!isExcludedSmsTarget(target)) {
+                                    captureBeRealHeader(target.host, key, value)
                                 }
                             }
                         }
@@ -250,8 +250,14 @@ internal class AuthHooks(private val host: HookHost) {
                     .intercept { chain ->
                         val result = chain.proceed()
                         val builder = chain.thisObject
-                        val targetHost = resolveOkHttpBuilderHost(builder)
-                        if (targetHost != null) capturePendingBeRealHeaders(builder, targetHost)
+                        val target = resolveOkHttpBuilderTarget(builder)
+                        if (target != null) {
+                            if (isExcludedSmsTarget(target)) {
+                                synchronized(pendingAuthHeadersByBuilder) { pendingAuthHeadersByBuilder.remove(builder) }
+                            } else {
+                                capturePendingBeRealHeaders(builder, target.host)
+                            }
+                        }
                         result
                     }
                 hooked++
@@ -282,7 +288,12 @@ internal class AuthHooks(private val host: HookHost) {
         }
     }
 
-    private fun resolveOkHttpBuilderHost(builder: Any?): String? {
+    private data class OkHttpBuilderTarget(val host: String, val fullUrl: String)
+
+    private fun isExcludedSmsTarget(target: OkHttpBuilderTarget): Boolean =
+        host.smsAuthCompatibility && SmsAuthCompatibility.matchesUrl(target.fullUrl)
+
+    private fun resolveOkHttpBuilderTarget(builder: Any?): OkHttpBuilderTarget? {
         if (builder == null) return null
         val builderClass = builder.javaClass
         var urlField = okHttpBuilderUrlFields[builderClass]
@@ -308,7 +319,7 @@ internal class AuthHooks(private val host: HookHost) {
             val hostMethod = findOkHttpUrlHostMethod(url.javaClass) ?: return null
             hostMethod.isAccessible = true
             val resolved = hostMethod.invoke(url) as? String
-            if (resolved != null && resolved.contains(".")) resolved else null
+            if (resolved != null && resolved.contains(".")) OkHttpBuilderTarget(resolved, url.toString()) else null
         } catch (_: Throwable) {
             null
         }

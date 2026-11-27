@@ -11,6 +11,7 @@ import dev.tqmane.befuck.runtime.ComposeHookScope
 import dev.tqmane.befuck.symbols.FeedMediaSymbols
 import dev.tqmane.befuck.symbols.HostClass
 import dev.tqmane.befuck.symbols.KnownMappings
+import dev.tqmane.befuck.symbols.PostMapSymbolResolver
 import dev.tqmane.befuck.symbols.ResolvedSymbols
 import dev.tqmane.befuck.ui.BeFuckGalleryUi
 import io.github.libxposed.api.XposedInterface
@@ -136,13 +137,13 @@ internal class FeedMediaHooks(private val host: HookHost) {
                     // can authorize exact coordinates in subsequent archive captures.
                     val result = chain.proceed(args)
                     try {
-                        observation.friendUids(result)?.let { friends ->
+                        observation.friendUids(result)?.let {
                             FeedPostMediaCache.captureObservedFriendUids(
                                 observation.observedViewerUid,
                                 scope.uid,
                                 scope.generation,
                                 token,
-                                friends,
+                                it,
                             )
                         }
                     } catch (_: Throwable) {
@@ -502,6 +503,7 @@ internal class FeedMediaHooks(private val host: HookHost) {
         if (gridCard != null && mappings != null) {
             try {
                 val blurArgIndex = mappings.gridCardBlurArgument
+                val clickReplacement = mappings.gridCardClickReplacement
                 host.hook(gridCard)
                     .setPriority(XposedInterface.PRIORITY_HIGHEST)
                     .setExceptionMode(XposedInterface.ExceptionMode.PASSTHROUGH)
@@ -514,13 +516,18 @@ internal class FeedMediaHooks(private val host: HookHost) {
                         if (FeedPostMediaCache.hasPendingGridPostForDetail()) {
                             host.logOnce("pendingDetailGshSeen", "Selected-grid detail entered the gsh.a card hook")
                         }
-                        host.logOnce("pullDownGridCardSeen", "gsh.a card renderer invoked; blur-gate argument index 16=${args[blurArgIndex]}")
+                        host.logOnce("pullDownGridCardSeen", "gsh.a card renderer invoked; blur-gate argument index $blurArgIndex=${args[blurArgIndex]}")
                         try {
                             var modified = false
-                            if (args.size > 8 && args[7] != null && args[8] !== args[7]) {
-                                args[8] = args[7]
-                                modified = true
-                                host.logOnce("pullDownGridDetailsClick", "Bound gsh.a tile clicks to the details callback instead of the camera callback")
+                            if (clickReplacement != null) {
+                                val (targetIndex, sourceIndex) = clickReplacement
+                                if (args.size > targetIndex && args.size > sourceIndex &&
+                                    args[sourceIndex] != null && args[targetIndex] !== args[sourceIndex]
+                                ) {
+                                    args[targetIndex] = args[sourceIndex]
+                                    modified = true
+                                    host.logOnce("pullDownGridDetailsClick", "Bound gsh.a tile clicks to the details callback instead of the camera callback")
+                                }
                             }
                             if (args[blurArgIndex] == true) {
                                 args[blurArgIndex] = false
@@ -899,18 +906,7 @@ internal class FeedMediaHooks(private val host: HookHost) {
             }?.apply { isAccessible = true }
                 ?: throw NoSuchMethodException("Compose AndroidView composable signature")
 
-            val companionClass = Class.forName("androidx.compose.ui.Modifier\$Companion", false, classLoader)
-            val baseModifier = companionClass.getDeclaredField("a").apply { isAccessible = true }.get(null)
-            val sizeKt = Class.forName("androidx.compose.foundation.layout.SizeKt", false, classLoader)
-            val fillMaxSize = sizeKt.declaredMethods.firstOrNull { method ->
-                val p = method.parameterTypes
-                Modifier.isStatic(method.modifiers) &&
-                    method.name == "f" &&
-                    method.returnType == modifierClass &&
-                    p.size == 2 && p[0] == modifierClass && p[1] == Float::class.javaPrimitiveType
-            }?.apply { isAccessible = true }
-                ?: throw NoSuchMethodException("Compose Modifier.fillMaxSize")
-            val fillMaxSizeModifier = requireNotNull(fillMaxSize.invoke(null, baseModifier, 1.0f))
+            val fillMaxSizeModifier = PostMapSymbolResolver.resolveFillMaxSizeModifier(classLoader)
 
             val zIndexClass = Class.forName("androidx.compose.ui.ZIndexModifierKt", false, classLoader)
             val zIndex = zIndexClass.getDeclaredMethod("a", modifierClass, Float::class.javaPrimitiveType)

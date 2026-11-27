@@ -58,18 +58,49 @@ internal object Media3VideoCompressor {
                 thread.quitSafely()
             }
         }
-        if (!finished.await(EXPORT_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-            handler.post {
+        val completed = try {
+            finished.await(EXPORT_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+        } catch (interrupted: InterruptedException) {
+            cancelAndQuit(handler, thread, transformer)
+            Thread.currentThread().interrupt()
+            throw interrupted
+        }
+        if (!completed) {
+            cancelAndQuit(handler, thread, transformer)
+            throw IOException("Video compression timed out")
+        }
+        failure.get()?.let { error ->
+            val detail = error.message?.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()
+            throw IOException("Media3 video compression failed (${error.javaClass.simpleName})$detail", error)
+        }
+    }
+
+    private fun cancelAndQuit(handler: Handler, thread: HandlerThread, transformer: AtomicReference<Any?>) {
+        val cancelled = CountDownLatch(1)
+        val posted = handler.post {
+            try {
                 transformer.get()?.let { instance ->
                     runCatching {
                         instance.javaClass.getDeclaredMethod("cancel").apply { isAccessible = true }.invoke(instance)
                     }
                 }
+            } finally {
                 thread.quitSafely()
+                cancelled.countDown()
             }
-            throw IOException("Video compression timed out")
         }
-        failure.get()?.let { throw IOException("Media3 video compression failed (${it.javaClass.simpleName})") }
+        if (!posted) {
+            thread.quitSafely()
+            return
+        }
+        val wasInterrupted = Thread.interrupted()
+        try {
+            cancelled.await(2, TimeUnit.SECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } finally {
+            if (wasInterrupted) Thread.currentThread().interrupt()
+        }
     }
 
     private fun startTransformer(

@@ -72,7 +72,11 @@ object FeedPostMediaCache {
     // It is capped to 200 entries and never read for GPS before authorization.
     private data class RemoteLocationSource(val model: Any, val reader: RemotePostLocationSymbols)
     private val remoteLocationSources = LruCache<String, RemoteLocationSource>(200)
-    private data class VerifiedOwner(val uid: String, val acceptedByHost: Boolean)
+    private data class VerifiedOwner(
+        val uid: String,
+        val acceptedByHost: Boolean,
+        val prefetchAllowedByHost: Boolean = acceptedByHost,
+    )
     private val verifiedOwners = LruCache<String, VerifiedOwner>(200)
     private var lastScope = ArchiveAccounts.snapshot()
     private val prefetchAttempted = LruCache<String, Boolean>(4000)
@@ -200,15 +204,27 @@ object FeedPostMediaCache {
         if (ArchiveAccounts.snapshot() == scope) prefetchAttempted.remove(postId)
     }
 
-    /** Ask the host's own map use case for a missing location, only for authors already authorized for exact GPS. */
+    internal fun shouldRunPrefetch(postId: String, scope: ArchiveAccounts.Scope): Boolean = withCache {
+        if (ArchiveAccounts.snapshot() != scope || scope.uid.isNullOrBlank()) return@withCache false
+        val post = cache.get(postId) ?: return@withCache false
+        if (post.location != null) return@withCache false
+        val verified = verifiedOwners.get(postId) ?: return@withCache false
+        if (post.ownerUid != null && post.ownerUid != verified.uid) return@withCache false
+        verified.uid == scope.uid ||
+            if (appliedFriendQueryToken >= 0L) verified.uid in verifiedFriendUids else verified.prefetchAllowedByHost
+    }
+
+    /** Ask the host's own map use case for a missing location when host state allows friend discovery. */
     private fun maybePrefetchLocation(postId: String, scope: ArchiveAccounts.Scope) {
-        if (scope.uid.isNullOrBlank() || prefetchAttempted.get(postId) != null) return
+        if (scope.uid.isNullOrBlank()) return
+        if (prefetchAttempted.get(postId) != null) return
         val post = cache.get(postId) ?: return
         if (post.location != null || (post.primary == null && post.secondary == null && post.bts == null)) return
         val verified = verifiedOwners.get(postId) ?: return
         if (post.ownerUid != null && post.ownerUid != verified.uid) return
-        val allowed = verified.uid == scope.uid ||
-            if (appliedFriendQueryToken >= 0L) verified.uid in verifiedFriendUids else true
+        val own = verified.uid == scope.uid
+        val allowed = own ||
+            if (appliedFriendQueryToken >= 0L) verified.uid in verifiedFriendUids else verified.prefetchAllowedByHost
         if (!allowed) return
         prefetchAttempted.put(postId, true)
         if (!MapLocationPrefetcher.request(postId, scope)) prefetchAttempted.remove(postId)
@@ -237,7 +253,14 @@ object FeedPostMediaCache {
                 return@withCache
             }
             // Recording identity/status requires no coordinate read or account inference.
-            verifiedOwners.put(id, VerifiedOwner(ownerUid, reader.nativeAccepted(model)))
+            verifiedOwners.put(
+                id,
+                VerifiedOwner(
+                    uid = ownerUid,
+                    acceptedByHost = reader.nativeAccepted(model),
+                    prefetchAllowedByHost = reader.allowsHostMapPrefetch(model),
+                ),
+            )
             coreLocationSources.put(id, CoreLocationSource(model, reader))
             if (scope.uid.isNullOrBlank()) return@withCache
             val existing = cache.get(id) ?: runCatching { ArchiveRepository.get(scope.uid!!, id) }.getOrNull()
@@ -272,7 +295,14 @@ object FeedPostMediaCache {
                     verifiedOwners.remove(id)
                     return@withCache
                 }
-                verifiedOwners.put(id, VerifiedOwner(owner, old?.acceptedByHost == true))
+                verifiedOwners.put(
+                    id,
+                    VerifiedOwner(
+                        uid = owner,
+                        acceptedByHost = old?.acceptedByHost == true,
+                        prefetchAllowedByHost = old?.prefetchAllowedByHost ?: true,
+                    ),
+                )
                 val media = cache.get(id)
                 if (media != null && (media.primary != null || media.secondary != null || media.bts != null) &&
                     (media.ownerUid == null || media.ownerUid == owner)) {

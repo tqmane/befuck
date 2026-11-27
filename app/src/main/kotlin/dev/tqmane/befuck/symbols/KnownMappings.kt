@@ -12,6 +12,7 @@ object KnownMappings {
             3600852L -> KnownMappings3980
             3603560L -> KnownMappings3991
             3604882L -> KnownMappings31000
+            3606462L -> KnownMappings31011
             else -> return null
         }
         return mapping.takeIf { it.isKnownVersion(name, code) }

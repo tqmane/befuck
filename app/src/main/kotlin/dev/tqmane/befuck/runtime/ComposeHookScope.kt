@@ -38,7 +38,7 @@ object ComposeHookScope {
 
     @JvmStatic
     fun ending(composer: Any) {
-        frames.get()?.asReversed()?.forEach {
+        frames.get()?.asReversed()?.toList()?.forEach {
             if (it.composer === composer && it.depth == 1 && it.executed == true && !it.emitted) {
                 it.emitted = true // Nested groups created by the callback must not re-enter it.
                 it.content.run()

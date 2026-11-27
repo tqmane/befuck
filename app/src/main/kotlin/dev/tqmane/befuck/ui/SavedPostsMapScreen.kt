@@ -102,9 +102,10 @@ internal class SavedPostsMapView(private val activity: Activity, private val lab
     private var registered = false
     private var started = false
     private var resumed = false
-    private var paused = false
-    private var focused = true
-    private var disposed = false
+    @Volatile private var paused = false
+    @Volatile private var focused = true
+    @Volatile private var disposed = false
+    @Volatile private var attached = false
     private var failed = false
     private val loadingTimeout = Runnable { if (valid() && style == null) showFailure() }
     private val refreshPhotos = Runnable { updatePhotos() }
@@ -174,13 +175,14 @@ internal class SavedPostsMapView(private val activity: Activity, private val lab
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        attached = true
         if (disposed) return
         activity.application.registerActivityLifecycleCallbacks(lifecycle)
         registered = true
         createRenderer()
     }
 
-    override fun onDetachedFromWindow() { dispose(); super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() { attached = false; dispose(); super.onDetachedFromWindow() }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
@@ -196,7 +198,7 @@ internal class SavedPostsMapView(private val activity: Activity, private val lab
     }
 
     private fun valid() = !disposed && !paused && !activity.isDestroyed && !activity.isFinishing && guard()
-    private fun renderable() = valid() && focused && isAttachedToWindow
+    private fun renderable() = valid() && focused && attached
 
     private fun createRenderer() {
         if (!renderable() || renderer != null || model.points.isEmpty()) return

@@ -33,4 +33,22 @@ class ArchiveWriteBufferTest {
         val saved = arrayListOf<ArchiveRecord>(); buffer.drain(saved::add)
         assertEquals(listOf("one","two"),saved.map { it.account })
     }
+    @Test fun nonRetryableArchiveFailureDropsBadRecordWithoutBlockingQueue() {
+        val buffer = ArchiveWriteBuffer()
+        val first = record("first")
+        val corrupt = record("corrupt")
+        val last = record("last")
+        buffer.enqueue(first)
+        buffer.enqueue(corrupt)
+        buffer.enqueue(last)
+        val written = arrayListOf<ArchiveRecord>()
+        val dropped = arrayListOf<Pair<String, String>>()
+        buffer.drain(onDropped = { entry, failure -> dropped += entry.id to failure.reason }) { entry ->
+            if (entry.id == "corrupt") throw ArchiveFailure("invalid_media_record")
+            written += entry
+        }
+        assertEquals(listOf(first, last), written)
+        assertEquals(listOf("corrupt" to "invalid_media_record"), dropped)
+        assertEquals(0, buffer.size)
+    }
 }
