@@ -22,15 +22,18 @@ object SmsAuthCompatibility {
     @Volatile private var lastKnownDeviceId: String? = null
 
     @JvmStatic
-    fun matches(method: String, url: String): Boolean {
+    fun matchesUrl(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
         val path = uri.rawPath?.removeSuffix("/") ?: return false
-        return method == "POST" && uri.scheme == "https" && uri.host == "auth-l7.bereal.com" &&
+        return uri.scheme == "https" && uri.host == "auth-l7.bereal.com" &&
             uri.port in listOf(-1, 443) && uri.rawUserInfo == null && uri.rawQuery == null &&
             uri.rawFragment == null && path in listOf(
                 "/api/vonage/request-code", "/api/vonage/check-code",
                 "/vonage/request-code", "/vonage/check-code")
     }
+
+    @JvmStatic
+    fun matches(method: String, url: String): Boolean = method == "POST" && matchesUrl(url)
 
     @JvmStatic
     fun headers(deviceId: String, seconds: Long, timezone: String): Map<String, String> {

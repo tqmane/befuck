@@ -8,7 +8,7 @@ import java.lang.reflect.Modifier
 internal object HostReflection {
     fun allMethods(type: Class<*>): List<Method> {
         val methods = type.methods.toMutableList()
-        var current: Class<*>? = type.superclass
+        var current: Class<*>? = type
         while (current != null) {
             methods += current.declaredMethods
             current = current.superclass
@@ -41,11 +41,11 @@ internal object HostReflection {
             val values = arrayMethod.invoke(null) as? Array<*>
             values?.firstOrNull { value -> value != null && value.toString() == expectedName }?.let { return it }
         }
-        allFields(type).firstOrNull { field ->
-            Modifier.isStatic(field.modifiers) && type.isAssignableFrom(field.type)
-        }?.let { field ->
+        for (field in allFields(type)) {
+            if (!Modifier.isStatic(field.modifiers) || !type.isAssignableFrom(field.type)) continue
             field.isAccessible = true
-            field.get(null)?.takeIf { it.toString() == expectedName }?.let { return it }
+            val candidate = field.get(null)
+            if (candidate != null && candidate.toString() == expectedName) return candidate
         }
         error("${type.name} has no value named $expectedName")
     }

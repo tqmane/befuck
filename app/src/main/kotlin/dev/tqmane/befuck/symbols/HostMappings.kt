@@ -16,6 +16,7 @@ abstract class HostMappings(val versionName: String, val versionCode: Long) {
     open val postContentsArity: Int = 5
     open val publishedPostIdField: String = "id"
     open val gridCardBlurArgument: Int = 16
+    open val gridCardClickReplacement: Pair<Int, Int>? = 8 to 7
     open val gridClickBranch: Int = 12
     open val mediaFlipBranch: Int = 27
     open val mediaOrientationArgument: Int = 9

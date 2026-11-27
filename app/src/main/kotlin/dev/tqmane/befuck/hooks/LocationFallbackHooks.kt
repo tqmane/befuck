@@ -214,13 +214,24 @@ internal class LocationFallbackHooks(private val host: HookHost) {
     private fun googleApiStatusCode(failure: Any?): Int? {
         if (failure == null) return null
         return try {
-            val statusField = failure.javaClass.getDeclaredField("a").apply { isAccessible = true }
-            val status = statusField.get(failure) ?: return null
-            val codeField = status.javaClass.getDeclaredField("a").apply { isAccessible = true }
-            (codeField.get(status) as? Number)?.toInt()
+            val status = findInstanceField(failure.javaClass, "a")?.get(failure) ?: return null
+            val code = findInstanceField(status.javaClass, "a")?.get(status)
+            (code as? Number)?.toInt()
         } catch (_: Throwable) {
             null
         }
+    }
+
+    private fun findInstanceField(type: Class<*>, name: String): java.lang.reflect.Field? {
+        var current: Class<*>? = type
+        while (current != null && current != Any::class.java) {
+            val found = runCatching { current.getDeclaredField(name) }.getOrNull()
+            if (found != null && !java.lang.reflect.Modifier.isStatic(found.modifiers)) {
+                return found.apply { isAccessible = true }
+            }
+            current = current.superclass
+        }
+        return null
     }
 
     @SuppressLint("MissingPermission")
@@ -265,9 +276,11 @@ internal class LocationFallbackHooks(private val host: HookHost) {
                 Executor::class.java,
                 Consumer::class.java,
             )
+            val cancellation = CancellationSignal()
             val pendingProviders = AtomicInteger(providers.size)
             val timeoutHandler = Handler(Looper.getMainLooper())
             val timeout = Runnable {
+                cancellation.cancel()
                 if (!completed.get()) {
                     completeFallbackTask(taskSource, taskSourceApi, completed, findLastKnownLocation(manager), null, apiName)
                 }
@@ -278,20 +291,24 @@ internal class LocationFallbackHooks(private val host: HookHost) {
             val locationConsumer = Consumer<Location?> { location ->
                 if (location != null) {
                     timeoutHandler.removeCallbacks(timeout)
+                    cancellation.cancel()
                     completeFallbackTask(taskSource, taskSourceApi, completed, location, null, apiName)
                 } else if (pendingProviders.decrementAndGet() <= 0) {
                     timeoutHandler.removeCallbacks(timeout)
+                    cancellation.cancel()
                     completeFallbackTask(taskSource, taskSourceApi, completed, findLastKnownLocation(manager), null, apiName)
                 }
             }
 
             host.info("Android LocationManager fallback requesting current fix from ${providers.size} enabled provider(s)")
             for (provider in providers) {
+                if (completed.get() || cancellation.isCanceled) break
                 try {
-                    getCurrentLocation.invoke(manager, provider, null, directExecutor, locationConsumer)
+                    getCurrentLocation.invoke(manager, provider, cancellation, directExecutor, locationConsumer)
                 } catch (_: Throwable) {
                     if (pendingProviders.decrementAndGet() <= 0) {
                         timeoutHandler.removeCallbacks(timeout)
+                        cancellation.cancel()
                         completeFallbackTask(taskSource, taskSourceApi, completed, findLastKnownLocation(manager), null, apiName)
                     }
                 }

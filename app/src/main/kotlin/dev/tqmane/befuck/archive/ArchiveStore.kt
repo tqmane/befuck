@@ -72,14 +72,11 @@ internal class ArchiveStore private constructor(internal val db: SQLiteDatabase)
                     out.beginTransaction()
                     try {
                         var count = 0; var urls = 0
-                        db.rawQuery("SELECT post_id FROM archive_posts WHERE account_uid=? ORDER BY post_id", arrayOf(account)).use { ids ->
-                            while (ids.moveToNext()) {
-                                guard(); archiveCheck(++count <= MAX_POSTS, "limit")
-                                val record = requireNotNull(readOne(db, account, ids.getString(0)))
-                                ArchiveMerge.validate(record)
-                                urls += record.media.size; archiveCheck(urls <= MAX_URLS, "limit")
-                                write(out, record)
-                            }
+                        for (record in readAll(db, account, guard)) {
+                            guard(); archiveCheck(++count <= MAX_POSTS, "limit")
+                            ArchiveMerge.validate(record)
+                            urls += record.media.size; archiveCheck(urls <= MAX_URLS, "limit")
+                            write(out, record)
                         }
                         val info = ContentValues().apply {
                             put("format", FORMAT); put("version", BACKUP_VERSION); put("account_uid", account)
@@ -184,17 +181,39 @@ internal class ArchiveStore private constructor(internal val db: SQLiteDatabase)
             }
             return header.copy(media = variants)
         }
-        internal fun readAll(db: SQLiteDatabase, account: String): List<ArchiveRecord> {
-            val records = arrayListOf<ArchiveRecord>(); var urls = 0
-            db.rawQuery("SELECT post_id FROM archive_posts WHERE account_uid=? ORDER BY post_id", arrayOf(account)).use { cursor ->
-                while (cursor.moveToNext()) {
-                    archiveCheck(records.size < MAX_POSTS, "limit")
-                    val record = requireNotNull(readOne(db, account, cursor.getString(0)))
-                    urls += record.media.size; archiveCheck(urls <= MAX_URLS, "limit")
-                    records += record
+        internal fun readAll(db: SQLiteDatabase, account: String, guard: () -> Unit = {}): List<ArchiveRecord> {
+            val postFields = if (db.version == 2) ArchiveRecord.POST_FIELDS_V2 else ArchiveRecord.POST_FIELDS
+            val headers = linkedMapOf<String, ArchiveRecord>()
+            db.rawQuery("SELECT * FROM archive_posts WHERE account_uid=? ORDER BY post_id", arrayOf(account)).use { c ->
+                while (c.moveToNext()) {
+                    guard(); archiveCheck(headers.size < MAX_POSTS, "limit")
+                    val id = c.text("post_id")
+                    val fields = c.fields(postFields)
+                    for ((raw, millis) in listOf("posted_at" to "posted_ms", "taken_at" to "taken_ms")) {
+                        val expected = PostMediaMetadata.parseTimestamp(fields[raw]?.value)
+                        val index = c.getColumnIndexOrThrow(millis)
+                        archiveCheck(if (expected == null) c.isNull(index) else !c.isNull(index) && c.long(millis) == expected)
+                    }
+                    archiveCheck(!headers.containsKey(id))
+                    headers[id] = ArchiveRecord(account, id, c.long("first_seen"), c.long("last_seen"), fields, emptyMap())
                 }
             }
-            return records
+            val mediaByPost = linkedMapOf<String, LinkedHashMap<MediaKey, ArchiveMedia>>()
+            var totalUrls = 0
+            db.rawQuery("SELECT * FROM archive_media WHERE account_uid=? ORDER BY post_id,slot,url", arrayOf(account)).use { c ->
+                while (c.moveToNext()) {
+                    guard()
+                    val postId = c.text("post_id")
+                    archiveCheck(postId in headers)
+                    archiveCheck(++totalUrls <= MAX_URLS, "limit")
+                    val variants = mediaByPost.getOrPut(postId) { linkedMapOf() }
+                    archiveCheck(variants.size < 1024, "limit")
+                    val key = MediaKey(c.text("slot"), c.text("url"))
+                    archiveCheck(!variants.containsKey(key))
+                    variants[key] = ArchiveMedia(key, c.long("first_seen"), c.long("last_seen"), c.fields(ArchiveRecord.MEDIA_FIELDS))
+                }
+            }
+            return headers.values.map { header -> header.copy(media = mediaByPost[header.id] ?: emptyMap()) }
         }
         internal fun write(db: SQLiteDatabase, post: ArchiveRecord) {
             val values = ContentValues().apply {

@@ -4,7 +4,7 @@
 
 An Xposed module for BeReal.  
 Supports **LSPosed** and **NPatch**.  
-Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** / **3.98.0 (3600852)** / **3.99.1 (3603560)** / **3.100.0 (3604882)** (`com.bereal.ft`).
+Supported BeReal versions: **3.97.0 (3597523)** / **3.97.1 (3599414)** / **3.98.0 (3600852)** / **3.99.1 (3603560)** / **3.100.0 (3604882)** / **3.101.1 (3606462)** (`com.bereal.ft`).
 
 ## Screenshots
 

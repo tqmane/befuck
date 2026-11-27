@@ -16,7 +16,7 @@ internal class GeocodingRequest(private val query: String, private val language:
     private val endpoint: String = DEFAULT_ENDPOINT) {
     private val cancelled = AtomicBoolean(false)
     @Volatile private var connection: HttpURLConnection? = null
-    fun cancel() { cancelled.set(true); connection?.disconnect() }
+    fun cancel() { cancelled.set(true); disconnectAsync(connection) }
     private fun ensureActive() { if (cancelled.get() || Thread.currentThread().isInterrupted) throw InterruptedException() }
     fun execute(): List<PlaceResult> {
         ensureActive()

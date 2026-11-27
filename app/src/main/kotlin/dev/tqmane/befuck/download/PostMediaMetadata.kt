@@ -7,6 +7,7 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 object PostMediaMetadata {
     fun parseTimestamp(value: String?): Long? {
@@ -18,7 +19,7 @@ object PostMediaMetadata {
     fun timestamp(post: FeedPostMedia): Long? = parseTimestamp(post.postedAt) ?: parseTimestamp(post.takenAt)
 
     fun dateLabel(post: FeedPostMedia, pattern: String): String? = timestamp(post)?.let {
-        DateTimeFormatter.ofPattern(pattern).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(it))
+        DateTimeFormatter.ofPattern(pattern, Locale.ROOT).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(it))
     }
 
     fun filename(post: FeedPostMedia, kind: String): String {
@@ -34,14 +35,14 @@ object PostMediaMetadata {
             val exif = ExifInterface(file.absolutePath)
             if (millis != null) {
                 val time = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
-                val date = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss").format(time)
+                val date = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.ROOT).format(time)
                 for (tag in listOf(ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED)) {
                     exif.setAttribute(tag, date)
                 }
                 for (tag in listOf(ExifInterface.TAG_OFFSET_TIME, ExifInterface.TAG_OFFSET_TIME_ORIGINAL, ExifInterface.TAG_OFFSET_TIME_DIGITIZED)) {
                     exif.setAttribute(tag, time.offset.id.replace("Z", "+00:00"))
                 }
-                exif.setAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL, "%03d".format(Math.floorMod(millis, 1000)))
+                exif.setAttribute(ExifInterface.TAG_SUBSEC_TIME_ORIGINAL, "%03d".format(Locale.ROOT, Math.floorMod(millis, 1000)))
             }
             exif.setAttribute(ExifInterface.TAG_ARTIST, post.username)
             exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, post.caption)

@@ -93,6 +93,14 @@ class CorePostLocationSymbols internal constructor(
         coreClass.isInstance(model) && (nativeFriendStatus?.get(owner.get(model)) as? Enum<*>)?.name == "Accepted"
     }.getOrDefault(false)
 
+    /** Pre-graph prefetch may ask the host MapUseCase unless the host marks a non-friend state. */
+    internal fun allowsHostMapPrefetch(model: Any): Boolean = runCatching {
+        if (!coreClass.isInstance(model)) return@runCatching false
+        val author = owner.get(model) ?: return@runCatching false
+        val status = (nativeFriendStatus?.get(author) as? Enum<*>)?.name
+        status == null || status !in DENIED_NATIVE_STATUSES
+    }.getOrDefault(false)
+
     fun snapshot(model: Any, viewerUid: String?, friendUids: Set<String> = emptySet(),
         allowNativeAccepted: Boolean = false): PostLocation? = runCatching {
         if (viewerUid.isNullOrBlank() || !coreClass.isInstance(model)) return@runCatching null
@@ -105,6 +113,10 @@ class CorePostLocationSymbols internal constructor(
         val location = point.get(model) ?: return@runCatching null
         PostLocation.create(latitude.getDouble(location), longitude.getDouble(location), approximate = false)
     }.getOrNull()
+
+    private companion object {
+        val DENIED_NATIVE_STATUSES = setOf("Canceled", "Pending", "Rejected", "Sent", "Blacklisted")
+    }
 }
 
 /** The original PostRemoteModel carries a LocationRemoteModel alongside its media URLs.

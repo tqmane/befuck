@@ -26,14 +26,14 @@ internal object GalleryMediaPreparer {
         val file = File(dir, "${slot}_${UUID.randomUUID()}.webp")
         var completed = false
         try {
-            val encodedBytes = encodeWebpUnderLimit(bitmap)
-            FileOutputStream(file).use { it.write(encodedBytes) }
+            val encoded = encodeWebpUnderLimit(bitmap)
+            FileOutputStream(file).use { it.write(encoded.bytes) }
             completed = true
             return GalleryMediaFile(
                 uri = Uri.fromFile(file).toString(),
                 path = file.absolutePath,
-                width = bitmap.width,
-                height = bitmap.height,
+                width = encoded.width,
+                height = encoded.height,
                 isVideo = false,
                 mimeType = "image/webp",
             )
@@ -202,7 +202,9 @@ internal object GalleryMediaPreparer {
         }
     }
 
-    private fun encodeWebpUnderLimit(bitmap: Bitmap): ByteArray {
+    private class EncodedWebp(val bytes: ByteArray, val width: Int, val height: Int)
+
+    private fun encodeWebpUnderLimit(bitmap: Bitmap): EncodedWebp {
         var current = bitmap
         var ownsCurrent = false
         var quality = 90
@@ -210,7 +212,7 @@ internal object GalleryMediaPreparer {
             while (true) {
                 val output = ByteArrayOutputStream()
                 require(current.compress(Bitmap.CompressFormat.WEBP, quality, output)) { "Could not encode selected image as WebP" }
-                if (output.size() <= MAX_IMAGE_BYTES) return output.toByteArray()
+                if (output.size() <= MAX_IMAGE_BYTES) return EncodedWebp(output.toByteArray(), current.width, current.height)
                 if (quality > 50) {
                     quality = (quality - 10).coerceAtLeast(50)
                     continue

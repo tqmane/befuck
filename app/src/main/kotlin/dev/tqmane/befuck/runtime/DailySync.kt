@@ -62,7 +62,7 @@ internal object DailySync {
         if (!enabled(app)) return true
         return try {
             cancel(app)
-            enqueue(app, "a", hours)
+            enqueue(app, "a", hours, replaceExisting = true)
             true
         } catch (failure: Throwable) {
             preferences(app).edit().putLong(INTERVAL_HOURS, previous).commit()
@@ -210,7 +210,7 @@ internal object DailySync {
 
     /** Match the minified AndroidX methods by signatures, not unobfuscated names. */
     @Synchronized
-    private fun enqueue(context: Context, slot: String, delayHours: Long) {
+    private fun enqueue(context: Context, slot: String, delayHours: Long, replaceExisting: Boolean = false) {
         check(enabled(context)) { "Background sync is disabled" }
         require(slot == "a" || slot == "b")
         val loader = context.classLoader
@@ -222,6 +222,7 @@ internal object DailySync {
             uniqueName = workName(slot),
             inputEntries = mapOf(INPUT_KEY to INPUT_VALUE, INPUT_SLOT to slot),
             initialDelayHours = delayHours,
+            replaceExisting = replaceExisting,
         )
         // The WorkManager operation has been accepted asynchronously, and the
         // pending slot can safely be retained for reconciliation after process death.

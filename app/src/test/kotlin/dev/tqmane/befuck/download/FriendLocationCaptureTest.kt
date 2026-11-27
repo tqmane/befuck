@@ -31,9 +31,10 @@ class FriendLocationCaptureTest {
         val calls = java.util.concurrent.atomic.AtomicInteger()
         var failing = false
         var suspending = false
+        var returningNull = false
         val started = java.util.concurrent.CountDownLatch(1)
         var pending: kotlin.coroutines.Continuation<Any?>? = null
-        fun fetch(id: String, continuation: kotlin.coroutines.Continuation<Any?>): Any {
+        fun fetch(id: String, continuation: kotlin.coroutines.Continuation<Any?>): Any? {
             calls.incrementAndGet()
             check(!failing) { "Synthetic fetch failure" }
             if (suspending) {
@@ -41,6 +42,7 @@ class FriendLocationCaptureTest {
                 started.countDown()
                 return kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
             }
+            if (returningNull) return null
             return Placeholder(id, true, 35.68, 139.76)
         }
     }
@@ -393,5 +395,136 @@ class FriendLocationCaptureTest {
         }
         assertNull(FeedPostMediaCache.get(old.a)!!.location)
         assertEquals(1, useCase.calls.get())
+    }
+
+    @Test fun unverifiedAccountPrefetchRespectsHostFriendshipAndCoroutineNullDoesNotRetry() {
+        val useCase = MapUseCase().apply { returningNull = true }
+        configurePrefetch(useCase)
+        scope = select("no-graph-${UUID.randomUUID()}")
+
+        val pendingPost = Post("pending-friend-post", Owner("pending-user", status = Relationship.Pending), null)
+        FeedPostMediaCache.captureCorePostModel(pendingPost, locationSymbols)
+        FeedPostMediaCache.captureCorePost(pendingPost, null)
+        drainPrefetch()
+        assertEquals(0, useCase.calls.get())
+
+        val acceptedNullPost = Post("accepted-no-location", Owner("friend-user", status = Relationship.Accepted), null)
+        FeedPostMediaCache.captureCorePostModel(acceptedNullPost, locationSymbols)
+        FeedPostMediaCache.captureCorePost(acceptedNullPost, null)
+        drainPrefetch()
+        assertEquals(1, useCase.calls.get())
+
+        // A normal coroutine null return means the host completed cleanly without coordinates; do not retry forever.
+        useCase.returningNull = false
+        FeedPostMediaCache.retryMissingLocations()
+        drainPrefetch()
+        assertEquals(1, useCase.calls.get())
+
+        // A kotlin.Result.failure resumption must clear prefetchAttempted so retryMissingLocations can retry.
+        useCase.suspending = true
+        val resumedFailurePost = Post("resumed-failure-post", Owner("friend-user", status = Relationship.Accepted), null)
+        FeedPostMediaCache.captureCorePostModel(resumedFailurePost, locationSymbols)
+        FeedPostMediaCache.captureCorePost(resumedFailurePost, null)
+        assertTrue(useCase.started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        useCase.pending!!.resumeWith(Result.failure(RuntimeException("Synthetic failure")))
+        drainPrefetch()
+        assertEquals(2, useCase.calls.get())
+
+        useCase.suspending = false
+        FeedPostMediaCache.retryMissingLocations()
+        drainPrefetch()
+        assertEquals(3, useCase.calls.get())
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(resumedFailurePost.a)!!.location)
+    }
+
+    @Test fun unknownHostFriendStatusTriggersPrefetchWithoutLeakingRawCoordinates() {
+        val useCase = MapUseCase().apply { suspending = true }
+        configurePrefetch(useCase)
+        scope = select("unknown-prefetch-${UUID.randomUUID()}")
+
+        val roomFriend = Post("room-unknown-friend", Owner("room-friend", status = Relationship.Unknown), Point(11.11, 22.22))
+        FeedPostMediaCache.captureCorePostModel(roomFriend, locationSymbols)
+        FeedPostMediaCache.captureCorePost(roomFriend, null)
+        assertTrue(useCase.started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        try {
+            // Before prefetch completes and before Friends SQL runs, raw Unknown-status coordinates must not be read.
+            assertNull(FeedPostMediaCache.get(roomFriend.a)!!.location)
+        } finally {
+            useCase.suspending = false
+            useCase.pending!!.resumeWith(Result.success(Placeholder(roomFriend.a, true, 35.68, 139.76)))
+            drainPrefetch()
+        }
+        assertEquals(1, useCase.calls.get())
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(roomFriend.a)!!.location)
+
+        for (denied in listOf(
+            Relationship.Canceled,
+            Relationship.Pending,
+            Relationship.Rejected,
+            Relationship.Sent,
+            Relationship.Blacklisted,
+        )) {
+            val post = Post("denied-${denied.name}", Owner("non-friend-${denied.name}", status = denied), Point(11.11, 22.22))
+            FeedPostMediaCache.captureCorePostModel(post, locationSymbols)
+            FeedPostMediaCache.captureCorePost(post, null)
+        }
+        drainPrefetch()
+        assertEquals(1, useCase.calls.get())
+    }
+
+    @Test fun queuedPrefetchesSkipAfterFriendGraphReplayResolvesOrExcludesThem() {
+        val useCase = MapUseCase().apply { suspending = true }
+        configurePrefetch(useCase)
+        scope = select("replay-skip-${UUID.randomUUID()}")
+
+        val first = Post("first-unknown", Owner("friend-a", status = Relationship.Unknown), Point(12.34, 56.78))
+        val second = Post("second-unknown", Owner("friend-b", status = Relationship.Unknown), Point(23.45, 67.89))
+        val thirdStranger = Post("third-stranger", Owner("stranger-c", status = Relationship.Unknown), Point(34.56, 78.90))
+        val fourthNoPoint = Post("fourth-no-point", Owner("friend-d", status = Relationship.Unknown), null)
+        for (p in listOf(first, second, thirdStranger, fourthNoPoint)) {
+            FeedPostMediaCache.captureCorePostModel(p, locationSymbols)
+            FeedPostMediaCache.captureCorePost(p, null)
+        }
+        assertTrue(useCase.started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        try {
+            // Simulate MapUseCase resolving BeReal's Friends graph while running the first item.
+            graph(setOf("friend-a", "friend-b", "friend-d"))
+        } finally {
+            useCase.suspending = false
+            useCase.pending!!.resumeWith(Result.success(Placeholder(first.a, true, 35.68, 139.76)))
+            drainPrefetch()
+        }
+        // second-unknown got its coordinate from the Friends graph replay and third-stranger was excluded,
+        // so only first-unknown (trigger) and fourth-no-point (missing raw point) invoke MapUseCase.
+        assertEquals(2, useCase.calls.get())
+        assertEquals(PostLocation(23.45, 67.89, false), FeedPostMediaCache.get(second.a)!!.location)
+        assertNull(FeedPostMediaCache.get(thirdStranger.a)!!.location)
+        assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(fourthNoPoint.a)!!.location)
+    }
+
+    @Test fun firstAuthorizationCapturePreservesResolvedAccountWhileTokenSwitchInvalidates() {
+        @Suppress("UNCHECKED_CAST")
+        val headersField = dev.tqmane.befuck.posting.BeFakeAuthHeaders::class.java
+            .getDeclaredField("headers")
+            .apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val ref = headersField.get(dev.tqmane.befuck.posting.BeFakeAuthHeaders)
+            as java.util.concurrent.atomic.AtomicReference<Map<String, String>>
+        val previous = ref.get()
+        ref.set(emptyMap())
+        try {
+            val resolved = select("auth-viewer-${UUID.randomUUID()}")
+            dev.tqmane.befuck.posting.BeFakeAuthHeaders.capture("mobile-l7.bereal.com", "Authorization", "Bearer initial")
+            assertEquals(resolved, ArchiveAccounts.snapshot())
+
+            dev.tqmane.befuck.posting.BeFakeAuthHeaders.capture("mobile-l7.bereal.com", "Authorization", "Bearer initial")
+            assertEquals(resolved, ArchiveAccounts.snapshot())
+
+            dev.tqmane.befuck.posting.BeFakeAuthHeaders.capture("mobile-l7.bereal.com", "Authorization", "Bearer switched")
+            assertNull(ArchiveAccounts.snapshot().uid)
+            assertEquals(resolved.generation + 1L, ArchiveAccounts.snapshot().generation)
+        } finally {
+            ref.set(previous)
+        }
     }
 }

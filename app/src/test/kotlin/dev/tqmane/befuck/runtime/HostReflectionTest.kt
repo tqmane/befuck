@@ -28,13 +28,26 @@ class HostReflectionTest {
 
     private class DerivedHost : BaseHost() {
         private val derivedOnly = 2
+        private fun privateDerivedAction(): Int = derivedOnly
         fun derivedAction(): Int = derivedOnly
+    }
+
+    private class NoisyFieldsEnum private constructor(private val label: String) {
+        override fun toString(): String = label
+
+        companion object {
+            @JvmField val LABEL = "BETA"
+            @JvmField val COUNT = 123
+            @JvmField val ALPHA = NoisyFieldsEnum("ALPHA")
+            @JvmField val BETA = NoisyFieldsEnum("BETA")
+        }
     }
 
     @Test
     fun namedEnumValueResolvesStandardAndObfuscatedEnums() {
         assertEquals(SampleEnum.BETA, HostReflection.namedEnumValue(SampleEnum::class.java, "BETA"))
         assertEquals(ObfuscatedLikeEnum.SECOND, HostReflection.namedEnumValue(ObfuscatedLikeEnum::class.java, "SECOND"))
+        assertEquals(NoisyFieldsEnum.BETA, HostReflection.namedEnumValue(NoisyFieldsEnum::class.java, "BETA"))
     }
 
     @Test(expected = IllegalStateException::class)
@@ -67,6 +80,6 @@ class HostReflectionTest {
         val fieldNames = HostReflection.allFields(DerivedHost::class.java).map { it.name }
         assertTrue(fieldNames.containsAll(listOf("baseOnly", "derivedOnly")))
         val methodNames = HostReflection.allMethods(DerivedHost::class.java).map { it.name }
-        assertTrue(methodNames.containsAll(listOf("onBaseEvent", "derivedAction")))
+        assertTrue(methodNames.containsAll(listOf("onBaseEvent", "privateDerivedAction", "derivedAction")))
     }
 }

@@ -870,7 +870,7 @@ object BeFuckGalleryUi {
             location = session.location,
         )
         val official = (request.front?.isVideo == true) || request.visibility != "friends"
-        if (symbols == null || official && !GalleryPostController.isReady(symbols)) {
+        if (official && (symbols == null || !GalleryPostController.isReady(symbols))) {
             session.status.text = resources.getString(R.string.befuck_official_pipeline_unavailable)
             return
         }
@@ -898,7 +898,7 @@ object BeFuckGalleryUi {
                     session.pendingRequest = null
                     session.pendingOfficialPostId = null
                     if (active) {
-                        GalleryPostController.refreshHomeFeed(activity, symbols.versionName)
+                        GalleryPostController.refreshHomeFeed(activity, symbols?.versionName ?: dev.tqmane.befuck.runtime.RuntimeKnowledge.versionName)
                         Toast.makeText(
                             activity,
                             resources.getString(if (official) R.string.befuck_post_completed else R.string.befuck_post_accepted),
@@ -928,7 +928,7 @@ object BeFuckGalleryUi {
             runCatching {
                 GalleryPostController.postNow(
                     activity,
-                    symbols,
+                    requireNotNull(symbols),
                     prepared,
                     session.pendingOfficialPostId,
                     Consumer { id ->

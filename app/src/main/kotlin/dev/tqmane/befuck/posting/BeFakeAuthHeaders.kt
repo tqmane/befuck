@@ -36,7 +36,9 @@ object BeFakeAuthHeaders {
             val updated = HashMap(current)
             updated[canonical] = value
             if (headers.compareAndSet(current, Collections.unmodifiableMap(updated))) {
-                if (canonical == "Authorization" && current[canonical] != value) dev.tqmane.befuck.archive.ArchiveAccounts.invalidate()
+                if (canonical == "Authorization" && current[canonical] != null && current[canonical] != value) {
+                    dev.tqmane.befuck.archive.ArchiveAccounts.invalidate()
+                }
                 return
             }
         }

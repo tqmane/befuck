@@ -131,7 +131,8 @@ object FeedMediaDownloader {
                 ?.takeIf { it.startsWith(if (isVideo) "video/" else "image/") }
                 ?: mime
             val finalName = "$filenameBase.${extensionFor(detectedMime)}"
-            PostMediaMetadata.write(temporary, detectedMime, post)
+            runCatching { PostMediaMetadata.write(temporary, detectedMime, post) }
+                .onFailure { Log.w(TAG, "Could not write media metadata (${it.javaClass.simpleName})") }
             temporary.inputStream().use { input ->
                 (context.contentResolver.openOutputStream(outputUri, "w")
                     ?: throw IOException("Could not open the MediaStore destination")).use { input.copyTo(it) }

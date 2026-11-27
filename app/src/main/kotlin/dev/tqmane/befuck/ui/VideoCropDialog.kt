@@ -38,6 +38,7 @@ import dev.tqmane.befuck.posting.CropRegion
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.min
@@ -168,6 +169,7 @@ class VideoCropDialog(
                 crop.invalidate()
                 play.text = labels.getString(R.string.befuck_video_pause)
                 setIcon(play, TablerIcon.PLAYER_PAUSE)
+                main.removeCallbacks(ticker)
                 main.post(ticker)
             }.onFailure { previewFailed() }
         }
@@ -265,7 +267,12 @@ class VideoCropDialog(
                         texture.setTransform(crop.videoMatrix(texture.width, texture.height))
                     }.onFailure { previewFailed() }
                 }
-                current.setOnSeekCompleteListener { if (!closed && player === current) main.post(ticker) }
+                current.setOnSeekCompleteListener {
+                    if (!closed && player === current) {
+                        main.removeCallbacks(ticker)
+                        main.post(ticker)
+                    }
+                }
                 current.setOnInfoListener { _, what, _ ->
                     if (!closed && player === current && what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
                         videoFrameReady = true
@@ -301,14 +308,7 @@ class VideoCropDialog(
             }
         }
         setOnDismissListener {
-            closed = true
-            main.removeCallbacks(ticker)
-            releasePlayer()
-            frames.shutdownNow()
-            crop.clearImage()
-            poster?.recycle()
-            poster = null
-            timeline.releaseFrames()
+            cleanupResources()
             if (!accepted) onCancelled()
         }
         setOnShowListener {
@@ -380,10 +380,40 @@ class VideoCropDialog(
         done.isEnabled = inputValid && prepared && poster != null
     }
 
+    override fun show() {
+        try {
+            super.show()
+        } catch (failure: Throwable) {
+            cleanupResources()
+            throw failure
+        }
+    }
+
+    private fun cleanupResources() {
+        closed = true
+        main.removeCallbacks(ticker)
+        releasePlayer()
+        frames.shutdownNow()
+        crop.clearImage()
+        poster?.recycle()
+        poster = null
+        timeline.releaseFrames()
+    }
+
+    private inline fun submitFrameTask(crossinline block: () -> Unit) {
+        if (closed || frames.isShutdown) return
+        try {
+            frames.execute {
+                if (!closed) block()
+            }
+        } catch (_: RejectedExecutionException) {
+        }
+    }
+
     private fun loadFrames() {
         if (closed) return
         val request = posterRequest.incrementAndGet()
-        frames.execute {
+        submitFrameTask {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(source.absolutePath)
@@ -417,18 +447,18 @@ class VideoCropDialog(
     private fun requestPoster(position: Long) {
         if (closed) return
         val request = posterRequest.incrementAndGet()
-        frames.execute {
-            if (closed || request != posterRequest.get()) return@execute
+        submitFrameTask {
+            if (closed || request != posterRequest.get()) return@submitFrameTask
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(source.absolutePath)
                 val scale = min(1f, 1280f / maxOf(sourceWidth, sourceHeight))
                 val bitmap = retriever.getScaledFrameAtTime(position.coerceIn(0, sourceDurationMs - 1) * 1000,
                     MediaMetadataRetriever.OPTION_CLOSEST, (sourceWidth * scale).toInt().coerceAtLeast(1),
-                    (sourceHeight * scale).toInt().coerceAtLeast(1)) ?: return@execute
+                    (sourceHeight * scale).toInt().coerceAtLeast(1)) ?: return@submitFrameTask
                 main.post {
                     if (closed || request != posterRequest.get()) bitmap.recycle() else {
-                        val region = if (poster != null && crop.width > 0) crop.cropRegion() else initialEdit.crop
+                        val region = if (poster != null && crop.hasCropRegion) crop.cropRegion() else initialEdit.crop
                         val previous = poster
                         poster = bitmap
                         crop.setImageBitmap(bitmap)

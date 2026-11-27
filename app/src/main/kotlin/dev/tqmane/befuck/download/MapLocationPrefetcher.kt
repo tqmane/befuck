@@ -59,13 +59,19 @@ object MapLocationPrefetcher {
         var completed = false
         try {
             if (ArchiveAccounts.snapshot() != scope) return
+            if (!FeedPostMediaCache.shouldRunPrefetch(postId, scope)) {
+                completed = true
+                return
+            }
             val symbols = symbols ?: return
             val type = symbols.fetchMethod!!.declaringClass
             val target = GalleryPostController.resolveKoinInstance(type, requireNotNull(type.classLoader), RuntimeKnowledge.versionName)
             val result = invoke(symbols, target, postId)
             if (ArchiveAccounts.snapshot() != scope) return
-            check(result != null && symbols.isMapPlaceholder(result)) { "Host map state unavailable" }
-            FeedPostMediaCache.captureMapPlaceholder(result, symbols)
+            if (result != null) {
+                check(symbols.isMapPlaceholder(result)) { "Host map state unavailable" }
+                FeedPostMediaCache.captureMapPlaceholder(result, symbols)
+            }
             completed = true
             if (loggedReady.compareAndSet(false, true)) Log.i("BeFuck/Prefetch", "Background location prefetch is running")
             Thread.sleep(SPACING_MILLIS)
@@ -132,11 +138,21 @@ object MapLocationPrefetcher {
         } catch (failure: InvocationTargetException) {
             throw failure.targetException
         }
-        return if (isCoroutineSuspended(result)) {
-            if (done.await(RESULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) resumed.get() else null
+        val value = if (isCoroutineSuspended(result)) {
+            check(done.await(RESULT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) { "Host map location prefetch timed out" }
+            resumed.get()
         } else {
             result
         }
+        unwrapKotlinFailure(value)?.let { throw it }
+        return value
+    }
+
+    private fun unwrapKotlinFailure(value: Any?): Throwable? {
+        if (value == null || value.javaClass.name != "kotlin.Result\$Failure") return null
+        val field = value.javaClass.declaredFields.firstOrNull { Throwable::class.java.isAssignableFrom(it.type) }
+            ?.apply { isAccessible = true }
+        return (field?.get(value) as? Throwable) ?: IllegalStateException("Host map location prefetch failed")
     }
 
     private fun isCoroutineSuspended(value: Any?): Boolean =

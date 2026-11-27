@@ -108,4 +108,30 @@ class PreviewTransportTest {
             try { assertThrows(Exception::class.java) { source.getSize() } } finally { source.close() }
         }
     }
+    @Test fun cancellingTicketOrGeocodingRequestDisconnectsOffCallerThread() {
+        val callerThread = Thread.currentThread()
+        val disconnectedOn = java.util.concurrent.atomic.AtomicReference<Thread?>()
+        val latch = java.util.concurrent.CountDownLatch(2)
+        class SlowDisconnectConnection(url: URL) : HttpURLConnection(url) {
+            override fun connect() = Unit
+            override fun usingProxy() = false
+            override fun getInputStream() = ByteArrayInputStream(byteArrayOf())
+            override fun disconnect() {
+                assertNotEquals(callerThread, Thread.currentThread())
+                disconnectedOn.compareAndSet(null, Thread.currentThread())
+                latch.countDown()
+            }
+        }
+        val ticket = PreviewTicket()
+        ticket.attach(SlowDisconnectConnection(URL("https://example.invalid/preview")))
+        ticket.cancel()
+
+        val geocoder = GeocodingRequest("Tokyo", "en")
+        GeocodingRequest::class.java.getDeclaredField("connection").apply { isAccessible = true }
+            .set(geocoder, SlowDisconnectConnection(URL("https://example.invalid/geocode")))
+        geocoder.cancel()
+
+        assertTrue("Expected async disconnect execution", latch.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertNotNull(disconnectedOn.get())
+    }
 }

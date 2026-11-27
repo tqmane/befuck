@@ -501,7 +501,7 @@ object GalleryPostController {
         fun finish(success: Boolean) {
             if (completed.compareAndSet(false, true)) completion.accept(success)
         }
-        var poller: ScheduledFuture<*>? = null
+        val poller = java.util.concurrent.atomic.AtomicReference<ScheduledFuture<*>?>(null)
         try {
             val workManagerClass = Class.forName("androidx.work.WorkManager", false, classLoader)
             val workManager = HostWorkManager.instance(context, classLoader)
@@ -522,11 +522,14 @@ object GalleryPostController {
             futureGet.isAccessible = true
             stateField.isAccessible = true
             val polls = java.util.concurrent.atomic.AtomicInteger()
-            poller = uploadMonitor.scheduleWithFixedDelay({
-                if (completed.get()) return@scheduleWithFixedDelay
+            val task = uploadMonitor.scheduleWithFixedDelay({
+                if (completed.get()) {
+                    poller.get()?.cancel(false)
+                    return@scheduleWithFixedDelay
+                }
                 if (polls.incrementAndGet() > MAX_UPLOAD_MONITOR_POLLS) {
                     Log.w(TAG, "Timed out waiting for the official upload worker; media remains app-private")
-                    poller?.cancel(false)
+                    poller.get()?.cancel(false)
                     finish(false)
                     return@scheduleWithFixedDelay
                 }
@@ -540,7 +543,7 @@ object GalleryPostController {
                     val state = requireNotNull(stateField.get(info)) { "WorkInfo has no state" }.toString()
                     when (state) {
                         "SUCCEEDED" -> {
-                            poller?.cancel(false)
+                            poller.get()?.cancel(false)
                             val postId = work.uniqueName.removePrefix("upload_unsent_post_")
                             if (synchronized(publishedPostIds) { publishedPostIds.get(postId) } == null) {
                                 Log.e(TAG, "Upload work finished without a confirmed server post; prepared media retained")
@@ -552,7 +555,7 @@ object GalleryPostController {
                             finish(true)
                         }
                         "FAILED", "CANCELLED" -> {
-                            poller?.cancel(false)
+                            poller.get()?.cancel(false)
                             val failureDetails = readWorkerFailureDetails(info)
                             Log.e(
                                 TAG,
@@ -566,9 +569,11 @@ object GalleryPostController {
                     if (polls.get() == 1) Log.w(TAG, "Could not read the official upload worker state", failure)
                 }
             }, 1L, 1L, TimeUnit.SECONDS)
+            poller.set(task)
+            if (completed.get()) task.cancel(false)
         } catch (failure: Throwable) {
             Log.w(TAG, "Could not observe official upload completion; prepared media remains app-private", failure)
-            poller?.cancel(false)
+            poller.get()?.cancel(false)
             finish(false)
         }
     }

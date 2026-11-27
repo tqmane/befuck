@@ -28,4 +28,34 @@ class SymbolPresetTest {
             names.forEach { assertTrue("Preset missing $it", record.has(it)) }
         }
     }
+
+    @Test fun preset31011MatchesCodecSchemaAndGridClickMappings() {
+        val preset = RuntimeEnvironment.getApplication().assets.open("befuck/symbols-3606462.json")
+            .bufferedReader().use { JSONObject(it.readText()) }
+        assertEquals(SymbolCacheCodec.SCHEMA, preset.getInt("schema"))
+        assertEquals(3606462L, preset.getLong("version_code"))
+        val values = preset.getJSONObject("symbols").getJSONObject("values")
+        val mapping = KnownMappings.find(values.getString("versionName"), preset.getLong("version_code"))
+        assertNotNull(mapping)
+        assertNull(mapping!!.gridCardClickReplacement)
+        val feed = values.getJSONObject("feedMediaSymbols").getJSONObject("values")
+        for (reader in listOf("corePostLocationSymbols", "mapPlaceholderLocationSymbols", "friendGraphSymbols")) {
+            assertFalse("Preset missing $reader", feed.isNull(reader))
+        }
+        for ((key, record) in listOf("rootKeys" to values, "feedKeys" to feed)) {
+            val field = SymbolCacheCodec::class.java.getDeclaredField(key).apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST") val names = field.get(SymbolCacheCodec) as List<String>
+            names.forEach { assertTrue("Preset 3.101.1 missing $it", record.has(it)) }
+        }
+        for ((ver, code, expected) in listOf(
+            Triple("3.97.0", 3597523L, 8 to 7),
+            Triple("3.97.1", 3599414L, 8 to 7),
+            Triple("3.98.0", 3600852L, null),
+            Triple("3.99.1", 3603560L, null),
+            Triple("3.100.0", 3604882L, null),
+            Triple("3.101.1", 3606462L, null),
+        )) {
+            assertEquals("gridCardClickReplacement mismatch for $ver", expected, KnownMappings.find(ver, code)!!.gridCardClickReplacement)
+        }
+    }
 }
