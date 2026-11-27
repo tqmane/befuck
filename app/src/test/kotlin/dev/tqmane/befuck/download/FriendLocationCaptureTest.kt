@@ -438,16 +438,22 @@ class FriendLocationCaptureTest {
     }
 
     @Test fun unknownHostFriendStatusTriggersPrefetchWithoutLeakingRawCoordinates() {
-        val useCase = MapUseCase()
+        val useCase = MapUseCase().apply { suspending = true }
         configurePrefetch(useCase)
         scope = select("unknown-prefetch-${UUID.randomUUID()}")
 
         val roomFriend = Post("room-unknown-friend", Owner("room-friend", status = Relationship.Unknown), Point(11.11, 22.22))
         FeedPostMediaCache.captureCorePostModel(roomFriend, locationSymbols)
         FeedPostMediaCache.captureCorePost(roomFriend, null)
-        // Before prefetch completes and before Friends SQL runs, raw Unknown-status coordinates must not be read.
-        assertNull(FeedPostMediaCache.get(roomFriend.a)!!.location)
-        drainPrefetch()
+        assertTrue(useCase.started.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        try {
+            // Before prefetch completes and before Friends SQL runs, raw Unknown-status coordinates must not be read.
+            assertNull(FeedPostMediaCache.get(roomFriend.a)!!.location)
+        } finally {
+            useCase.suspending = false
+            useCase.pending!!.resumeWith(Result.success(Placeholder(roomFriend.a, true, 35.68, 139.76)))
+            drainPrefetch()
+        }
         assertEquals(1, useCase.calls.get())
         assertEquals(PostLocation(35.68, 139.76, false), FeedPostMediaCache.get(roomFriend.a)!!.location)
 
