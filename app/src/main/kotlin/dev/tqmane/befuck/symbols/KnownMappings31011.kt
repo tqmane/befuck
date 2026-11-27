@@ -48,18 +48,18 @@ internal object KnownMappings31011 : HostMappings("3.101.1", 3606462L) {
         HostClass.Function1 to "nc9",
         HostClass.DualViewConfig to "lw6",
         HostClass.PostFeedState to "cjh",
-        HostClass.BlurredPostState to "yih",
-        HostClass.RegularPostState to "ajh",
+        HostClass.BlurredPostState to "a48",
+        HostClass.RegularPostState to "b48",
         HostClass.MediaContainer to "j80",
         HostClass.Function2 to "pc9",
         HostClass.LocationRepository to "i4c",
-        HostClass.PostViewState to "cgh",
+        HostClass.PostViewState to "c48",
         HostClass.FeedRefreshReason to "o4m",
         HostClass.ImmutableList to "l0h",
         HostClass.FriendsOfFriendsItemEmitter to "no8",
         HostClass.TimelineBlurredCard to "q58",
         HostClass.CameraFacing to "bw7",
-        HostClass.HomeFeedPost to "n28",
+        HostClass.HomeFeedPost to "d48",
         HostClass.UnsentPostRepository to "xi5",
         HostClass.RealMojiViewModel to "hdj",
         HostClass.Flow to "xj8",
@@ -305,6 +305,4 @@ internal object KnownMappings31011 : HostMappings("3.101.1", 3606462L) {
             null to null
         }
     }
-
-    override fun feedBlurModelRewriter(loader: ClassLoader): FeedBlurModelRewriter? = null
 }

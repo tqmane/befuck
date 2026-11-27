@@ -58,4 +58,14 @@ class SymbolPresetTest {
             assertEquals("gridCardClickReplacement mismatch for $ver", expected, KnownMappings.find(ver, code)!!.gridCardClickReplacement)
         }
     }
+
+    @Test fun mappings31011UseDomainBlurStateClassesAndRewriter() {
+        val mapping = KnownMappings.find("3.101.1", 3606462L)!!
+        assertEquals("a48", mapping.className(HostClass.BlurredPostState))
+        assertEquals("b48", mapping.className(HostClass.RegularPostState))
+        assertEquals("c48", mapping.className(HostClass.PostViewState))
+        assertEquals("d48", mapping.className(HostClass.HomeFeedPost))
+        val rewriterMethod = mapping.javaClass.getMethod("feedBlurModelRewriter", ClassLoader::class.java)
+        assertEquals(HostMappings::class.java, rewriterMethod.declaringClass)
+    }
 }
